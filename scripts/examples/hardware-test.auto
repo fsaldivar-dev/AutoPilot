@@ -1,0 +1,22 @@
+# hardware-test.auto
+# Prueba E2E de interacciones de hardware en CI/CD
+# Usa CameraTestApp (simple) para validaciones basicas
+
+# 1. Verificar conexion
+ping
+
+# 2. Pasteboard — escribir y leer
+paste "AutoPilot CI Test"
+screenshot screenshots/hw-pasteboard.png
+
+# 3. Face ID — enroll, match, status
+faceid enroll
+faceid status
+faceid match
+screenshot screenshots/hw-faceid.png
+
+# 4. Camera mock — ya validado por camera-test.auto
+# (no duplicar, solo referencia)
+
+# 5. Screenshot final
+screenshot screenshots/hw-complete.png
