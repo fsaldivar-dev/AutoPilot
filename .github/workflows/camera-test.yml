@@ -89,6 +89,11 @@ jobs:
           echo "Installing: $APP"
           xcrun simctl install booted "$APP"
 
+      - name: Open Simulator UI
+        run: |
+          open -a Simulator
+          sleep 10
+
       - name: Run camera E2E test
         run: |
           # Launch app with camera mock image
