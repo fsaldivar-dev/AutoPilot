@@ -1,0 +1,123 @@
+{
+  "version": "1.0.0",
+  "description": "AutoApp automation protocol - platform agnostic command definitions",
+  "transport": {
+    "type": "unix_domain_socket",
+    "path": "/tmp/autoapp.sock",
+    "framing": "length_prefixed",
+    "length_bytes": 4,
+    "byte_order": "big_endian",
+    "encoding": "json"
+  },
+  "request_format": {
+    "id": "number - unique request identifier",
+    "cmd": "string - command name",
+    "args": "object - command-specific arguments (optional)"
+  },
+  "response_format": {
+    "id": "number - matching request id",
+    "ok": "boolean - success/failure",
+    "time": "number - execution time in ms",
+    "error": "string - error message (only when ok=false)",
+    "data": "any - command-specific response data (optional)"
+  },
+  "commands": {
+    "tree": {
+      "description": "Returns the full accessibility tree",
+      "args": {},
+      "returns": "Array of element objects with nested children"
+    },
+    "search": {
+      "description": "Search elements by query string (matches identifier, label, type)",
+      "args": {
+        "query": "string - search text"
+      },
+      "returns": "Array of matching element objects"
+    },
+    "elementAt": {
+      "description": "Find element at screen coordinate",
+      "args": {
+        "x": "number - x coordinate",
+        "y": "number - y coordinate"
+      },
+      "returns": "Element object or null"
+    },
+    "tap": {
+      "description": "Tap on an element by identifier or label",
+      "args": {
+        "target": "string - accessibility identifier or label"
+      }
+    },
+    "doubleTap": {
+      "description": "Double tap on an element",
+      "args": {
+        "target": "string - accessibility identifier or label"
+      }
+    },
+    "longPress": {
+      "description": "Long press on an element",
+      "args": {
+        "target": "string - accessibility identifier or label",
+        "duration": "number - press duration in seconds (default: 1.0)"
+      }
+    },
+    "type": {
+      "description": "Type text into an element or currently focused element",
+      "args": {
+        "text": "string - text to type",
+        "target": "string? - element to type into (optional, uses focused element if omitted)"
+      }
+    },
+    "swipe": {
+      "description": "Swipe in a direction",
+      "args": {
+        "direction": "string - up/down/left/right",
+        "target": "string? - element to swipe on (optional, uses app if omitted)"
+      }
+    },
+    "screenshot": {
+      "description": "Capture screenshot",
+      "args": {},
+      "returns": "Base64 encoded PNG in 'data' field"
+    },
+    "launch": {
+      "description": "Launch an app by bundle identifier",
+      "args": {
+        "bundleId": "string - app bundle identifier"
+      }
+    },
+    "terminate": {
+      "description": "Terminate an app by bundle identifier",
+      "args": {
+        "bundleId": "string - app bundle identifier"
+      }
+    },
+    "waitFor": {
+      "description": "Wait for an element to exist",
+      "args": {
+        "target": "string - accessibility identifier or label",
+        "timeout": "number - max wait time in seconds (default: 10)"
+      }
+    },
+    "exists": {
+      "description": "Check if an element exists",
+      "args": {
+        "target": "string - accessibility identifier or label"
+      },
+      "returns": "Boolean 'exists' field"
+    },
+    "getAttribute": {
+      "description": "Get a specific attribute of an element",
+      "args": {
+        "target": "string - accessibility identifier or label",
+        "attribute": "string - label/value/identifier/enabled/selected/frame/placeholder"
+      },
+      "returns": "Attribute value in 'value' field"
+    },
+    "ping": {
+      "description": "Health check",
+      "args": {},
+      "returns": "pong: true"
+    }
+  }
+}

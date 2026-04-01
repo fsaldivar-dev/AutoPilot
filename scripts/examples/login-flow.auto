@@ -1,0 +1,20 @@
+# login-flow.auto
+# Example: complete login flow with verification
+#
+# Usage: auto run scripts/examples/login-flow.auto
+
+launch com.example.myapp
+waitFor "Login" 5
+
+# Enter credentials
+tap "Username"
+type "testuser@example.com"
+tap "Password"
+type "secret123"
+
+# Submit
+tap "Sign In"
+waitFor "Welcome" 10
+
+# Verify we're on the home screen
+screenshot login-success.png
