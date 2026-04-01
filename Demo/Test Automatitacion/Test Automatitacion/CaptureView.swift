@@ -155,22 +155,24 @@ struct CaptureView: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                Picker("Modo", selection: $selectedMode) {
-                    Label("Fotos", systemImage: "camera").tag(0)
-                    Label("Escaner QR", systemImage: "qrcode.viewfinder").tag(1)
-                }
-                .pickerStyle(.segmented)
-                .padding()
+            ScrollView {
+                VStack(spacing: 0) {
+                    Picker("Modo", selection: $selectedMode) {
+                        Label("Fotos", systemImage: "camera").tag(0)
+                        Label("Escaner QR", systemImage: "qrcode.viewfinder").tag(1)
+                    }
+                    .pickerStyle(.segmented)
+                    .padding(.horizontal)
+                    .padding(.bottom, 8)
 
-                if selectedMode == 0 {
-                    photoMode
-                } else {
-                    qrMode
+                    if selectedMode == 0 {
+                        photoMode
+                    } else {
+                        qrMode
+                    }
                 }
             }
             .navigationTitle("Capturar")
-            .navigationBarTitleDisplayMode(.inline)
             .sheet(isPresented: $showPhotoDetail) {
                 if let photo = selectedPhoto {
                     PhotoViewerSheet(image: photo)
