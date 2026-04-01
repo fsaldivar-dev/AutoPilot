@@ -549,6 +549,54 @@ public final class SimulatorBridge {
         process.waitUntilExit()
     }
 
+    // MARK: - Virtual Camera
+
+    private let cameraFeedPath = "/tmp/autopilot-camera-feed.jpg"
+    private let cameraSignalPath = "/tmp/autopilot-camera-active"
+
+    /// Start virtual camera with an image.
+    public func cameraStart(imagePath: String) throws {
+        let source = URL(fileURLWithPath: imagePath)
+        guard FileManager.default.fileExists(atPath: imagePath) else {
+            throw BridgeError.cameraImageNotFound(imagePath)
+        }
+
+        let dest = URL(fileURLWithPath: cameraFeedPath)
+        if FileManager.default.fileExists(atPath: cameraFeedPath) {
+            try FileManager.default.removeItem(at: dest)
+        }
+        try FileManager.default.copyItem(at: source, to: dest)
+
+        // Crear archivo signal
+        FileManager.default.createFile(atPath: cameraSignalPath, contents: nil)
+    }
+
+    /// Update the camera feed image.
+    public func cameraFeed(imagePath: String) throws {
+        guard FileManager.default.fileExists(atPath: imagePath) else {
+            throw BridgeError.cameraImageNotFound(imagePath)
+        }
+
+        let dest = URL(fileURLWithPath: cameraFeedPath)
+        if FileManager.default.fileExists(atPath: cameraFeedPath) {
+            try FileManager.default.removeItem(at: dest)
+        }
+        try FileManager.default.copyItem(at: URL(fileURLWithPath: imagePath), to: dest)
+    }
+
+    /// Stop the virtual camera.
+    public func cameraStop() {
+        try? FileManager.default.removeItem(atPath: cameraSignalPath)
+        try? FileManager.default.removeItem(atPath: cameraFeedPath)
+    }
+
+    /// Check if virtual camera is active.
+    public func cameraStatus() -> (active: Bool, imagePath: String?) {
+        let active = FileManager.default.fileExists(atPath: cameraSignalPath)
+        let hasImage = FileManager.default.fileExists(atPath: cameraFeedPath)
+        return (active: active, imagePath: hasImage ? cameraFeedPath : nil)
+    }
+
     // MARK: - Private: Simulator access
 
     private func findSimulatorPID() -> pid_t? {
@@ -965,6 +1013,7 @@ public enum BridgeError: Error, CustomStringConvertible {
     case appleScriptFailed(String)
     case simctlFailed(String)
     case deviceNotFound(String)
+    case cameraImageNotFound(String)
 
     public var description: String {
         switch self {
@@ -979,6 +1028,7 @@ public enum BridgeError: Error, CustomStringConvertible {
         case .appleScriptFailed(let msg): return "AppleScript failed: \(msg)"
         case .simctlFailed(let msg): return "simctl failed: \(msg)"
         case .deviceNotFound(let name): return "Device not found: '\(name)'. Run: auto list"
+        case .cameraImageNotFound(let p): return "Image not found: '\(p)'"
         }
     }
 }
