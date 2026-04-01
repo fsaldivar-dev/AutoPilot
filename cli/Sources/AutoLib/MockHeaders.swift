@@ -227,29 +227,55 @@ enum MockHeaders {
     static void ap_previewSetSession(CALayer *self, SEL _cmd, AVCaptureSession *session) {
         NSLog(@"[AutoPilot] PreviewLayer.setSession → showing mock image");
 
-        // Load the image and set it as the layer contents
+        // Load the image
         NSString *imagePath = [NSProcessInfo processInfo].environment[@"AUTOPILOT_CAMERA_IMAGE"];
+        UIImage *img = nil;
         if (imagePath) {
             NSData *data = [NSData dataWithContentsOfFile:imagePath];
-            if (data) {
-                UIImage *img = [UIImage imageWithData:data];
-                if (img) {
-                    self.contents = (__bridge id)img.CGImage;
-                    self.contentsGravity = kCAGravityResizeAspectFill;
-                    self.masksToBounds = YES;
-                    return;
-                }
-            }
+            if (data) img = [UIImage imageWithData:data];
         }
 
-        // Fallback: red placeholder
-        UIGraphicsBeginImageContext(CGSizeMake(400, 600));
-        [[UIColor darkGrayColor] setFill];
-        UIRectFill(CGRectMake(0, 0, 400, 600));
-        UIImage *placeholder = UIGraphicsGetImageFromCurrentImageContext();
-        UIGraphicsEndImageContext();
-        self.contents = (__bridge id)placeholder.CGImage;
+        if (!img) {
+            UIGraphicsBeginImageContext(CGSizeMake(400, 600));
+            [[UIColor darkGrayColor] setFill];
+            UIRectFill(CGRectMake(0, 0, 400, 600));
+            img = UIGraphicsGetImageFromCurrentImageContext();
+            UIGraphicsEndImageContext();
+        }
+
+        self.contents = (__bridge id)img.CGImage;
         self.contentsGravity = kCAGravityResizeAspectFill;
+        self.masksToBounds = YES;
+
+        // Add overlay label as sublayer (adapts to actual layer size)
+        dispatch_async(dispatch_get_main_queue(), ^{
+            // Remove previous overlay if any
+            for (CALayer *sub in [self.sublayers copy]) {
+                if ([sub.name isEqualToString:@"ap_overlay"]) [sub removeFromSuperlayer];
+            }
+
+            CGFloat h = 24;
+            CGFloat y = self.bounds.size.height > 0
+                ? self.bounds.size.height - h - 8
+                : 100;
+
+            CALayer *banner = [CALayer layer];
+            banner.name = @"ap_overlay";
+            banner.frame = CGRectMake(0, y, self.bounds.size.width > 0 ? self.bounds.size.width : 400, h);
+            banner.backgroundColor = [UIColor colorWithWhite:0 alpha:0.6].CGColor;
+
+            CATextLayer *text = [CATextLayer layer];
+            text.string = @"AutoPilot  \u2022  Mock Camera";
+            text.font = (__bridge CFTypeRef)[UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
+            text.fontSize = 13;
+            text.foregroundColor = [UIColor colorWithWhite:1 alpha:0.9].CGColor;
+            text.alignmentMode = kCAAlignmentCenter;
+            text.contentsScale = [UIScreen mainScreen].scale;
+            text.frame = banner.bounds;
+
+            [banner addSublayer:text];
+            [self addSublayer:banner];
+        });
     }
 
     // ============================================================
