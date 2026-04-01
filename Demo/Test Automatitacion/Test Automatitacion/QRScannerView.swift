@@ -71,6 +71,14 @@ class QRScannerViewController: UIViewController {
     }
 
     private func setupCamera() {
+        // AutoPilot: QR inyectado via variable de entorno (CI/CD sin camara)
+        if let code = ProcessInfo.processInfo.environment["AUTOPILOT_QR_CODE"] {
+            DispatchQueue.main.asyncAfter(deadline: .now() + 0.5) { [weak self] in
+                self?.onCodeScanned?(code)
+            }
+            return
+        }
+
         let session = AVCaptureSession()
         captureSession = session
 

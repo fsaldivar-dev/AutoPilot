@@ -1,0 +1,312 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		1B85F4EB194B0D0C65A2BB88 /* AutoPilotCameraApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 520D368E3022F5F6682DEFF5 /* AutoPilotCameraApp.swift */; };
+		3C9D9DD455BE4CCB22C08CF6 /* CameraProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09F7AFA02A27A555AF38F537 /* CameraProvider.swift */; };
+		4147284EFF81A55DE4DDD244 /* CameraStream.swift in Sources */ = {isa = PBXBuildFile; fileRef = A54325514D8D687CCBAFADD8 /* CameraStream.swift */; };
+		BA8C596E829A966B9AE81ACD /* CameraDevice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AAED32BD0AF7284F6837F41 /* CameraDevice.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXFileReference section */
+		09F7AFA02A27A555AF38F537 /* CameraProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraProvider.swift; sourceTree = "<group>"; };
+		419769CF077FBE2180942A42 /* AutoPilotCamera.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = AutoPilotCamera.entitlements; sourceTree = "<group>"; };
+		520D368E3022F5F6682DEFF5 /* AutoPilotCameraApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoPilotCameraApp.swift; sourceTree = "<group>"; };
+		5AAED32BD0AF7284F6837F41 /* CameraDevice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraDevice.swift; sourceTree = "<group>"; };
+		86485EDF2C2CA1437521DAAB /* AutoPilotCamera.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AutoPilotCamera.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A54325514D8D687CCBAFADD8 /* CameraStream.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraStream.swift; sourceTree = "<group>"; };
+		D32C6DC756FB051BA6A34AEE /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		1B14F41447BD3C0F278A7239 = {
+			isa = PBXGroup;
+			children = (
+				BE308EEE78920EAC404847AB /* AutoPilotCamera */,
+				EFB6415BB11938053A82B6A8 /* CameraExtension */,
+				1BAF703189E40A3EEC5EF22C /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		1BAF703189E40A3EEC5EF22C /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				86485EDF2C2CA1437521DAAB /* AutoPilotCamera.app */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		BE308EEE78920EAC404847AB /* AutoPilotCamera */ = {
+			isa = PBXGroup;
+			children = (
+				419769CF077FBE2180942A42 /* AutoPilotCamera.entitlements */,
+				520D368E3022F5F6682DEFF5 /* AutoPilotCameraApp.swift */,
+				D32C6DC756FB051BA6A34AEE /* Info.plist */,
+			);
+			path = AutoPilotCamera;
+			sourceTree = "<group>";
+		};
+		EFB6415BB11938053A82B6A8 /* CameraExtension */ = {
+			isa = PBXGroup;
+			children = (
+				5AAED32BD0AF7284F6837F41 /* CameraDevice.swift */,
+				09F7AFA02A27A555AF38F537 /* CameraProvider.swift */,
+				A54325514D8D687CCBAFADD8 /* CameraStream.swift */,
+			);
+			path = CameraExtension;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		1716E79197D034B590C57D16 /* AutoPilotCamera */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 82277C2DDC0782CB794B20E0 /* Build configuration list for PBXNativeTarget "AutoPilotCamera" */;
+			buildPhases = (
+				BB85F924A71777604E65EE1E /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = AutoPilotCamera;
+			packageProductDependencies = (
+			);
+			productName = AutoPilotCamera;
+			productReference = 86485EDF2C2CA1437521DAAB /* AutoPilotCamera.app */;
+			productType = "com.apple.product-type.application";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		408DAD35DC6D9F7A3D9C6834 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1500;
+				TargetAttributes = {
+					1716E79197D034B590C57D16 = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Automatic;
+					};
+				};
+			};
+			buildConfigurationList = 23E251E1A8E898AFDD544447 /* Build configuration list for PBXProject "AutoPilotCamera" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 1B14F41447BD3C0F278A7239;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 1BAF703189E40A3EEC5EF22C /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				1716E79197D034B590C57D16 /* AutoPilotCamera */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		BB85F924A71777604E65EE1E /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				1B85F4EB194B0D0C65A2BB88 /* AutoPilotCameraApp.swift in Sources */,
+				BA8C596E829A966B9AE81ACD /* CameraDevice.swift in Sources */,
+				3C9D9DD455BE4CCB22C08CF6 /* CameraProvider.swift in Sources */,
+				4147284EFF81A55DE4DDD244 /* CameraStream.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin XCBuildConfiguration section */
+		5E93278FBCAB3F9AC03610D0 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = AutoPilotCamera/AutoPilotCamera.entitlements;
+				COMBINE_HIDPI_IMAGES = YES;
+				INFOPLIST_FILE = AutoPilotCamera/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.autopilot.camera;
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+		6EA93553E129A6A7E9D05A24 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = "";
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.9;
+			};
+			name = Debug;
+		};
+		7CBDD961D14FC17D1F7D3518 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = "";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.9;
+			};
+			name = Release;
+		};
+		91466C255F0339CF559FC894 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = AutoPilotCamera/AutoPilotCamera.entitlements;
+				COMBINE_HIDPI_IMAGES = YES;
+				INFOPLIST_FILE = AutoPilotCamera/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.autopilot.camera;
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		23E251E1A8E898AFDD544447 /* Build configuration list for PBXProject "AutoPilotCamera" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				6EA93553E129A6A7E9D05A24 /* Debug */,
+				7CBDD961D14FC17D1F7D3518 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		82277C2DDC0782CB794B20E0 /* Build configuration list for PBXNativeTarget "AutoPilotCamera" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				91466C255F0339CF559FC894 /* Debug */,
+				5E93278FBCAB3F9AC03610D0 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 408DAD35DC6D9F7A3D9C6834 /* Project object */;
+}
