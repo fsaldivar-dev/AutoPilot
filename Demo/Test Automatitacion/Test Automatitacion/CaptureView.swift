@@ -84,13 +84,6 @@ class CameraManager: NSObject, AVCapturePhotoCaptureDelegate {
     }
 
     func capturePhoto() {
-        // AutoPilot: imagen inyectada via variable de entorno (CI/CD sin camara)
-        // AutoPilot: imagen inyectada via variable de entorno (CI/CD sin camara)
-        if let path = ProcessInfo.processInfo.environment["AUTOPILOT_CAMERA_IMAGE"],
-           let image = UIImage(contentsOfFile: path) {
-            onPhotoCaptured?(image)
-            return
-        }
         sessionQueue.async { [self] in
             let settings = AVCapturePhotoSettings()
             if photoOutput.supportedFlashModes.contains(flashMode) {
@@ -162,18 +155,21 @@ struct CaptureView: View {
 
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
-                Picker("Modo", selection: $selectedMode) {
-                    Label("Fotos", systemImage: "camera").tag(0)
-                    Label("Escaner QR", systemImage: "qrcode.viewfinder").tag(1)
-                }
-                .pickerStyle(.segmented)
-                .padding()
+            ScrollView {
+                VStack(spacing: 0) {
+                    Picker("Modo", selection: $selectedMode) {
+                        Label("Fotos", systemImage: "camera").tag(0)
+                        Label("Escaner QR", systemImage: "qrcode.viewfinder").tag(1)
+                    }
+                    .pickerStyle(.segmented)
+                    .padding(.horizontal)
+                    .padding(.bottom, 8)
 
-                if selectedMode == 0 {
-                    photoMode
-                } else {
-                    qrMode
+                    if selectedMode == 0 {
+                        photoMode
+                    } else {
+                        qrMode
+                    }
                 }
             }
             .navigationTitle("Capturar")
@@ -280,9 +276,10 @@ struct CaptureView: View {
                 // Capture button
                 Button {
                     appState.triggerHaptic(.medium)
-                    // AutoPilot: permitir captura si hay imagen inyectada via env var
-                    let hasInjectedImage = ProcessInfo.processInfo.environment["AUTOPILOT_CAMERA_IMAGE"] != nil
-                    if hasInjectedImage || (cameraManager.cameraPermissionGranted && cameraManager.cameraConfigured) {
+                    let hasEnv = ProcessInfo.processInfo.environment["AUTOPILOT_CAMERA_IMAGE"] != nil
+                    NSLog("[DEBUG] boton tap — env=%d perm=%d config=%d", hasEnv, cameraManager.cameraPermissionGranted, cameraManager.cameraConfigured)
+                    if hasEnv || (cameraManager.cameraPermissionGranted && cameraManager.cameraConfigured) {
+                        NSLog("[DEBUG] llamando capturePhoto")
                         cameraManager.capturePhoto()
                     }
                 } label: {
