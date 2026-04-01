@@ -128,12 +128,22 @@ enum MockHeaders {
     // Replacement: AVCaptureSession
     // ============================================================
 
+    static IMP orig_isRunning = NULL;
+    static const void *kAPSessionRunningKey = &kAPSessionRunningKey;
+
     static void ap_startRunning(id self, SEL _cmd) {
         NSLog(@"[AutoPilot] startRunning (mock no-op)");
+        objc_setAssociatedObject(self, kAPSessionRunningKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
     }
 
     static void ap_stopRunning(id self, SEL _cmd) {
         NSLog(@"[AutoPilot] stopRunning (mock no-op)");
+        objc_setAssociatedObject(self, kAPSessionRunningKey, @NO, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+
+    static BOOL ap_isRunning(id self, SEL _cmd) {
+        NSNumber *val = objc_getAssociatedObject(self, kAPSessionRunningKey);
+        return val ? val.boolValue : NO;
     }
 
     static BOOL ap_canAddInput(id self, SEL _cmd, id input) {
@@ -189,6 +199,23 @@ enum MockHeaders {
     static NSArray *ap_outputs(id self, SEL _cmd) {
         NSArray *arr = objc_getAssociatedObject(self, kAPSessionOutputsKey);
         return arr ?: @[];
+    }
+
+    // ============================================================
+    // Replacement: AVCaptureMetadataOutput
+    // ============================================================
+
+    static IMP orig_setMetadataDelegate = NULL;
+    static IMP orig_setMetadataObjectTypes = NULL;
+
+    static void ap_setMetadataDelegate(id self, SEL _cmd, id delegate, dispatch_queue_t queue) {
+        NSLog(@"[AutoPilot] setMetadataObjectsDelegate (mock no-op)");
+        // Store delegate via associated object for potential QR injection
+        objc_setAssociatedObject(self, "ap_metaDelegate", delegate, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+
+    static void ap_setMetadataObjectTypes(id self, SEL _cmd, NSArray *types) {
+        NSLog(@"[AutoPilot] setMetadataObjectTypes (mock no-op)");
     }
 
     // ============================================================
@@ -383,6 +410,8 @@ enum MockHeaders {
             @selector(stopRunning), (IMP)ap_stopRunning, &orig_stopRunning);
 
         ap_swizzle_instance_method(sessionClass,
+            @selector(isRunning), (IMP)ap_isRunning, &orig_isRunning);
+        ap_swizzle_instance_method(sessionClass,
             @selector(canAddInput:), (IMP)ap_canAddInput, &orig_canAddInput);
 
         ap_swizzle_instance_method(sessionClass,
@@ -430,6 +459,15 @@ enum MockHeaders {
         ap_swizzle_instance_method(photoClass,
             @selector(isRawPhoto),
             (IMP)ap_isRawPhoto, &orig_isRawPhoto);
+
+        // Swizzle AVCaptureMetadataOutput
+        Class metadataOutputClass = [AVCaptureMetadataOutput class];
+        ap_swizzle_instance_method(metadataOutputClass,
+            @selector(setMetadataObjectsDelegate:queue:),
+            (IMP)ap_setMetadataDelegate, &orig_setMetadataDelegate);
+        ap_swizzle_instance_method(metadataOutputClass,
+            @selector(setMetadataObjectTypes:),
+            (IMP)ap_setMetadataObjectTypes, &orig_setMetadataObjectTypes);
 
         // Swizzle AVCaptureVideoPreviewLayer to show our image
         Class previewLayerClass = [AVCaptureVideoPreviewLayer class];
