@@ -1,9 +1,9 @@
 import Foundation
 
 /// Pretty prints the accessibility tree to stdout.
-enum TreePrinter {
+public enum TreePrinter {
 
-    static func printAX(_ elements: [[String: Any]], indent: Int = 0) {
+    public static func printAX(_ elements: [[String: Any]], indent: Int = 0) {
         for el in elements {
             let prefix = String(repeating: "  ", count: indent)
             let role = el["role"] as? String ?? "?"

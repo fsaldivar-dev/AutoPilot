@@ -5,16 +5,16 @@ import CoreGraphics
 
 /// Controls the iOS Simulator directly via macOS Accessibility APIs.
 /// No XCUITest, no xcodebuild, no test runner needed.
-final class SimulatorBridge {
+public final class SimulatorBridge {
 
     private var simulatorPID: pid_t?
 
-    init() {}
+    public init() {}
 
     // MARK: - Find Simulator
 
     /// Finds the running Simulator.app process.
-    func findSimulator() throws -> AXUIElement {
+    public func findSimulator() throws -> AXUIElement {
         let workspace = NSWorkspace.shared
         guard let simApp = workspace.runningApplications.first(where: {
             $0.bundleIdentifier == "com.apple.iphonesimulator"
@@ -29,13 +29,13 @@ final class SimulatorBridge {
     // MARK: - Accessibility Tree
 
     /// Returns the full accessibility tree of the frontmost simulator window.
-    func tree(element: AXUIElement? = nil) throws -> [[String: Any]] {
+    public func tree(element: AXUIElement? = nil) throws -> [[String: Any]] {
         let root = try element.map { $0 } ?? findSimulatorContent()
         return serializeChildren(of: root, depth: 0, maxDepth: 20)
     }
 
     /// Searches elements matching a query.
-    func search(query: String) throws -> [[String: Any]] {
+    public func search(query: String) throws -> [[String: Any]] {
         let root = try findSimulatorContent()
         var results: [[String: Any]] = []
         searchRecursive(element: root, query: query.lowercased(), results: &results, depth: 0, maxDepth: 20)
@@ -43,7 +43,7 @@ final class SimulatorBridge {
     }
 
     /// Finds the element at a screen coordinate (relative to simulator content).
-    func elementAt(x: Double, y: Double) throws -> [String: Any]? {
+    public func elementAt(x: Double, y: Double) throws -> [String: Any]? {
         let root = try findSimulatorContent()
         let point = CGPoint(x: x, y: y)
         return findElementAt(point: point, in: root, depth: 0)
@@ -52,7 +52,7 @@ final class SimulatorBridge {
     // MARK: - Actions
 
     /// Taps an element using AX press action (native accessibility tap).
-    func tap(target: String) throws {
+    public func tap(target: String) throws {
         let root = try findSimulatorContent()
         guard let axElement = findAXElement(in: root, matching: target, depth: 0, maxDepth: 20) else {
             throw BridgeError.elementNotFound(target)
@@ -76,7 +76,7 @@ final class SimulatorBridge {
     }
 
     /// Long press an element for a duration (default 1 second).
-    func longPress(target: String, duration: Double = 1.0) throws {
+    public func longPress(target: String, duration: Double = 1.0) throws {
         let root = try findSimulatorContent()
         guard let axElement = findAXElement(in: root, matching: target, depth: 0, maxDepth: 20) else {
             throw BridgeError.elementNotFound(target)
@@ -99,7 +99,7 @@ final class SimulatorBridge {
     }
 
     /// Double-tap an element.
-    func doubleTap(target: String) throws {
+    public func doubleTap(target: String) throws {
         let root = try findSimulatorContent()
         guard let axElement = findAXElement(in: root, matching: target, depth: 0, maxDepth: 20) else {
             throw BridgeError.elementNotFound(target)
@@ -110,7 +110,7 @@ final class SimulatorBridge {
     }
 
     /// Clear a text field: tap it, select all (Cmd+A), then delete.
-    func clear(target: String) throws {
+    public func clear(target: String) throws {
         try tap(target: target)
         usleep(200_000)
 
@@ -137,7 +137,7 @@ final class SimulatorBridge {
     }
 
     /// Type text by sending keyboard events to the Simulator.
-    func typeText(_ text: String) throws {
+    public func typeText(_ text: String) throws {
         guard let pid = simulatorPID ?? findSimulatorPID() else {
             throw BridgeError.simulatorNotRunning
         }
@@ -169,7 +169,7 @@ final class SimulatorBridge {
     }
 
     /// Scroll within a specific element.
-    func scroll(target: String, direction: String) throws {
+    public func scroll(target: String, direction: String) throws {
         let root = try findSimulatorContent()
         guard let axElement = findAXElement(in: root, matching: target, depth: 0, maxDepth: 20) else {
             throw BridgeError.elementNotFound(target)
@@ -229,7 +229,7 @@ final class SimulatorBridge {
 
     /// Scroll/swipe using mouse drag events posted globally.
     /// Simulates a finger drag on the Simulator touchscreen area.
-    func swipe(direction: String) throws {
+    public func swipe(direction: String) throws {
         guard let pid = simulatorPID ?? findSimulatorPID() else {
             throw BridgeError.simulatorNotRunning
         }
@@ -300,7 +300,7 @@ final class SimulatorBridge {
     }
 
     /// Take a screenshot using simctl.
-    func screenshot(path: String) throws {
+    public func screenshot(path: String) throws {
         let deviceId = try getBootedDeviceId()
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
@@ -313,7 +313,7 @@ final class SimulatorBridge {
     }
 
     /// Launch an app on the simulator.
-    func launchApp(bundleId: String) throws {
+    public func launchApp(bundleId: String) throws {
         let deviceId = try getBootedDeviceId()
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
@@ -323,7 +323,7 @@ final class SimulatorBridge {
     }
 
     /// Terminate an app on the simulator.
-    func terminateApp(bundleId: String) throws {
+    public func terminateApp(bundleId: String) throws {
         let deviceId = try getBootedDeviceId()
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
@@ -333,7 +333,7 @@ final class SimulatorBridge {
     }
 
     /// Inject media (photo/video) into the simulator's photo library.
-    func addMedia(path: String) throws {
+    public func addMedia(path: String) throws {
         let deviceId = try getBootedDeviceId()
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
@@ -374,14 +374,14 @@ final class SimulatorBridge {
     }
 
     /// Enroll or unenroll Face ID on the simulator.
-    func faceIDEnroll() throws {
+    public func faceIDEnroll() throws {
         try clickSimulatorMenu("""
         tell application "System Events" to tell process "Simulator" to click menu item "Enrolled" of menu "Face ID" of menu item "Face ID" of menu "Features" of menu bar 1
         """)
     }
 
     /// Check if Face ID is currently enrolled.
-    func faceIDIsEnrolled() throws -> Bool {
+    public func faceIDIsEnrolled() throws -> Bool {
         activateSimulatorApp()
         let process = Process()
         let pipe = Pipe()
@@ -402,21 +402,21 @@ final class SimulatorBridge {
     }
 
     /// Simulate a successful Face ID scan.
-    func faceIDMatch() throws {
+    public func faceIDMatch() throws {
         try clickSimulatorMenu("""
         tell application "System Events" to tell process "Simulator" to click menu item "Matching Face" of menu "Face ID" of menu item "Face ID" of menu "Features" of menu bar 1
         """)
     }
 
     /// Simulate a failed Face ID scan.
-    func faceIDFail() throws {
+    public func faceIDFail() throws {
         try clickSimulatorMenu("""
         tell application "System Events" to tell process "Simulator" to click menu item "Non-matching Face" of menu "Face ID" of menu item "Face ID" of menu "Features" of menu bar 1
         """)
     }
 
     /// Set the pasteboard/clipboard content on the simulator.
-    func setPasteboard(text: String) throws {
+    public func setPasteboard(text: String) throws {
         let deviceId = try getBootedDeviceId()
         let process = Process()
         let pipe = Pipe()
@@ -430,7 +430,7 @@ final class SimulatorBridge {
     }
 
     /// Get the pasteboard/clipboard content from the simulator.
-    func getPasteboard() throws -> String {
+    public func getPasteboard() throws -> String {
         let deviceId = try getBootedDeviceId()
         let process = Process()
         let pipe = Pipe()
@@ -444,7 +444,7 @@ final class SimulatorBridge {
     }
 
     /// List available simulators.
-    func listDevices() throws -> [[String: Any]] {
+    public func listDevices() throws -> [[String: Any]] {
         let process = Process()
         let pipe = Pipe()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
@@ -475,7 +475,7 @@ final class SimulatorBridge {
     }
 
     /// Boot a simulator by name or UDID.
-    func bootDevice(_ nameOrUdid: String) throws {
+    public func bootDevice(_ nameOrUdid: String) throws {
         let udid = try resolveDeviceUdid(nameOrUdid)
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
@@ -492,7 +492,7 @@ final class SimulatorBridge {
     }
 
     /// Shutdown a simulator by name or UDID.
-    func shutdownDevice(_ nameOrUdid: String) throws {
+    public func shutdownDevice(_ nameOrUdid: String) throws {
         let udid = try resolveDeviceUdid(nameOrUdid)
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
@@ -523,7 +523,7 @@ final class SimulatorBridge {
     }
 
     /// Install an app on the booted simulator.
-    func installApp(path: String) throws {
+    public func installApp(path: String) throws {
         let deviceId = try getBootedDeviceId()
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
@@ -540,7 +540,7 @@ final class SimulatorBridge {
     }
 
     /// Open a URL in the simulator.
-    func openURL(_ url: String) throws {
+    public func openURL(_ url: String) throws {
         let deviceId = try getBootedDeviceId()
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
@@ -619,7 +619,7 @@ final class SimulatorBridge {
 
     /// Tap at absolute screen coordinates using global event posting.
     /// Works for system UIs (photo picker, alerts) where postToPid doesn't reach.
-    func tapAtCoordinate(x: Double, y: Double) throws {
+    public func tapAtCoordinate(x: Double, y: Double) throws {
         let point = CGPoint(x: x, y: y)
         let src = CGEventSource(stateID: .combinedSessionState)
         let mouseDown = CGEvent(mouseEventSource: src, mouseType: .leftMouseDown, mouseCursorPosition: point, mouseButton: .left)
@@ -953,7 +953,7 @@ final class SimulatorBridge {
 
 // MARK: - Errors
 
-enum BridgeError: Error, CustomStringConvertible {
+public enum BridgeError: Error, CustomStringConvertible {
     case simulatorNotRunning
     case noWindow
     case elementNotFound(String)
@@ -966,7 +966,7 @@ enum BridgeError: Error, CustomStringConvertible {
     case simctlFailed(String)
     case deviceNotFound(String)
 
-    var description: String {
+    public var description: String {
         switch self {
         case .simulatorNotRunning: return "Simulator is not running. Open it first."
         case .noWindow: return "No simulator window found"
