@@ -37,7 +37,7 @@ class CameraStreamSource: NSObject, CMIOExtensionStreamSource {
             localizedName: localizedName,
             streamID: streamID,
             direction: .source,
-            clockType: .hostTimeClock as CMIOExtensionStream.ClockType,
+            clockType: CMIOExtensionStream.ClockType(rawValue: 0)!,
             source: self
         )
     }
