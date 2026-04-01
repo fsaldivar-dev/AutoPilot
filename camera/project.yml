@@ -17,6 +17,9 @@ targets:
     platform: macOS
     sources:
       - AutoPilotCamera
+      - CameraExtension/CameraProvider.swift
+      - CameraExtension/CameraDevice.swift
+      - CameraExtension/CameraStream.swift
     info:
       path: AutoPilotCamera/Info.plist
     entitlements:
@@ -26,30 +29,9 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: dev.autopilot.camera
         INFOPLIST_FILE: AutoPilotCamera/Info.plist
         CODE_SIGN_ENTITLEMENTS: AutoPilotCamera/AutoPilotCamera.entitlements
-        ENABLE_HARDENED_RUNTIME: true
-    dependencies:
-      - target: AutoPilotCameraExtension
-
-  AutoPilotCameraExtension:
-    type: system-extension
-    platform: macOS
-    sources:
-      - CameraExtension
-    info:
-      path: CameraExtension/Info.plist
-    entitlements:
-      path: CameraExtension/CameraExtension.entitlements
-    settings:
-      base:
-        PRODUCT_BUNDLE_IDENTIFIER: dev.autopilot.camera.extension
-        INFOPLIST_FILE: CameraExtension/Info.plist
-        CODE_SIGN_ENTITLEMENTS: CameraExtension/CameraExtension.entitlements
-        ENABLE_HARDENED_RUNTIME: true
-        SYSTEM_EXTENSION_API_VERSION: "1"
     frameworks:
       - CoreMediaIO
       - CoreMedia
       - CoreVideo
       - CoreImage
       - IOKit
-      - SystemExtensions
