@@ -1,0 +1,419 @@
+// !$*UTF8*$!
+{
+	archiveVersion = 1;
+	classes = {
+	};
+	objectVersion = 77;
+	objects = {
+
+/* Begin PBXBuildFile section */
+		06D1BB7C6456F8501ED449CE /* CameraProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09F7AFA02A27A555AF38F537 /* CameraProvider.swift */; };
+		1B85F4EB194B0D0C65A2BB88 /* AutoPilotCameraApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 520D368E3022F5F6682DEFF5 /* AutoPilotCameraApp.swift */; };
+		403A8DE1C4A1E5278FAEF788 /* CameraDevice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AAED32BD0AF7284F6837F41 /* CameraDevice.swift */; };
+		48EC7803FE00D65A1C4A25FD /* CameraStream.swift in Sources */ = {isa = PBXBuildFile; fileRef = A54325514D8D687CCBAFADD8 /* CameraStream.swift */; };
+		CE4ACB89D99DEDA4B4CA3D7A /* AutoPilotCameraExtension.systemextension in Embed System Extensions */ = {isa = PBXBuildFile; fileRef = 7FEB9B18D09C908BD1DDDF93 /* AutoPilotCameraExtension.systemextension */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
+		F30EA9911FBB5A54BA06719D /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = C02C0AD7B5A9017E00219018 /* main.swift */; };
+/* End PBXBuildFile section */
+
+/* Begin PBXContainerItemProxy section */
+		2AA47732A1B57F6F24FE9DA6 /* PBXContainerItemProxy */ = {
+			isa = PBXContainerItemProxy;
+			containerPortal = 408DAD35DC6D9F7A3D9C6834 /* Project object */;
+			proxyType = 1;
+			remoteGlobalIDString = A2D1A724DFA708F58313D902;
+			remoteInfo = AutoPilotCameraExtension;
+		};
+/* End PBXContainerItemProxy section */
+
+/* Begin PBXCopyFilesBuildPhase section */
+		264C74AE8A17E23E05F5EBBB /* Embed System Extensions */ = {
+			isa = PBXCopyFilesBuildPhase;
+			buildActionMask = 2147483647;
+			dstPath = "$(SYSTEM_EXTENSIONS_FOLDER_PATH)";
+			dstSubfolderSpec = 16;
+			files = (
+				CE4ACB89D99DEDA4B4CA3D7A /* AutoPilotCameraExtension.systemextension in Embed System Extensions */,
+			);
+			name = "Embed System Extensions";
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXCopyFilesBuildPhase section */
+
+/* Begin PBXFileReference section */
+		09F7AFA02A27A555AF38F537 /* CameraProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraProvider.swift; sourceTree = "<group>"; };
+		147F20AB5FFB52235F883FA0 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+		28560A74820BAF41A31FA37E /* CameraExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = CameraExtension.entitlements; sourceTree = "<group>"; };
+		419769CF077FBE2180942A42 /* AutoPilotCamera.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = AutoPilotCamera.entitlements; sourceTree = "<group>"; };
+		520D368E3022F5F6682DEFF5 /* AutoPilotCameraApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoPilotCameraApp.swift; sourceTree = "<group>"; };
+		5AAED32BD0AF7284F6837F41 /* CameraDevice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraDevice.swift; sourceTree = "<group>"; };
+		7FEB9B18D09C908BD1DDDF93 /* AutoPilotCameraExtension.systemextension */ = {isa = PBXFileReference; explicitFileType = "wrapper.system-extension"; includeInIndex = 0; path = AutoPilotCameraExtension.systemextension; sourceTree = BUILT_PRODUCTS_DIR; };
+		86485EDF2C2CA1437521DAAB /* AutoPilotCamera.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AutoPilotCamera.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		A54325514D8D687CCBAFADD8 /* CameraStream.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraStream.swift; sourceTree = "<group>"; };
+		C02C0AD7B5A9017E00219018 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
+		D32C6DC756FB051BA6A34AEE /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
+/* End PBXFileReference section */
+
+/* Begin PBXGroup section */
+		1B14F41447BD3C0F278A7239 = {
+			isa = PBXGroup;
+			children = (
+				BE308EEE78920EAC404847AB /* AutoPilotCamera */,
+				EFB6415BB11938053A82B6A8 /* CameraExtension */,
+				1BAF703189E40A3EEC5EF22C /* Products */,
+			);
+			sourceTree = "<group>";
+		};
+		1BAF703189E40A3EEC5EF22C /* Products */ = {
+			isa = PBXGroup;
+			children = (
+				86485EDF2C2CA1437521DAAB /* AutoPilotCamera.app */,
+				7FEB9B18D09C908BD1DDDF93 /* AutoPilotCameraExtension.systemextension */,
+			);
+			name = Products;
+			sourceTree = "<group>";
+		};
+		BE308EEE78920EAC404847AB /* AutoPilotCamera */ = {
+			isa = PBXGroup;
+			children = (
+				419769CF077FBE2180942A42 /* AutoPilotCamera.entitlements */,
+				520D368E3022F5F6682DEFF5 /* AutoPilotCameraApp.swift */,
+				D32C6DC756FB051BA6A34AEE /* Info.plist */,
+			);
+			path = AutoPilotCamera;
+			sourceTree = "<group>";
+		};
+		EFB6415BB11938053A82B6A8 /* CameraExtension */ = {
+			isa = PBXGroup;
+			children = (
+				5AAED32BD0AF7284F6837F41 /* CameraDevice.swift */,
+				28560A74820BAF41A31FA37E /* CameraExtension.entitlements */,
+				09F7AFA02A27A555AF38F537 /* CameraProvider.swift */,
+				A54325514D8D687CCBAFADD8 /* CameraStream.swift */,
+				147F20AB5FFB52235F883FA0 /* Info.plist */,
+				C02C0AD7B5A9017E00219018 /* main.swift */,
+			);
+			path = CameraExtension;
+			sourceTree = "<group>";
+		};
+/* End PBXGroup section */
+
+/* Begin PBXNativeTarget section */
+		1716E79197D034B590C57D16 /* AutoPilotCamera */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = 82277C2DDC0782CB794B20E0 /* Build configuration list for PBXNativeTarget "AutoPilotCamera" */;
+			buildPhases = (
+				BB85F924A71777604E65EE1E /* Sources */,
+				264C74AE8A17E23E05F5EBBB /* Embed System Extensions */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+				3CF80F9DAA87E590B0E47DFD /* PBXTargetDependency */,
+			);
+			name = AutoPilotCamera;
+			packageProductDependencies = (
+			);
+			productName = AutoPilotCamera;
+			productReference = 86485EDF2C2CA1437521DAAB /* AutoPilotCamera.app */;
+			productType = "com.apple.product-type.application";
+		};
+		A2D1A724DFA708F58313D902 /* AutoPilotCameraExtension */ = {
+			isa = PBXNativeTarget;
+			buildConfigurationList = AC922F3454C9C558539D85A5 /* Build configuration list for PBXNativeTarget "AutoPilotCameraExtension" */;
+			buildPhases = (
+				CE7289BD28659C3BD76E1B66 /* Sources */,
+			);
+			buildRules = (
+			);
+			dependencies = (
+			);
+			name = AutoPilotCameraExtension;
+			packageProductDependencies = (
+			);
+			productName = AutoPilotCameraExtension;
+			productReference = 7FEB9B18D09C908BD1DDDF93 /* AutoPilotCameraExtension.systemextension */;
+			productType = "com.apple.product-type.system-extension";
+		};
+/* End PBXNativeTarget section */
+
+/* Begin PBXProject section */
+		408DAD35DC6D9F7A3D9C6834 /* Project object */ = {
+			isa = PBXProject;
+			attributes = {
+				BuildIndependentTargetsInParallel = YES;
+				LastUpgradeCheck = 1500;
+				TargetAttributes = {
+				};
+			};
+			buildConfigurationList = 23E251E1A8E898AFDD544447 /* Build configuration list for PBXProject "AutoPilotCamera" */;
+			developmentRegion = en;
+			hasScannedForEncodings = 0;
+			knownRegions = (
+				Base,
+				en,
+			);
+			mainGroup = 1B14F41447BD3C0F278A7239;
+			minimizedProjectReferenceProxies = 1;
+			preferredProjectObjectVersion = 77;
+			productRefGroup = 1BAF703189E40A3EEC5EF22C /* Products */;
+			projectDirPath = "";
+			projectRoot = "";
+			targets = (
+				1716E79197D034B590C57D16 /* AutoPilotCamera */,
+				A2D1A724DFA708F58313D902 /* AutoPilotCameraExtension */,
+			);
+		};
+/* End PBXProject section */
+
+/* Begin PBXSourcesBuildPhase section */
+		BB85F924A71777604E65EE1E /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				1B85F4EB194B0D0C65A2BB88 /* AutoPilotCameraApp.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+		CE7289BD28659C3BD76E1B66 /* Sources */ = {
+			isa = PBXSourcesBuildPhase;
+			buildActionMask = 2147483647;
+			files = (
+				403A8DE1C4A1E5278FAEF788 /* CameraDevice.swift in Sources */,
+				06D1BB7C6456F8501ED449CE /* CameraProvider.swift in Sources */,
+				48EC7803FE00D65A1C4A25FD /* CameraStream.swift in Sources */,
+				F30EA9911FBB5A54BA06719D /* main.swift in Sources */,
+			);
+			runOnlyForDeploymentPostprocessing = 0;
+		};
+/* End PBXSourcesBuildPhase section */
+
+/* Begin PBXTargetDependency section */
+		3CF80F9DAA87E590B0E47DFD /* PBXTargetDependency */ = {
+			isa = PBXTargetDependency;
+			target = A2D1A724DFA708F58313D902 /* AutoPilotCameraExtension */;
+			targetProxy = 2AA47732A1B57F6F24FE9DA6 /* PBXContainerItemProxy */;
+		};
+/* End PBXTargetDependency section */
+
+/* Begin XCBuildConfiguration section */
+		53637F0099BAC2349B7C5B7F /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = CameraExtension/CameraExtension.entitlements;
+				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				INFOPLIST_FILE = CameraExtension/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.autopilot.camera.extension;
+				SDKROOT = macosx;
+				SYSTEM_EXTENSION_API_VERSION = 1;
+			};
+			name = Debug;
+		};
+		5E93278FBCAB3F9AC03610D0 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = AutoPilotCamera/AutoPilotCamera.entitlements;
+				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				INFOPLIST_FILE = AutoPilotCamera/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.autopilot.camera;
+				SDKROOT = macosx;
+			};
+			name = Release;
+		};
+		6EA93553E129A6A7E9D05A24 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = dwarf;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				ENABLE_TESTABILITY = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_DYNAMIC_NO_PIC = NO;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_OPTIMIZATION_LEVEL = 0;
+				GCC_PREPROCESSOR_DEFINITIONS = (
+					"$(inherited)",
+					"DEBUG=1",
+				);
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MTL_ENABLE_DEBUG_INFO = INCLUDE_SOURCE;
+				MTL_FAST_MATH = YES;
+				ONLY_ACTIVE_ARCH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_ACTIVE_COMPILATION_CONDITIONS = DEBUG;
+				SWIFT_OPTIMIZATION_LEVEL = "-Onone";
+				SWIFT_VERSION = 5.9;
+			};
+			name = Debug;
+		};
+		768AAD6B30F533E2AF3EF52B /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				CODE_SIGN_ENTITLEMENTS = CameraExtension/CameraExtension.entitlements;
+				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				INFOPLIST_FILE = CameraExtension/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.autopilot.camera.extension;
+				SDKROOT = macosx;
+				SYSTEM_EXTENSION_API_VERSION = 1;
+			};
+			name = Release;
+		};
+		7CBDD961D14FC17D1F7D3518 /* Release */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ALWAYS_SEARCH_USER_PATHS = NO;
+				CLANG_ANALYZER_NONNULL = YES;
+				CLANG_ANALYZER_NUMBER_OBJECT_CONVERSION = YES_AGGRESSIVE;
+				CLANG_CXX_LANGUAGE_STANDARD = "gnu++14";
+				CLANG_CXX_LIBRARY = "libc++";
+				CLANG_ENABLE_MODULES = YES;
+				CLANG_ENABLE_OBJC_ARC = YES;
+				CLANG_ENABLE_OBJC_WEAK = YES;
+				CLANG_WARN_BLOCK_CAPTURE_AUTORELEASING = YES;
+				CLANG_WARN_BOOL_CONVERSION = YES;
+				CLANG_WARN_COMMA = YES;
+				CLANG_WARN_CONSTANT_CONVERSION = YES;
+				CLANG_WARN_DEPRECATED_OBJC_IMPLEMENTATIONS = YES;
+				CLANG_WARN_DIRECT_OBJC_ISA_USAGE = YES_ERROR;
+				CLANG_WARN_DOCUMENTATION_COMMENTS = YES;
+				CLANG_WARN_EMPTY_BODY = YES;
+				CLANG_WARN_ENUM_CONVERSION = YES;
+				CLANG_WARN_INFINITE_RECURSION = YES;
+				CLANG_WARN_INT_CONVERSION = YES;
+				CLANG_WARN_NON_LITERAL_NULL_CONVERSION = YES;
+				CLANG_WARN_OBJC_IMPLICIT_RETAIN_SELF = YES;
+				CLANG_WARN_OBJC_LITERAL_CONVERSION = YES;
+				CLANG_WARN_OBJC_ROOT_CLASS = YES_ERROR;
+				CLANG_WARN_QUOTED_INCLUDE_IN_FRAMEWORK_HEADER = YES;
+				CLANG_WARN_RANGE_LOOP_ANALYSIS = YES;
+				CLANG_WARN_STRICT_PROTOTYPES = YES;
+				CLANG_WARN_SUSPICIOUS_MOVE = YES;
+				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
+				CLANG_WARN_UNREACHABLE_CODE = YES;
+				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				COPY_PHASE_STRIP = NO;
+				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				ENABLE_NS_ASSERTIONS = NO;
+				ENABLE_STRICT_OBJC_MSGSEND = YES;
+				GCC_C_LANGUAGE_STANDARD = gnu11;
+				GCC_NO_COMMON_BLOCKS = YES;
+				GCC_WARN_64_TO_32_BIT_CONVERSION = YES;
+				GCC_WARN_ABOUT_RETURN_TYPE = YES_ERROR;
+				GCC_WARN_UNDECLARED_SELECTOR = YES;
+				GCC_WARN_UNINITIALIZED_AUTOS = YES_AGGRESSIVE;
+				GCC_WARN_UNUSED_FUNCTION = YES;
+				GCC_WARN_UNUSED_VARIABLE = YES;
+				MACOSX_DEPLOYMENT_TARGET = 13.0;
+				MTL_ENABLE_DEBUG_INFO = NO;
+				MTL_FAST_MATH = YES;
+				PRODUCT_NAME = "$(TARGET_NAME)";
+				SDKROOT = macosx;
+				SWIFT_COMPILATION_MODE = wholemodule;
+				SWIFT_OPTIMIZATION_LEVEL = "-O";
+				SWIFT_VERSION = 5.9;
+			};
+			name = Release;
+		};
+		91466C255F0339CF559FC894 /* Debug */ = {
+			isa = XCBuildConfiguration;
+			buildSettings = {
+				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
+				CODE_SIGN_ENTITLEMENTS = AutoPilotCamera/AutoPilotCamera.entitlements;
+				COMBINE_HIDPI_IMAGES = YES;
+				ENABLE_HARDENED_RUNTIME = YES;
+				INFOPLIST_FILE = AutoPilotCamera/Info.plist;
+				LD_RUNPATH_SEARCH_PATHS = (
+					"$(inherited)",
+					"@executable_path/../Frameworks",
+				);
+				PRODUCT_BUNDLE_IDENTIFIER = dev.autopilot.camera;
+				SDKROOT = macosx;
+			};
+			name = Debug;
+		};
+/* End XCBuildConfiguration section */
+
+/* Begin XCConfigurationList section */
+		23E251E1A8E898AFDD544447 /* Build configuration list for PBXProject "AutoPilotCamera" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				6EA93553E129A6A7E9D05A24 /* Debug */,
+				7CBDD961D14FC17D1F7D3518 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		82277C2DDC0782CB794B20E0 /* Build configuration list for PBXNativeTarget "AutoPilotCamera" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				91466C255F0339CF559FC894 /* Debug */,
+				5E93278FBCAB3F9AC03610D0 /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+		AC922F3454C9C558539D85A5 /* Build configuration list for PBXNativeTarget "AutoPilotCameraExtension" */ = {
+			isa = XCConfigurationList;
+			buildConfigurations = (
+				53637F0099BAC2349B7C5B7F /* Debug */,
+				768AAD6B30F533E2AF3EF52B /* Release */,
+			);
+			defaultConfigurationIsVisible = 0;
+			defaultConfigurationName = Debug;
+		};
+/* End XCConfigurationList section */
+	};
+	rootObject = 408DAD35DC6D9F7A3D9C6834 /* Project object */;
+}
