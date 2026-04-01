@@ -399,7 +399,18 @@ sequenceDiagram
 | **AVCapturePhotoOutput** | `capturePhoto:delegate:` | Lee `AUTOPILOT_CAMERA_IMAGE`, crea `AVCapturePhoto`, llama delegate |
 | **AVCapturePhoto** | `fileDataRepresentation`, `CGImageRepresentation`, `timestamp`, `photoCount`, `isRawPhoto` | Retorna datos de imagen inyectada |
 | **AVCaptureMetadataOutput** | `setMetadataObjectsDelegate:`, `setMetadataObjectTypes:` | No-ops (QR scanner no crashea) |
-| **AVCaptureVideoPreviewLayer** | `setSession:` | Muestra imagen como preview estatico |
+| **AVCaptureVideoPreviewLayer** | `setSession:` | Preview con etiquetas "LIVE" + "AutoPilot \| Mock Camera" |
+
+### Preview vs Captura
+
+El preview layer simula un feed en vivo con etiquetas visuales. La foto capturada se entrega **limpia** (sin etiquetas):
+
+| | Preview (AVCaptureVideoPreviewLayer) | Captura (fileDataRepresentation) |
+|---|---|---|
+| Imagen | Con overlay | Original, sin modificar |
+| Etiqueta "LIVE" | Si (punto rojo + texto) | No |
+| Banner "AutoPilot" | Si (pie semi-transparente) | No |
+| Datos | Solo visual | `Data` completo para guardar/procesar |
 
 ### Variables de entorno
 
@@ -440,6 +451,10 @@ auto screenshot resultado-camara.png
 | 7 | Pre-build script | Parcial, no alcanza dependencias SPM |
 | 8 | VFS overlay + module map | Headers simplificados rompen modulo AVFoundation |
 | 9 | **Force-load + #undef AV_INIT_UNAVAILABLE** | **Funciona. Sin modificar codigo de la app.** |
+
+Validado con:
+- **Demo app** (Explorea) — foto capturada, QR scanner, preview con labels
+- **CameraTestApp** — app tercera AVFoundation puro, cero dependencias de AutoPilot
 
 > **Documentacion completa:** [camera/BITACORA.md](camera/BITACORA.md) — 9 intentos documentados
 > **Spec de env vars:** [docs/ios/VARIABLES_ENTORNO.md](docs/ios/VARIABLES_ENTORNO.md)
