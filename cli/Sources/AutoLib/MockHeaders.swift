@@ -224,17 +224,68 @@ enum MockHeaders {
 
     static IMP orig_previewSetSession = NULL;
 
-    static void ap_previewSetSession(CALayer *self, SEL _cmd, AVCaptureSession *session) {
-        NSLog(@"[AutoPilot] PreviewLayer.setSession → showing mock image");
+    static UIImage *ap_compositePreviewImage(UIImage *img) {
+        // Render at a fixed preview size so the banner is always visible
+        CGFloat w = 400;
+        CGFloat h = 600;
+        UIGraphicsBeginImageContextWithOptions(CGSizeMake(w, h), YES, 2.0);
 
-        // Load the image
+        // Draw image filling the rect (aspect fill)
+        CGFloat imgAspect = img.size.width / img.size.height;
+        CGFloat viewAspect = w / h;
+        CGRect drawRect;
+        if (imgAspect > viewAspect) {
+            CGFloat drawH = h;
+            CGFloat drawW = h * imgAspect;
+            drawRect = CGRectMake(-(drawW - w) / 2, 0, drawW, drawH);
+        } else {
+            CGFloat drawW = w;
+            CGFloat drawH = w / imgAspect;
+            drawRect = CGRectMake(0, -(drawH - h) / 2, drawW, drawH);
+        }
+        [img drawInRect:drawRect];
+
+        // "LIVE" dot + text at top-left
+        CGFloat dotSize = 8;
+        CGFloat margin = 12;
+        [[UIColor colorWithRed:1 green:0.2 blue:0.2 alpha:1] setFill];
+        UIBezierPath *dot = [UIBezierPath bezierPathWithOvalInRect:CGRectMake(margin, margin + 3, dotSize, dotSize)];
+        [dot fill];
+
+        NSDictionary *liveAttrs = @{
+            NSFontAttributeName: [UIFont systemFontOfSize:12 weight:UIFontWeightBold],
+            NSForegroundColorAttributeName: [UIColor whiteColor]
+        };
+        [@"LIVE" drawAtPoint:CGPointMake(margin + dotSize + 4, margin) withAttributes:liveAttrs];
+
+        // Banner at bottom
+        CGFloat bannerH = 28;
+        CGFloat bannerY = h - bannerH;
+        [[UIColor colorWithWhite:0 alpha:0.6] setFill];
+        UIRectFill(CGRectMake(0, bannerY, w, bannerH));
+
+        NSDictionary *attrs = @{
+            NSFontAttributeName: [UIFont systemFontOfSize:12 weight:UIFontWeightMedium],
+            NSForegroundColorAttributeName: [UIColor colorWithWhite:1 alpha:0.85]
+        };
+        NSString *label = @"AutoPilot  |  Mock Camera";
+        CGSize textSize = [label sizeWithAttributes:attrs];
+        [label drawAtPoint:CGPointMake((w - textSize.width) / 2, bannerY + (bannerH - textSize.height) / 2) withAttributes:attrs];
+
+        UIImage *result = UIGraphicsGetImageFromCurrentImageContext();
+        UIGraphicsEndImageContext();
+        return result;
+    }
+
+    static void ap_previewSetSession(CALayer *self, SEL _cmd, AVCaptureSession *session) {
+        NSLog(@"[AutoPilot] PreviewLayer.setSession -> showing mock image");
+
         NSString *imagePath = [NSProcessInfo processInfo].environment[@"AUTOPILOT_CAMERA_IMAGE"];
         UIImage *img = nil;
         if (imagePath) {
             NSData *data = [NSData dataWithContentsOfFile:imagePath];
             if (data) img = [UIImage imageWithData:data];
         }
-
         if (!img) {
             UIGraphicsBeginImageContext(CGSizeMake(400, 600));
             [[UIColor darkGrayColor] setFill];
@@ -243,39 +294,10 @@ enum MockHeaders {
             UIGraphicsEndImageContext();
         }
 
-        self.contents = (__bridge id)img.CGImage;
-        self.contentsGravity = kCAGravityResizeAspectFill;
+        UIImage *preview = ap_compositePreviewImage(img);
+        self.contents = (__bridge id)preview.CGImage;
+        self.contentsGravity = kCAGravityResize;
         self.masksToBounds = YES;
-
-        // Add overlay label as sublayer (adapts to actual layer size)
-        dispatch_async(dispatch_get_main_queue(), ^{
-            // Remove previous overlay if any
-            for (CALayer *sub in [self.sublayers copy]) {
-                if ([sub.name isEqualToString:@"ap_overlay"]) [sub removeFromSuperlayer];
-            }
-
-            CGFloat h = 24;
-            CGFloat y = self.bounds.size.height > 0
-                ? self.bounds.size.height - h - 8
-                : 100;
-
-            CALayer *banner = [CALayer layer];
-            banner.name = @"ap_overlay";
-            banner.frame = CGRectMake(0, y, self.bounds.size.width > 0 ? self.bounds.size.width : 400, h);
-            banner.backgroundColor = [UIColor colorWithWhite:0 alpha:0.6].CGColor;
-
-            CATextLayer *text = [CATextLayer layer];
-            text.string = @"AutoPilot  \\u2022  Mock Camera";
-            text.font = (__bridge CFTypeRef)[UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
-            text.fontSize = 13;
-            text.foregroundColor = [UIColor colorWithWhite:1 alpha:0.9].CGColor;
-            text.alignmentMode = kCAAlignmentCenter;
-            text.contentsScale = [UIScreen mainScreen].scale;
-            text.frame = banner.bounds;
-
-            [banner addSublayer:text];
-            [self addSublayer:banner];
-        });
     }
 
     // ============================================================
