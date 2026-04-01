@@ -93,7 +93,59 @@ Para probar en desarrollo sin esperar la aprobacion:
 6. La extension se instala sin restricciones
 7. **Volver a habilitar SIP despues:** Recovery Mode → `csrutil enable`
 
-## Arquitectura Final (cuando se apruebe)
+## Tropiezo 4: Dylib injection (DYLD_INSERT_LIBRARIES)
+
+**Enfoque:** Inyectar una dylib ObjC al proceso de la app iOS en el Simulador que haga swizzle de las APIs de camara (AVCaptureDevice, AVCaptureSession, AVCapturePhotoOutput).
+
+**Lo que funciono:**
+- La dylib se carga correctamente via `SIMCTL_CHILD_DYLD_INSERT_LIBRARIES`
+- El swizzle de `authorizationStatus(.video) -> .authorized` funciona
+- El swizzle de `AVCaptureSession.startRunning()` intercepta correctamente
+- El swizzle de `capturePhotoWithSettings:delegate:` intercepta la captura
+- Se encontro el selector `didFinishProcessingPhoto` via runtime introspection
+- Se encontro el ivar `onPhotoCaptured` del CameraManager
+
+**Lo que NO funciono:**
+- `AVCapturePhoto` no se puede instanciar (init marcado unavailable)
+- Crear instancia via `objc_msgSend(alloc, init)` falla por Pointer Authentication (PAC) en ARM64
+- El objeto creado no tiene estado interno valido — crash en `fileDataRepresentation`
+- `object_getIvar` para acceder al closure Swift `onPhotoCaptured` crashea porque Swift closures no son ObjC blocks directamente — tienen distinta calling convention
+- Todos los intentos de invocar el closure directamente resultan en `EXC_BAD_ACCESS` con PAC failure
+
+**Conclusion:** El swizzling de AVFoundation funciona para interceptar, pero no para inyectar resultados de vuelta. ARM64 PAC y las diferencias entre Swift closures y ObjC blocks hacen imposible invocar callbacks de la app desde ObjC puro.
+
+### Compilacion de la dylib
+
+```bash
+xcrun clang -dynamiclib \
+    -framework Foundation -framework UIKit -framework AVFoundation \
+    -framework CoreMedia -framework CoreVideo -framework CoreImage \
+    -framework CoreGraphics \
+    -isysroot $(xcrun --sdk iphonesimulator --show-sdk-path) \
+    -target arm64-apple-ios26.0-simulator \
+    -o libAutoPilotCamera.dylib \
+    AutoPilotCamera.m
+
+# Lanzar app con inyeccion
+SIMCTL_CHILD_DYLD_INSERT_LIBRARIES="/path/to/libAutoPilotCamera.dylib" \
+    xcrun simctl launch booted "com.example.app"
+```
+
+## Estado actual y plan
+
+### Lo que funciona hoy
+- `auto camera start <imagen>` — copia imagen a `/tmp/autopilot-camera-feed.jpg`
+- `auto camera feed <imagen>` — actualiza la imagen
+- `auto camera stop` / `auto camera status`
+- `auto media <imagen>` — inyecta fotos a la galeria (simctl addmedia)
+- Dylib se carga y swizzlea exitosamente
+
+### Plan para proxima iteracion
+1. **Enfoque galeria:** usar `simctl addmedia` + `simctl privacy grant photos` para inyectar la imagen y que la app la use desde la galeria
+2. **Enfoque CMIOExtension:** solicitar entitlement a Apple, cuando aprueben reactivar el codigo existente
+3. **Investigar:** como RocketSim logra inyectar frames — puede haber un approach via `FigCaptureSession` hooks que no exploramos
+
+## Arquitectura Final (cuando se apruebe CMIOExtension)
 
 ```
 Terminal                    /tmp/                   AutoPilotCamera.app

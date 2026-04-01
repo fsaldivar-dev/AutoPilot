@@ -29,3 +29,6 @@ build/
 *.png
 !Demo/**/*.png
 !assets/**/*.png
+
+# Compiled dylibs
+*.dylib
