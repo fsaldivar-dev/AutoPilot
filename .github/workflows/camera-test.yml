@@ -1,4 +1,4 @@
-name: Camera Mock E2E
+name: E2E Tests
 
 on:
   push:
@@ -7,9 +7,9 @@ on:
     branches: [main]
 
 jobs:
-  camera-e2e:
+  e2e:
     runs-on: macos-15
-    timeout-minutes: 15
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -22,7 +22,6 @@ jobs:
 
       - name: Boot Simulator
         run: |
-          # Find first available iPhone simulator
           DEVICE_UDID=$(xcrun simctl list devices available -j | python3 -c "
           import json, sys
           data = json.loads(sys.stdin.read())
@@ -37,16 +36,17 @@ jobs:
           echo "Booting simulator: $DEVICE_UDID"
           xcrun simctl boot "$DEVICE_UDID"
           echo "DEVICE_UDID=$DEVICE_UDID" >> $GITHUB_ENV
-
-          # Wait for simulator to be ready
           sleep 5
           xcrun simctl list devices booted
+
+      - name: Open Simulator UI
+        run: |
+          open -a Simulator
+          sleep 10
 
       - name: Generate test image
         run: |
           mkdir -p temp
-          # Create a simple 200x200 JPEG test image using sips
-          # First create a PNG with a solid color via swift
           swift -e '
           import Foundation
           import CoreGraphics
@@ -56,21 +56,31 @@ jobs:
           let w = 200, h = 200
           let colorSpace = CGColorSpaceCreateDeviceRGB()
           guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4, space: colorSpace, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { exit(1) }
-
-          // Orange gradient
           ctx.setFillColor(red: 1.0, green: 0.6, blue: 0.2, alpha: 1.0)
           ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
           ctx.setFillColor(red: 1.0, green: 0.3, blue: 0.5, alpha: 0.5)
           ctx.fillEllipse(in: CGRect(x: 30, y: 30, width: 140, height: 140))
-
           guard let image = ctx.makeImage() else { exit(1) }
           let url = URL(fileURLWithPath: "temp/test-image.jpg")
           guard let dest = CGImageDestinationCreateWithURL(url as CFURL, UTType.jpeg.identifier as CFString, 1, nil) else { exit(1) }
           CGImageDestinationAddImage(dest, image, [kCGImageDestinationLossyCompressionQuality: 0.9] as CFDictionary)
           CGImageDestinationFinalize(dest)
-          print("Created test image at temp/test-image.jpg")
+          print("Created test image")
           '
           ls -la temp/test-image.jpg
+
+      # ============================================================
+      # Hardware: Face ID, Pasteboard
+      # ============================================================
+
+      - name: "Hardware: Face ID + Pasteboard"
+        run: |
+          mkdir -p screenshots
+          ./auto run scripts/examples/hardware-test.auto
+
+      # ============================================================
+      # Camera Mock: auto build + capture
+      # ============================================================
 
       - name: Build CameraTestApp with camera mock
         run: |
@@ -83,35 +93,26 @@ jobs:
       - name: Grant camera permission
         run: xcrun simctl privacy booted grant camera dev.autopilot.test.CameraTestApp
 
-      - name: Install app
+      - name: Install CameraTestApp
         run: |
           APP=$(find ~/Library/Developer/Xcode/DerivedData/CameraTestApp*/Build/Products/Debug-iphonesimulator -name '*.app' -maxdepth 1)
           echo "Installing: $APP"
           xcrun simctl install booted "$APP"
 
-      - name: Open Simulator UI
+      - name: "Camera: mock capture E2E"
         run: |
-          open -a Simulator
-          sleep 10
-
-      - name: Run camera E2E test
-        run: |
-          # Launch app with camera mock image
           SIMCTL_CHILD_AUTOPILOT_CAMERA_IMAGE=$(pwd)/temp/test-image.jpg \
             xcrun simctl launch booted dev.autopilot.test.CameraTestApp
-
-          # Wait for app to initialize
           sleep 5
-
-          # Create screenshots directory
-          mkdir -p screenshots
-
-          # Run test script
           ./auto run scripts/examples/camera-test.auto
+
+      # ============================================================
+      # Artifacts
+      # ============================================================
 
       - name: Upload screenshots
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: camera-test-screenshots
+          name: e2e-screenshots
           path: screenshots/
