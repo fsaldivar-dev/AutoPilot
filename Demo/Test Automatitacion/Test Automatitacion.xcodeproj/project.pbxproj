@@ -6,10 +6,6 @@
 	objectVersion = 77;
 	objects = {
 
-/* Begin PBXBuildFile section */
-		1B739A722F7D94D500C005E4 /* AutoPilotAVFoundation in Frameworks */ = {isa = PBXBuildFile; productRef = 1B739A712F7D94D500C005E4 /* AutoPilotAVFoundation */; };
-/* End PBXBuildFile section */
-
 /* Begin PBXContainerItemProxy section */
 		1B7399832F7C78E800C005E4 /* PBXContainerItemProxy */ = {
 			isa = PBXContainerItemProxy;
@@ -56,7 +52,6 @@
 			isa = PBXFrameworksBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
-				1B739A722F7D94D500C005E4 /* AutoPilotAVFoundation in Frameworks */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
@@ -117,7 +112,6 @@
 			);
 			name = "Test Automatitacion";
 			packageProductDependencies = (
-				1B739A712F7D94D500C005E4 /* AutoPilotAVFoundation */,
 			);
 			productName = "Test Automatitacion";
 			productReference = 1B7399752F7C78E600C005E4 /* Test Automatitacion.app */;
@@ -202,7 +196,6 @@
 			mainGroup = 1B73996C2F7C78E600C005E4;
 			minimizedProjectReferenceProxies = 1;
 			packageReferences = (
-				1B739A702F7D94D500C005E4 /* XCLocalSwiftPackageReference "../../packages/AutoPilotAVFoundation" */,
 			);
 			preferredProjectObjectVersion = 77;
 			productRefGroup = 1B7399762F7C78E600C005E4 /* Products */;
@@ -595,20 +588,6 @@
 			defaultConfigurationName = Release;
 		};
 /* End XCConfigurationList section */
-
-/* Begin XCLocalSwiftPackageReference section */
-		1B739A702F7D94D500C005E4 /* XCLocalSwiftPackageReference "../../packages/AutoPilotAVFoundation" */ = {
-			isa = XCLocalSwiftPackageReference;
-			relativePath = ../../packages/AutoPilotAVFoundation;
-		};
-/* End XCLocalSwiftPackageReference section */
-
-/* Begin XCSwiftPackageProductDependency section */
-		1B739A712F7D94D500C005E4 /* AutoPilotAVFoundation */ = {
-			isa = XCSwiftPackageProductDependency;
-			productName = AutoPilotAVFoundation;
-		};
-/* End XCSwiftPackageProductDependency section */
 	};
 	rootObject = 1B73996D2F7C78E600C005E4 /* Project object */;
 }
