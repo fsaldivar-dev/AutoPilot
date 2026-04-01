@@ -265,7 +265,7 @@ enum MockHeaders {
             banner.backgroundColor = [UIColor colorWithWhite:0 alpha:0.6].CGColor;
 
             CATextLayer *text = [CATextLayer layer];
-            text.string = @"AutoPilot  \u2022  Mock Camera";
+            text.string = @"AutoPilot  \\u2022  Mock Camera";
             text.font = (__bridge CFTypeRef)[UIFont systemFontOfSize:13 weight:UIFontWeightSemibold];
             text.fontSize = 13;
             text.foregroundColor = [UIColor colorWithWhite:1 alpha:0.9].CGColor;
