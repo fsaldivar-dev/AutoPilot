@@ -161,8 +161,17 @@ auto launch app --env AUTOPILOT_CAMERA_IMAGE=/path/to/image.jpg
 
 **Gotcha resuelto:** Xcode 26 debug dylib — `ENABLE_DEBUG_DYLIB=NO` necesario para que `force_load` funcione en el binario principal.
 
+**Metodos swizzleados (~25):**
+- AVCaptureDevice: authorizationStatus, requestAccess, defaultDevice (2 variantes)
+- AVCaptureDeviceInput: initWithDevice, deviceInputWithDevice
+- AVCaptureSession: startRunning, stopRunning, isRunning, canAddInput, canAddOutput, addInput, addOutput, removeInput, removeOutput, beginConfiguration, commitConfiguration, inputs, outputs
+- AVCapturePhotoOutput: capturePhoto
+- AVCapturePhoto: fileDataRepresentation, CGImageRepresentation, timestamp, photoCount, isRawPhoto
+- AVCaptureMetadataOutput: setMetadataObjectsDelegate, setMetadataObjectTypes
+- AVCaptureVideoPreviewLayer: setSession (muestra imagen + overlay "AutoPilot - Mock Camera")
+
 **Archivos:**
-- `cli/Sources/AutoLib/MockHeaders.swift` — codigo ObjC como string
+- `cli/Sources/AutoLib/MockHeaders.swift` — codigo ObjC como string (~350 lineas)
 - `cli/Sources/AutoLib/BuildInterceptor.swift` — orquestador: compila .m, wrapea xcodebuild
 - `cli/Sources/CLI/main.swift` — case "build" agregado
 - `cli/Sources/AutoLib/SimulatorBridge.swift` — metodo buildWithCameraMock
