@@ -3,6 +3,14 @@ import AVFoundation
 import UIKit
 import ObjectiveC
 
+// MARK: - Loader (llamado desde AutoPilotBridge constructor ObjC)
+
+@objc public class AutoPilotLoader: NSObject {
+    @objc public class func setup() {
+        AutoPilotCamera.activate()
+    }
+}
+
 /// AutoPilotCamera — se inicializa automaticamente al importar el modulo.
 /// Swizzlea AVFoundation para inyectar imagenes como camara en CI/CD.
 ///
@@ -20,7 +28,7 @@ public enum AutoPilotCamera {
     /// Callback registrado por la app para recibir fotos inyectadas
     public static var onPhotoCaptured: ((UIImage) -> Void)?
 
-    /// Llamar desde el app para forzar la inicializacion del modulo
+    /// Llamar desde el app o automaticamente via AutoPilotBridge constructor
     public static func activate() {
         guard isEnabled else {
             NSLog("[AutoPilot] No env vars — modo passthrough")
@@ -125,15 +133,32 @@ private class SwizzleTarget: NSObject {
 
         NSLog("[AutoPilot] capturePhoto -> inyectando imagen (%d bytes)", data.count)
 
-        // Usar el callback registrado por la app
+        // Buscar onPhotoCaptured en el delegate via ivar
+        let delegateObj = delegate as AnyObject
+        let cls: AnyClass = type(of: delegateObj)
+
+        if let ivar = class_getInstanceVariable(cls, "onPhotoCaptured") {
+            let offset = ivar_getOffset(ivar)
+            let ptr = Unmanaged.passUnretained(delegateObj).toOpaque().advanced(by: offset)
+            let closurePtr = ptr.assumingMemoryBound(to: Optional<(UIImage) -> Void>.self)
+            if let callback = closurePtr.pointee {
+                NSLog("[AutoPilot] onPhotoCaptured encontrado — invocando")
+                DispatchQueue.main.async {
+                    callback(image)
+                }
+                return
+            }
+        }
+
+        // Fallback: callback registrado manualmente
         if let callback = AutoPilotCamera.onPhotoCaptured {
-            NSLog("[AutoPilot] Invocando callback registrado")
+            NSLog("[AutoPilot] Usando callback registrado")
             DispatchQueue.main.async {
                 callback(image)
             }
             return
         }
 
-        NSLog("[AutoPilot] No hay callback registrado — usa AutoPilotCamera.onPhotoCaptured")
+        NSLog("[AutoPilot] No se encontro callback")
     }
 }

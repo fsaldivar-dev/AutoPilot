@@ -1,6 +1,5 @@
 import SwiftUI
 import AVFoundation
-import AutoPilotAVFoundation
 import PhotosUI
 
 // MARK: - Camera Manager
@@ -244,8 +243,6 @@ struct CaptureView: View {
                         showCaptureFlash = false
                     }
                 }
-                // Registrar callback para inyeccion de camara (AutoPilot CI/CD)
-                AutoPilotCamera.onPhotoCaptured = cameraManager.onPhotoCaptured
                 cameraManager.requestAccessAndConfigure()
             }
             .onDisappear {
@@ -276,7 +273,10 @@ struct CaptureView: View {
                 // Capture button
                 Button {
                     appState.triggerHaptic(.medium)
-                    if AutoPilotCamera.isEnabled || (cameraManager.cameraPermissionGranted && cameraManager.cameraConfigured) {
+                    let hasEnv = ProcessInfo.processInfo.environment["AUTOPILOT_CAMERA_IMAGE"] != nil
+                    NSLog("[DEBUG] boton tap — env=%d perm=%d config=%d", hasEnv, cameraManager.cameraPermissionGranted, cameraManager.cameraConfigured)
+                    if hasEnv || (cameraManager.cameraPermissionGranted && cameraManager.cameraConfigured) {
+                        NSLog("[DEBUG] llamando capturePhoto")
                         cameraManager.capturePhoto()
                     }
                 } label: {

@@ -85,6 +85,49 @@ auto launch app --env AUTOPILOT_CAMERA_IMAGE=/path/to/image.jpg
 
 **Alternativa:** SPM Build Tool Plugin que genera wrappers automaticos en tiempo de compilacion.
 
+## Sesion 2026-04-01 (continuacion)
+
+### Intento 5: Swift dylib linkada como package
+**Resultado:** Swizzle funciona, ivar access a closures crashea.
+
+- Swift dylib con ObjC bridge (`__attribute__((constructor))`) se carga automaticamente
+- Swizzle de authorizationStatus, requestAccess, startRunning, capturePhoto funciona
+- capturePhoto intercepta correctamente y carga la imagen
+- **Crash al acceder ivar `onPhotoCaptured`**: Swift closures en memoria no son function pointers simples, tienen contexto capturado + metadata que no se puede reinterpretar como `(UIImage) -> Void` via `ivar_getOffset` + `assumingMemoryBound`
+- El crash ocurre tanto desde dylib inyectada como desde package linkado — no es PAC, es la ABI de Swift closures
+
+### Intento 6: Package con callback registrado
+**Resultado:** Funciona. App necesita 1 linea para registrar callback.
+
+- Mismo swizzle que intento 5
+- En vez de buscar callback via ivar, la app registra `AutoPilotCamera.onPhotoCaptured = callback`
+- El swizzle de capturePhoto invoca el callback registrado
+- **Probado end-to-end: 16 pasos, imagen inyectada, "Fotos capturadas 1"**
+- Limitacion: requiere 1 linea en la app + el guard del boton
+
+### Intento 7: Pre-build script reemplazo de tipos
+**Resultado:** Parcial. Funciona para archivos del proyecto, no para dependencias SPM.
+
+- Script prebuild reemplaza `AVCaptureDevice` → `AutoPilotCaptureDevice`, etc.
+- Postbuild restaura originales
+- **Problemas encontrados:**
+  - Xcode sandbox (`ENABLE_USER_SCRIPT_SANDBOXING=YES`) bloqueaba escritura → solucionado con NO
+  - Espacios en rutas de "Test Automatitacion" → solucionado con `IFS` y comillas
+  - Conflictos de tipos: `AVCaptureDevice.default(for:)` retorna tipo real, `AutoPilotCaptureDeviceInput` espera nuestro tipo → solucionado con `init(device: Any)`
+  - **No alcanza dependencias SPM** — solo modifica archivos del workspace
+
+### Intento 8: Module map override (en progreso)
+**Objetivo:** `auto build` wrapea `xcodebuild` inyectando `-fmodule-map-file` que redirige AVFoundation a nuestro modulo. Aplica a todo: proyecto + dependencias SPM + cualquier codigo que compile.
+
+**Investigacion:**
+- `-fmodule-map-file` tiene prioridad sobre modulos del sistema (LLVM D31269)
+- Swift SE-0339 module aliasing permite renombrar modulos
+- VFS overlays (`-ivfsoverlay`) permiten redirigir paths de archivos
+- Nuestro modulo re-exporta todo AVFoundation excepto clases de camara
+- Clases de camara tienen mismos nombres, misma interfaz, nuestra implementacion
+
+**Estado:** Documentado, proximo paso es implementar `auto build`.
+
 ### Resumen de archivos
 
 | Archivo | Proposito | Estado |

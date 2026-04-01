@@ -5,7 +5,7 @@ let package = Package(
     name: "AutoPilotAVFoundation",
     platforms: [.iOS(.v16)],
     products: [
-        .library(name: "AutoPilotAVFoundation", targets: ["AutoPilotAVFoundation"])
+        .library(name: "AutoPilotAVFoundation", targets: ["AutoPilotAVFoundation", "AutoPilotBridge"])
     ],
     targets: [
         .target(
@@ -15,6 +15,12 @@ let package = Package(
                 .linkedFramework("AVFoundation"),
                 .linkedFramework("UIKit")
             ]
+        ),
+        .target(
+            name: "AutoPilotBridge",
+            dependencies: ["AutoPilotAVFoundation"],
+            path: "Sources/AutoPilotBridge",
+            publicHeadersPath: "include"
         )
     ]
 )
