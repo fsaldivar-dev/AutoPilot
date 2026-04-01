@@ -10,7 +10,11 @@ let package = Package(
     targets: [
         .target(
             name: "AutoPilotAVFoundation",
-            path: "Sources/AutoPilotAVFoundation"
+            path: "Sources/AutoPilotAVFoundation",
+            linkerSettings: [
+                .linkedFramework("AVFoundation"),
+                .linkedFramework("UIKit")
+            ]
         )
     ]
 )
