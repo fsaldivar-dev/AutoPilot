@@ -168,23 +168,36 @@ auto launch app --env AUTOPILOT_CAMERA_IMAGE=/path/to/image.jpg
 - AVCapturePhotoOutput: capturePhoto
 - AVCapturePhoto: fileDataRepresentation, CGImageRepresentation, timestamp, photoCount, isRawPhoto
 - AVCaptureMetadataOutput: setMetadataObjectsDelegate, setMetadataObjectTypes
-- AVCaptureVideoPreviewLayer: setSession (muestra imagen + overlay "AutoPilot - Mock Camera")
+- AVCaptureVideoPreviewLayer: setSession (composita imagen con labels LIVE + AutoPilot)
+
+**Preview layer:**
+- Composita imagen a 400x600 con aspectFill propio
+- Punto rojo + "LIVE" arriba izquierda (simula feed)
+- Banner "AutoPilot | Mock Camera" abajo (identifica mock)
+- `kCAGravityResize` para evitar doble crop
+- La foto capturada se entrega SIN etiquetas (imagen limpia original)
+
+**Validado con app de terceros (CameraTestApp):**
+- App AVFoundation pura, sin AutoPilot, sin dependencias
+- `auto build` + `simctl launch --env AUTOPILOT_CAMERA_IMAGE=...`
+- Preview muestra imagen con labels LIVE + AutoPilot
+- Captura: "Foto capturada (127925 bytes)", imagen limpia
+- QR scanner: no crashea, preview funciona
 
 **Archivos:**
-- `cli/Sources/AutoLib/MockHeaders.swift` — codigo ObjC como string (~350 lineas)
+- `cli/Sources/AutoLib/MockHeaders.swift` — codigo ObjC como string (~400 lineas)
 - `cli/Sources/AutoLib/BuildInterceptor.swift` — orquestador: compila .m, wrapea xcodebuild
 - `cli/Sources/CLI/main.swift` — case "build" agregado
 - `cli/Sources/AutoLib/SimulatorBridge.swift` — metodo buildWithCameraMock
+- `Demo/CameraTestApp/` — app tercera de prueba (AVFoundation puro)
 
 ### Resumen de archivos
 
 | Archivo | Proposito | Estado |
 |---|---|---|
-| `camera/CameraExtension/` | CMIOExtension Swift | Completo, bloqueado por entitlement |
-| `camera/AutoPilotCamera/` | App contenedora | Completo, bloqueado por entitlement |
-| `camera/CameraInject/AutoPilotCamera.m` | Dylib ObjC swizzle | Funciona parcialmente (intercepta, no inyecta) |
-| `cli/Sources/AutoLib/SimulatorBridge.swift` | `cameraStart/Feed/Stop/Status` + `launchApp --env` | Funcional |
-| `cli/Sources/CLI/main.swift` | `auto camera` + `auto launch --env` | Funcional |
-| `docs/ios/VARIABLES_ENTORNO.md` | Spec de env vars | Completa |
-| `Demo/.../CaptureView.swift` | +5 lineas env var camara | Funcional, probado |
-| `Demo/.../QRScannerView.swift` | +5 lineas env var QR | Funcional, no probado aun |
+| `cli/Sources/AutoLib/MockHeaders.swift` | Swizzle ObjC embebido (~25 metodos) | **Funcional** |
+| `cli/Sources/AutoLib/BuildInterceptor.swift` | Compila .m, wrapea xcodebuild | **Funcional** |
+| `Demo/CameraTestApp/` | App tercera para validar mock | **Probada** |
+| `camera/CameraExtension/` | CMIOExtension Swift | Bloqueado por entitlement |
+| `camera/CameraInject/AutoPilotCamera.m` | Dylib ObjC swizzle | Parcial (descartado) |
+| `packages/AutoPilotAVFoundation/` | Package swizzle (requiere 1 linea en app) | Funcional, superado por auto build |
