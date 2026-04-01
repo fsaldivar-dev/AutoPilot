@@ -116,17 +116,56 @@ auto launch app --env AUTOPILOT_CAMERA_IMAGE=/path/to/image.jpg
   - Conflictos de tipos: `AVCaptureDevice.default(for:)` retorna tipo real, `AutoPilotCaptureDeviceInput` espera nuestro tipo → solucionado con `init(device: Any)`
   - **No alcanza dependencias SPM** — solo modifica archivos del workspace
 
-### Intento 8: Module map override (en progreso)
-**Objetivo:** `auto build` wrapea `xcodebuild` inyectando `-fmodule-map-file` que redirige AVFoundation a nuestro modulo. Aplica a todo: proyecto + dependencias SPM + cualquier codigo que compile.
+### Intento 8: Module map override (descartado)
+**Objetivo:** VFS overlay + module map custom para reemplazar headers de AVFoundation.
 
-**Investigacion:**
-- `-fmodule-map-file` tiene prioridad sobre modulos del sistema (LLVM D31269)
-- Swift SE-0339 module aliasing permite renombrar modulos
-- VFS overlays (`-ivfsoverlay`) permiten redirigir paths de archivos
-- Nuestro modulo re-exporta todo AVFoundation excepto clases de camara
-- Clases de camara tienen mismos nombres, misma interfaz, nuestra implementacion
+**Resultado:** No funciona. Los headers simplificados rompen el modulo AVFoundation porque faltan tipos interdependientes (AVCaptureConnection, etc.). Intentamos:
+- VFS overlay que redirige headers de captura → otros headers del framework referencian tipos faltantes
+- Headers custom completos → demasiada superficie de API para mantener
 
-**Estado:** Documentado, proximo paso es implementar `auto build`.
+### Intento 9: Force-load + swizzle con #undef AV_INIT_UNAVAILABLE
+**Resultado:** FUNCIONA. Build completo sin errores.
+
+**Enfoque:**
+1. Compilamos un `.m` ObjC con `-fno-modules` que:
+   - Importa `AVBase.h` primero, luego `#undef AV_INIT_UNAVAILABLE` y redefine como vacio
+   - Importa `AVFoundation.h` — ahora `AVCapturePhoto` tiene init disponible
+   - `__attribute__((constructor))` swizzlea todo al cargar:
+     - `AVCaptureDevice.authorizationStatus` → `.authorized`
+     - `AVCaptureDevice.requestAccess` → `YES`
+     - `AVCaptureSession.startRunning/stopRunning` → no-op
+     - `AVCaptureSession.canAddInput/canAddOutput` → `YES`
+     - `AVCapturePhotoOutput.capturePhoto` → lee AUTOPILOT_CAMERA_IMAGE, crea AVCapturePhoto real via init, guarda datos con `objc_setAssociatedObject`
+     - `AVCapturePhoto.fileDataRepresentation` → lee datos de associated object
+     - `AVCapturePhoto.CGImageRepresentation` → idem
+     - `AVCapturePhoto.timestamp/photoCount/isRawPhoto` → valores mock
+2. Se compila a `libAutoPilotCapture.a` (static lib, ~20KB)
+3. `auto build` wrapea xcodebuild con `OTHER_LDFLAGS=-force_load libAutoPilotCapture.a`
+
+**Por que funciona:**
+- `AV_INIT_UNAVAILABLE` es restriccion solo de compilador, no de runtime
+- `#undef` + `#define` vacio elimina la restriccion en nuestro .m
+- `[[AVCapturePhoto alloc] init]` funciona porque init es heredado de NSObject
+- Associated objects evitan tocar ivars internos (_internal) → no PAC issues
+- `-force_load` mete el constructor en el binario → swizzle ocurre al cargar
+- No hay duplicacion de clases, solo swizzle de metodos existentes
+
+**Probado end-to-end:**
+1. `auto build` compila Demo app con mock inyectado (BUILD SUCCEEDED)
+2. `simctl install` + `simctl launch --env AUTOPILOT_CAMERA_IMAGE=...`
+3. Constructor swizzlea 20 metodos (auth, device, session, photo, input)
+4. Tap boton captura → `capturePhoto intercepted` → `Loaded image (127KB)` → `Photo delivered to delegate`
+5. UI muestra "Fotos capturadas: 1"
+
+**Gotcha resuelto:** `class_addMethod` vs `method_setImplementation` — si el metodo esta heredado (no directamente en la clase), `method_setImplementation` modifica la superclase. `class_addMethod` lo agrega directamente a la clase.
+
+**Gotcha resuelto:** Xcode 26 debug dylib — `ENABLE_DEBUG_DYLIB=NO` necesario para que `force_load` funcione en el binario principal.
+
+**Archivos:**
+- `cli/Sources/AutoLib/MockHeaders.swift` — codigo ObjC como string
+- `cli/Sources/AutoLib/BuildInterceptor.swift` — orquestador: compila .m, wrapea xcodebuild
+- `cli/Sources/CLI/main.swift` — case "build" agregado
+- `cli/Sources/AutoLib/SimulatorBridge.swift` — metodo buildWithCameraMock
 
 ### Resumen de archivos
 
