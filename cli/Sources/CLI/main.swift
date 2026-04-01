@@ -395,6 +395,17 @@ func executeCommand(_ args: [String]) throws {
             exit(1)
         }
 
+    case "build":
+        let buildArgs = Array(args.dropFirst())
+        guard !buildArgs.isEmpty else {
+            print("Usage: auto build <xcodebuild args...>")
+            print("Example: auto build -project App.xcodeproj -scheme App -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 16'")
+            return
+        }
+        try bridge.buildWithCameraMock(args: buildArgs)
+        let ms = elapsed(start)
+        print("Build completed (\(ms)ms)")
+
     case "help", "--help", "-h":
         printUsage()
 
@@ -457,6 +468,7 @@ func printUsage() {
       camera stop                       Stop virtual camera
       camera status                     Check camera status
       terminate <bundleId>              Kill app
+      build <xcodebuild args...>        Build with camera mock injected
       run <script.auto>                 Run automation script
 
     Script format (.auto):

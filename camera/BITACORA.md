@@ -85,6 +85,97 @@ auto launch app --env AUTOPILOT_CAMERA_IMAGE=/path/to/image.jpg
 
 **Alternativa:** SPM Build Tool Plugin que genera wrappers automaticos en tiempo de compilacion.
 
+## Sesion 2026-04-01 (continuacion)
+
+### Intento 5: Swift dylib linkada como package
+**Resultado:** Swizzle funciona, ivar access a closures crashea.
+
+- Swift dylib con ObjC bridge (`__attribute__((constructor))`) se carga automaticamente
+- Swizzle de authorizationStatus, requestAccess, startRunning, capturePhoto funciona
+- capturePhoto intercepta correctamente y carga la imagen
+- **Crash al acceder ivar `onPhotoCaptured`**: Swift closures en memoria no son function pointers simples, tienen contexto capturado + metadata que no se puede reinterpretar como `(UIImage) -> Void` via `ivar_getOffset` + `assumingMemoryBound`
+- El crash ocurre tanto desde dylib inyectada como desde package linkado — no es PAC, es la ABI de Swift closures
+
+### Intento 6: Package con callback registrado
+**Resultado:** Funciona. App necesita 1 linea para registrar callback.
+
+- Mismo swizzle que intento 5
+- En vez de buscar callback via ivar, la app registra `AutoPilotCamera.onPhotoCaptured = callback`
+- El swizzle de capturePhoto invoca el callback registrado
+- **Probado end-to-end: 16 pasos, imagen inyectada, "Fotos capturadas 1"**
+- Limitacion: requiere 1 linea en la app + el guard del boton
+
+### Intento 7: Pre-build script reemplazo de tipos
+**Resultado:** Parcial. Funciona para archivos del proyecto, no para dependencias SPM.
+
+- Script prebuild reemplaza `AVCaptureDevice` → `AutoPilotCaptureDevice`, etc.
+- Postbuild restaura originales
+- **Problemas encontrados:**
+  - Xcode sandbox (`ENABLE_USER_SCRIPT_SANDBOXING=YES`) bloqueaba escritura → solucionado con NO
+  - Espacios en rutas de "Test Automatitacion" → solucionado con `IFS` y comillas
+  - Conflictos de tipos: `AVCaptureDevice.default(for:)` retorna tipo real, `AutoPilotCaptureDeviceInput` espera nuestro tipo → solucionado con `init(device: Any)`
+  - **No alcanza dependencias SPM** — solo modifica archivos del workspace
+
+### Intento 8: Module map override (descartado)
+**Objetivo:** VFS overlay + module map custom para reemplazar headers de AVFoundation.
+
+**Resultado:** No funciona. Los headers simplificados rompen el modulo AVFoundation porque faltan tipos interdependientes (AVCaptureConnection, etc.). Intentamos:
+- VFS overlay que redirige headers de captura → otros headers del framework referencian tipos faltantes
+- Headers custom completos → demasiada superficie de API para mantener
+
+### Intento 9: Force-load + swizzle con #undef AV_INIT_UNAVAILABLE
+**Resultado:** FUNCIONA. Build completo sin errores.
+
+**Enfoque:**
+1. Compilamos un `.m` ObjC con `-fno-modules` que:
+   - Importa `AVBase.h` primero, luego `#undef AV_INIT_UNAVAILABLE` y redefine como vacio
+   - Importa `AVFoundation.h` — ahora `AVCapturePhoto` tiene init disponible
+   - `__attribute__((constructor))` swizzlea todo al cargar:
+     - `AVCaptureDevice.authorizationStatus` → `.authorized`
+     - `AVCaptureDevice.requestAccess` → `YES`
+     - `AVCaptureSession.startRunning/stopRunning` → no-op
+     - `AVCaptureSession.canAddInput/canAddOutput` → `YES`
+     - `AVCapturePhotoOutput.capturePhoto` → lee AUTOPILOT_CAMERA_IMAGE, crea AVCapturePhoto real via init, guarda datos con `objc_setAssociatedObject`
+     - `AVCapturePhoto.fileDataRepresentation` → lee datos de associated object
+     - `AVCapturePhoto.CGImageRepresentation` → idem
+     - `AVCapturePhoto.timestamp/photoCount/isRawPhoto` → valores mock
+2. Se compila a `libAutoPilotCapture.a` (static lib, ~20KB)
+3. `auto build` wrapea xcodebuild con `OTHER_LDFLAGS=-force_load libAutoPilotCapture.a`
+
+**Por que funciona:**
+- `AV_INIT_UNAVAILABLE` es restriccion solo de compilador, no de runtime
+- `#undef` + `#define` vacio elimina la restriccion en nuestro .m
+- `[[AVCapturePhoto alloc] init]` funciona porque init es heredado de NSObject
+- Associated objects evitan tocar ivars internos (_internal) → no PAC issues
+- `-force_load` mete el constructor en el binario → swizzle ocurre al cargar
+- No hay duplicacion de clases, solo swizzle de metodos existentes
+
+**Probado end-to-end:**
+1. `auto build` compila Demo app con mock inyectado (BUILD SUCCEEDED)
+2. `simctl install` + `simctl launch --env AUTOPILOT_CAMERA_IMAGE=...`
+3. Constructor swizzlea 20 metodos (auth, device, session, photo, input)
+4. Tap boton captura → `capturePhoto intercepted` → `Loaded image (127KB)` → `Photo delivered to delegate`
+5. UI muestra "Fotos capturadas: 1"
+
+**Gotcha resuelto:** `class_addMethod` vs `method_setImplementation` — si el metodo esta heredado (no directamente en la clase), `method_setImplementation` modifica la superclase. `class_addMethod` lo agrega directamente a la clase.
+
+**Gotcha resuelto:** Xcode 26 debug dylib — `ENABLE_DEBUG_DYLIB=NO` necesario para que `force_load` funcione en el binario principal.
+
+**Metodos swizzleados (~25):**
+- AVCaptureDevice: authorizationStatus, requestAccess, defaultDevice (2 variantes)
+- AVCaptureDeviceInput: initWithDevice, deviceInputWithDevice
+- AVCaptureSession: startRunning, stopRunning, isRunning, canAddInput, canAddOutput, addInput, addOutput, removeInput, removeOutput, beginConfiguration, commitConfiguration, inputs, outputs
+- AVCapturePhotoOutput: capturePhoto
+- AVCapturePhoto: fileDataRepresentation, CGImageRepresentation, timestamp, photoCount, isRawPhoto
+- AVCaptureMetadataOutput: setMetadataObjectsDelegate, setMetadataObjectTypes
+- AVCaptureVideoPreviewLayer: setSession (muestra imagen + overlay "AutoPilot - Mock Camera")
+
+**Archivos:**
+- `cli/Sources/AutoLib/MockHeaders.swift` — codigo ObjC como string (~350 lineas)
+- `cli/Sources/AutoLib/BuildInterceptor.swift` — orquestador: compila .m, wrapea xcodebuild
+- `cli/Sources/CLI/main.swift` — case "build" agregado
+- `cli/Sources/AutoLib/SimulatorBridge.swift` — metodo buildWithCameraMock
+
 ### Resumen de archivos
 
 | Archivo | Proposito | Estado |

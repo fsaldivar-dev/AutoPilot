@@ -27,4 +27,5 @@ screenshot temp/capturar.png
 # --- Capturar foto (usa AUTOPILOT_CAMERA_IMAGE) ---
 # El boton Camera esta en [284,575 61x61], centro = 314,605
 tapAt 314 605
+waitFor "capturadas" 5
 screenshot temp/despues-captura.png
