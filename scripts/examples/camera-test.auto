@@ -1,0 +1,11 @@
+# camera-test.auto
+# Prueba E2E de inyeccion de camara en CameraTestApp
+# Requiere: app instalada, lanzada con AUTOPILOT_CAMERA_IMAGE
+
+ping
+waitFor "Camara lista" 15
+screenshot screenshots/camera-preview.png
+tap "Capturar Foto"
+waitFor "bytes" 10
+screenshot screenshots/camera-captured.png
+terminate dev.autopilot.test.CameraTestApp
