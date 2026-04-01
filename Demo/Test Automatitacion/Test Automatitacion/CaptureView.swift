@@ -85,6 +85,7 @@ class CameraManager: NSObject, AVCapturePhotoCaptureDelegate {
 
     func capturePhoto() {
         // AutoPilot: imagen inyectada via variable de entorno (CI/CD sin camara)
+        // AutoPilot: imagen inyectada via variable de entorno (CI/CD sin camara)
         if let path = ProcessInfo.processInfo.environment["AUTOPILOT_CAMERA_IMAGE"],
            let image = UIImage(contentsOfFile: path) {
             onPhotoCaptured?(image)
@@ -279,7 +280,9 @@ struct CaptureView: View {
                 // Capture button
                 Button {
                     appState.triggerHaptic(.medium)
-                    if cameraManager.cameraPermissionGranted && cameraManager.cameraConfigured {
+                    // AutoPilot: permitir captura si hay imagen inyectada via env var
+                    let hasInjectedImage = ProcessInfo.processInfo.environment["AUTOPILOT_CAMERA_IMAGE"] != nil
+                    if hasInjectedImage || (cameraManager.cameraPermissionGranted && cameraManager.cameraConfigured) {
                         cameraManager.capturePhoto()
                     }
                 } label: {
