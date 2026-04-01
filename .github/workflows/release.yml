@@ -1,0 +1,136 @@
+name: Release
+
+on:
+  pull_request:
+    types: [closed]
+    branches: [main]
+
+jobs:
+  release:
+    if: github.event.pull_request.merged == true
+    runs-on: macos-14
+    permissions:
+      contents: write
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Determine version bump
+        id: bump
+        run: |
+          LABELS='${{ toJSON(github.event.pull_request.labels.*.name) }}'
+
+          if echo "$LABELS" | grep -q '"major"'; then
+            echo "type=major" >> $GITHUB_OUTPUT
+          elif echo "$LABELS" | grep -q '"minor"'; then
+            echo "type=minor" >> $GITHUB_OUTPUT
+          elif echo "$LABELS" | grep -q '"patch"'; then
+            echo "type=patch" >> $GITHUB_OUTPUT
+          else
+            echo "No version label found (major/minor/patch). Skipping release."
+            echo "type=skip" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Get latest tag
+        if: steps.bump.outputs.type != 'skip'
+        id: tag
+        run: |
+          LATEST=$(git tag --sort=-v:refname | head -n 1)
+          if [ -z "$LATEST" ]; then
+            LATEST="v0.0.0"
+          fi
+          echo "latest=$LATEST" >> $GITHUB_OUTPUT
+
+      - name: Calculate next version
+        if: steps.bump.outputs.type != 'skip'
+        id: version
+        run: |
+          CURRENT="${{ steps.tag.outputs.latest }}"
+          CURRENT="${CURRENT#v}"
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$CURRENT"
+
+          case "${{ steps.bump.outputs.type }}" in
+            major)
+              MAJOR=$((MAJOR + 1))
+              MINOR=0
+              PATCH=0
+              ;;
+            minor)
+              MINOR=$((MINOR + 1))
+              PATCH=0
+              ;;
+            patch)
+              PATCH=$((PATCH + 1))
+              ;;
+          esac
+
+          VERSION="v${MAJOR}.${MINOR}.${PATCH}"
+          echo "next=$VERSION" >> $GITHUB_OUTPUT
+          echo "Next version: $VERSION"
+
+      - name: Run tests
+        if: steps.bump.outputs.type != 'skip'
+        run: cd cli && swift test
+
+      - name: Build universal binary
+        if: steps.bump.outputs.type != 'skip'
+        run: |
+          cd cli
+          swift build -c release --arch arm64
+          swift build -c release --arch x86_64
+          lipo -create \
+            .build/arm64-apple-macosx/release/auto \
+            .build/x86_64-apple-macosx/release/auto \
+            -output ../auto-universal
+          cd ..
+          chmod +x auto-universal
+
+      - name: Generate checksums
+        if: steps.bump.outputs.type != 'skip'
+        run: |
+          shasum -a 256 auto-universal > checksums.txt
+          cat checksums.txt
+
+      - name: Create release
+        if: steps.bump.outputs.type != 'skip'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          VERSION="${{ steps.version.outputs.next }}"
+          PR_TITLE="${{ github.event.pull_request.title }}"
+          PR_BODY="${{ github.event.pull_request.body }}"
+
+          gh release create "$VERSION" \
+            --title "$VERSION — $PR_TITLE" \
+            --notes "## Changes
+
+          $PR_BODY
+
+          ## Installation
+
+          \`\`\`bash
+          # Download binary
+          curl -L https://github.com/${{ github.repository }}/releases/download/${VERSION}/auto-universal -o auto
+          chmod +x auto
+          sudo mv auto /usr/local/bin/
+
+          # Or build from source
+          cd cli && swift build -c release
+          \`\`\`
+
+          ## Checksums
+          \`\`\`
+          $(cat checksums.txt)
+          \`\`\`" \
+            auto-universal checksums.txt
+
+      - name: Create labels if missing
+        if: steps.bump.outputs.type != 'skip'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh label create major --color D93F0B --description "Major version bump (breaking changes)" --force
+          gh label create minor --color 0E8A16 --description "Minor version bump (new features)" --force
+          gh label create patch --color 1D76DB --description "Patch version bump (bug fixes)" --force
