@@ -79,12 +79,32 @@ func executeCommand(_ args: [String]) throws {
 
     case "launch":
         guard args.count >= 2 else {
-            print("Usage: auto launch <bundleId>")
+            print("Usage: auto launch <bundleId> [--env KEY=VALUE ...]")
             return
         }
-        try bridge.launchApp(bundleId: args[1])
+        let bundleId = args[1]
+        var envVars: [String: String] = [:]
+        var i = 2
+        while i < args.count {
+            if args[i] == "--env" && i + 1 < args.count {
+                let pair = args[i + 1]
+                if let eqIndex = pair.firstIndex(of: "=") {
+                    let key = String(pair[pair.startIndex..<eqIndex])
+                    let value = String(pair[pair.index(after: eqIndex)...])
+                    envVars[key] = value
+                }
+                i += 2
+            } else {
+                i += 1
+            }
+        }
+        try bridge.launchApp(bundleId: bundleId, envVars: envVars)
         let ms = elapsed(start)
-        print("Launched \(args[1]) (\(ms)ms)")
+        if envVars.isEmpty {
+            print("Launched \(bundleId) (\(ms)ms)")
+        } else {
+            print("Launched \(bundleId) with \(envVars.count) env var(s) (\(ms)ms)")
+        }
 
     case "tap":
         guard args.count >= 2 else {
@@ -253,6 +273,44 @@ func executeCommand(_ args: [String]) throws {
             print(text)
         }
 
+    case "camera":
+        guard args.count >= 2 else {
+            print("Usage: auto camera <start|feed|stop|status> [image]")
+            return
+        }
+        switch args[1] {
+        case "start":
+            guard args.count >= 3 else {
+                print("Usage: auto camera start <image.jpg>")
+                return
+            }
+            try bridge.cameraStart(imagePath: args[2])
+            let ms = elapsed(start)
+            print("Camera started with '\(args[2])' (\(ms)ms)")
+        case "feed":
+            guard args.count >= 3 else {
+                print("Usage: auto camera feed <image.jpg>")
+                return
+            }
+            try bridge.cameraFeed(imagePath: args[2])
+            let ms = elapsed(start)
+            print("Camera feed updated: '\(args[2])' (\(ms)ms)")
+        case "stop":
+            bridge.cameraStop()
+            let ms = elapsed(start)
+            print("Camera stopped (\(ms)ms)")
+        case "status":
+            let status = bridge.cameraStatus()
+            let ms = elapsed(start)
+            if status.active {
+                print("ACTIVE — feed: \(status.imagePath ?? "none") (\(ms)ms)")
+            } else {
+                print("INACTIVE (\(ms)ms)")
+            }
+        default:
+            print("Unknown: \(args[1]). Use start/feed/stop/status")
+        }
+
     case "boot":
         guard args.count >= 2 else {
             print("Usage: auto boot <device_name|udid>")
@@ -379,7 +437,7 @@ func printUsage() {
       ping                              Check Simulator is running
       tree                              Print accessibility tree
       tree -s "query"                   Search elements
-      launch <bundleId>                 Launch app
+      launch <bundleId> [--env K=V ...]  Launch app (with env vars)
       tap <id|title|label>              Tap element
       longPress <id|title|label> [secs]  Long press element
       doubleTap <id|title|label>        Double tap element
@@ -394,6 +452,10 @@ func printUsage() {
       install <path/to/app.app>        Install app on simulator
       elementAt <x> <y>                 Element at coordinate
       screenshot [filename.png]         Screenshot (via simctl)
+      camera start <image>              Start virtual camera feed
+      camera feed <image>               Update camera image
+      camera stop                       Stop virtual camera
+      camera status                     Check camera status
       terminate <bundleId>              Kill app
       run <script.auto>                 Run automation script
 
