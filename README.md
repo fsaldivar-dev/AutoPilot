@@ -337,13 +337,45 @@ echo "Codigo de salida: $?"  # 0 = exito, 1 = fallo
 
 ---
 
-## Documentacion Tecnica
+## Camara Virtual (CI/CD sin webcam)
 
-La documentacion tecnica detallada esta separada por plataforma:
+En CI/CD headless no hay webcam. El Simulador iOS no mapea camaras de macOS a `AVCaptureSession`. Investigamos multiples enfoques para resolver esto:
+
+| Enfoque | Estado | Detalle |
+|---|---|---|
+| **CMIOExtension** | Codigo completo, bloqueado | Requiere entitlement de Apple (`system-extension.install`) |
+| **DAL Plugin** | Descartado | Removido en macOS 15 |
+| **Dylib injection** | Parcial | Swizzle intercepta APIs, ARM64 PAC impide inyectar datos de vuelta |
+| **Variables de entorno** | **Funcional** | 11 lineas en la app, imagen inyectada sin camara |
+
+### Solucion actual: Variables de entorno
+
+```bash
+# Inyectar imagen como captura de camara
+auto launch com.example.app --env AUTOPILOT_CAMERA_IMAGE=/ruta/foto.jpg
+
+# Inyectar resultado de QR sin escanear
+auto launch com.example.app --env AUTOPILOT_QR_CODE="https://ejemplo.com"
+```
+
+La app detecta la variable y usa la imagen/codigo inyectado en vez del hardware. Requiere ~5 lineas por feature en la app. En dispositivo fisico, el flujo normal no se afecta.
+
+### Proxima iteracion: Swift dylib
+
+Dylib escrita en Swift (no ObjC) que puede crear objetos nativos e invocar closures sin problemas de PAC. Funcionaria con cualquier app sin modificar codigo.
+
+> **Documentacion completa:** [camera/BITACORA.md](camera/BITACORA.md) — 4 intentos, hallazgos, tropiezos y plan futuro.
+> **Spec de env vars:** [docs/ios/VARIABLES_ENTORNO.md](docs/ios/VARIABLES_ENTORNO.md)
+
+---
+
+## Documentacion Tecnica
 
 | Plataforma | Estado | Documentacion |
 |---|---|---|
 | **iOS** | Funcional | [docs/ios/ARQUITECTURA.md](docs/ios/ARQUITECTURA.md) — AXUIElement, CGEvent, simctl, AppleScript, algoritmo de matching |
+| **iOS Camara** | En progreso | [camera/BITACORA.md](camera/BITACORA.md) — Tropiezos, hallazgos, plan |
+| **iOS Env Vars** | Funcional | [docs/ios/VARIABLES_ENTORNO.md](docs/ios/VARIABLES_ENTORNO.md) — Inyeccion de datos para CI/CD |
 | **Android** | Futuro | [docs/android/README.md](docs/android/README.md) — ADB, UIAutomator, adb shell input |
 
 ---
@@ -362,6 +394,12 @@ AutoPilot/
 │   │   └── CLI/
 │   │       └── main.swift      # Punto de entrada, dispatch, script runner
 │   └── Tests/                  # Tests unitarios (27 tests)
+├── camera/                     # Camara virtual
+│   ├── CameraExtension/        # CMIOExtension (pendiente entitlement)
+│   ├── CameraInject/           # Dylib ObjC (swizzle AVFoundation)
+│   ├── AutoPilotCamera/        # App contenedora
+│   ├── BITACORA.md             # Tropiezos y hallazgos
+│   └── DESARROLLO.md           # Plan tecnico
 ├── protocol/
 │   └── commands.json           # Especificacion de comandos (multi-plataforma)
 ├── scripts/examples/           # Scripts .auto de ejemplo
