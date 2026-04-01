@@ -1,0 +1,15 @@
+name: CameraTestApp
+options:
+  bundleIdPrefix: dev.autopilot.test
+  deploymentTarget:
+    iOS: "17.0"
+targets:
+  CameraTestApp:
+    type: application
+    platform: iOS
+    sources:
+      - CameraTestApp
+    settings:
+      GENERATE_INFOPLIST_FILE: YES
+      INFOPLIST_KEY_NSCameraUsageDescription: "Necesitamos la camara para tomar fotos"
+      SWIFT_VERSION: "5.9"
