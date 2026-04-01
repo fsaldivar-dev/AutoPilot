@@ -1,5 +1,6 @@
 import Foundation
 import AppKit
+import AutoLib
 
 let bridge = SimulatorBridge()
 
@@ -25,59 +26,24 @@ func run() throws {
 
 func runScript(path: String) throws {
     let content = try String(contentsOfFile: path, encoding: .utf8)
-    let lines = content.components(separatedBy: .newlines)
+    let steps = parseScript(content)
 
     let totalStart = CFAbsoluteTimeGetCurrent()
-    var stepCount = 0
 
-    for (i, line) in lines.enumerated() {
-        let trimmed = line.trimmingCharacters(in: .whitespaces)
-        if trimmed.isEmpty || trimmed.hasPrefix("#") { continue }
-
-        stepCount += 1
-        let tokens = tokenize(trimmed)
-        guard !tokens.isEmpty else { continue }
-
-        print("[\(stepCount)] \(trimmed)")
+    for (i, step) in steps.enumerated() {
+        let label = step.tokens.joined(separator: " ")
+        print("[\(i + 1)] \(label)")
 
         do {
-            try executeCommand(tokens)
+            try executeCommand(step.tokens)
         } catch {
-            print("FAIL at line \(i + 1): \(error)")
+            print("FAIL at line \(step.lineNumber): \(error)")
             exit(1)
         }
     }
 
     let totalMs = elapsed(totalStart)
-    print("\n\(stepCount) step(s) completed (\(totalMs)ms)")
-}
-
-/// Tokenize a line respecting quoted strings.
-func tokenize(_ line: String) -> [String] {
-    var tokens: [String] = []
-    var current = ""
-    var inQuote: Character? = nil
-
-    for char in line {
-        if let q = inQuote {
-            if char == q {
-                inQuote = nil
-            } else {
-                current.append(char)
-            }
-        } else if char == "\"" || char == "'" {
-            inQuote = char
-        } else if char == " " {
-            if !current.isEmpty {
-                tokens.append(current)
-                current = ""
-            }
-        } else {
-            current.append(char)
-        }
-    }
-    if !current.isEmpty { tokens.append(current) }
-    return tokens
+    print("\n\(steps.count) step(s) completed (\(totalMs)ms)")
 }
 
 func executeCommand(_ args: [String]) throws {
