@@ -25,6 +25,7 @@ build/
 *.swp
 *~
 
-# Test artifacts
+# Test artifacts (screenshots from runs)
 *.png
 !Demo/**/*.png
+!assets/**/*.png
