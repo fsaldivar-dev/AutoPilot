@@ -20,7 +20,12 @@
     <string>1</string>
     <key>LSMinimumSystemVersion</key>
     <string>13.0</string>
-    <key>NSSystemExtensionUsageDescription</key>
-    <string>AutoPilot necesita instalar una camara virtual para alimentar imagenes al Simulador iOS.</string>
+    <key>CMIOExtensionMachServiceName</key>
+    <string>dev.autopilot.camera</string>
+    <key>NSExtension</key>
+    <dict>
+        <key>NSExtensionPointIdentifier</key>
+        <string>com.apple.cmio.registerassistantservice</string>
+    </dict>
 </dict>
 </plist>
