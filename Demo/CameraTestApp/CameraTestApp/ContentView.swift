@@ -13,29 +13,24 @@ struct ContentView: View {
             Text(viewModel.status)
                 .foregroundStyle(.secondary)
 
-            // Preview area
-            ZStack {
-                RoundedRectangle(cornerRadius: 16)
-                    .fill(.black)
-                    .frame(height: 300)
+            // Live preview
+            CameraPreview(session: viewModel.session)
+                .frame(height: 300)
+                .clipShape(RoundedRectangle(cornerRadius: 16))
+                .overlay(
+                    RoundedRectangle(cornerRadius: 16)
+                        .strokeBorder(.white.opacity(0.2), lineWidth: 1)
+                )
+                .padding(.horizontal)
 
-                if let image = viewModel.capturedImage {
-                    Image(uiImage: image)
-                        .resizable()
-                        .aspectRatio(contentMode: .fill)
-                        .frame(height: 300)
-                        .clipShape(RoundedRectangle(cornerRadius: 16))
-                } else {
-                    VStack {
-                        Image(systemName: "camera")
-                            .font(.system(size: 40))
-                            .foregroundStyle(.gray)
-                        Text("Sin captura")
-                            .foregroundStyle(.gray)
-                    }
-                }
+            // Captured image
+            if let image = viewModel.capturedImage {
+                Image(uiImage: image)
+                    .resizable()
+                    .aspectRatio(contentMode: .fit)
+                    .frame(height: 100)
+                    .clipShape(RoundedRectangle(cornerRadius: 8))
             }
-            .padding(.horizontal)
 
             // Capture button
             Button {
@@ -74,7 +69,7 @@ class CameraViewModel: NSObject, AVCapturePhotoCaptureDelegate {
     var capturedImage: UIImage?
     var photoData: Data?
 
-    private let session = AVCaptureSession()
+    let session = AVCaptureSession()
     private let photoOutput = AVCapturePhotoOutput()
     private let sessionQueue = DispatchQueue(label: "camera.queue")
 
@@ -151,5 +146,26 @@ class CameraViewModel: NSObject, AVCapturePhotoCaptureDelegate {
                 self.status = "Sin datos en la foto"
             }
         }
+    }
+}
+
+// MARK: - Live Preview
+
+struct CameraPreview: UIViewRepresentable {
+    let session: AVCaptureSession
+
+    func makeUIView(context: Context) -> UIView {
+        let view = PreviewView()
+        view.previewLayer.session = session
+        view.previewLayer.videoGravity = .resizeAspectFill
+        view.backgroundColor = .black
+        return view
+    }
+
+    func updateUIView(_ uiView: UIView, context: Context) {}
+
+    private class PreviewView: UIView {
+        override class var layerClass: AnyClass { AVCaptureVideoPreviewLayer.self }
+        var previewLayer: AVCaptureVideoPreviewLayer { layer as! AVCaptureVideoPreviewLayer }
     }
 }
