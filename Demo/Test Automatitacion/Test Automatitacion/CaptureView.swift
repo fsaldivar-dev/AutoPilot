@@ -170,6 +170,7 @@ struct CaptureView: View {
                 }
             }
             .navigationTitle("Capturar")
+            .navigationBarTitleDisplayMode(.inline)
             .sheet(isPresented: $showPhotoDetail) {
                 if let photo = selectedPhoto {
                     PhotoViewerSheet(image: photo)
