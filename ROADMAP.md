@@ -1,13 +1,13 @@
-# AutoPilot Roadmap
+# AutoPilot — Hoja de Ruta
 
-## Architecture
+## Arquitectura
 
-AutoPilot is a layered system. The CLI and protocol are platform-agnostic. Each platform has its own backend. Features are built on top of both.
+AutoPilot es un sistema por capas. El CLI y el protocolo son agnosticos de plataforma. Cada plataforma tiene su propio backend. Las funcionalidades se construyen sobre ambos.
 
 ```
 ┌──────────────────────────────────────────────────┐
-│          CLI + Protocol                          │
-│    (commands, scripting, output formats)          │
+│          CLI + Protocolo                         │
+│    (comandos, scripting, formatos de salida)      │
 ├────────────────────────┬─────────────────────────┤
 │    Backend: iOS        │    Backend: Android      │
 │    AXUIElement         │    ADB                   │
@@ -16,97 +16,97 @@ AutoPilot is a layered system. The CLI and protocol are platform-agnostic. Each 
 │    AppleScript         │                          │
 │    CoreMediaIO (cam)   │                          │
 ├────────────────────────┴─────────────────────────┤
-│          Features                                │
-│    interaction, inspection, hardware simulation,  │
-│    scripting, assertions, reporting              │
+│          Funcionalidades                         │
+│    interaccion, inspeccion, simulacion hardware,  │
+│    scripting, assertions, reportes               │
 └──────────────────────────────────────────────────┘
 ```
 
 ---
 
-## Completed -- v0.1
+## Completado — v0.1
 
-### iOS Backend: Core
+### Backend iOS: Nucleo
 
-| Feature | How it works |
+| Funcionalidad | Como funciona |
 |---|---|
-| AXUIElement bridge | `AXUIElementCreateApplication(pid)` on Simulator.app, recursive tree traversal |
-| Element matching | Three-pass: exact all depths > contains all depths, with `kAXValueAttribute` for SwiftUI |
-| CGEvent keyboard | Virtual key codes + shift modifiers, `postToPid()`, 30ms inter-key delay |
-| CGEvent mouse | Click, drag, long press via `CGEvent` mouse events |
-| Global event posting | `.cghidEventTap` for system UIs (photo picker, alerts, share sheets) |
-| AppleScript menus | Face ID via System Events > Simulator process > menu bar |
+| Bridge AXUIElement | `AXUIElementCreateApplication(pid)` sobre Simulator.app, recorrido recursivo del arbol |
+| Busqueda de elementos | Tres pasadas: exacto toda profundidad > contiene toda profundidad, con `kAXValueAttribute` para SwiftUI |
+| Teclado CGEvent | Virtual key codes + modificadores shift, `postToPid()`, 30ms entre teclas |
+| Mouse CGEvent | Click, drag, presion larga via eventos de mouse `CGEvent` |
+| Posting global de eventos | `.cghidEventTap` para UIs del sistema (photo picker, alertas, share sheets) |
+| Menus AppleScript | Face ID via System Events > proceso Simulator > barra de menus |
 
-### Device Management
+### Gestion de Dispositivos
 
-- [x] `list` -- `simctl list devices -j`, parsed, grouped by state
-- [x] `boot` -- `simctl boot` with name-to-UDID resolution
-- [x] `shutdown` -- `simctl shutdown` with name-to-UDID resolution
-- [x] `install` -- `simctl install` for .app bundles
+- [x] `list` — `simctl list devices -j`, parseado, agrupado por estado
+- [x] `boot` — `simctl boot` con resolucion de nombre a UDID
+- [x] `shutdown` — `simctl shutdown` con resolucion de nombre a UDID
+- [x] `install` — `simctl install` para bundles .app
 
-### UI Interaction
+### Interaccion UI
 
-- [x] `tap` -- AXPressAction with CGEvent click fallback
-- [x] `doubleTap` -- two AXPressAction calls, 100ms apart
-- [x] `longPress` -- CGEvent mouseDown, hold N seconds, mouseUp
-- [x] `type` -- CGEvent keyboard, optional target element (tap first)
-- [x] `clear` -- tap + Cmd+A + Delete
-- [x] `swipe` -- 20-step CGEvent mouse drag on window center
-- [x] `scroll` -- 20-step CGEvent mouse drag on element center (distance = 40% element height, max 200px)
-- [x] `tapAt` -- global CGEvent at absolute coordinates
+- [x] `tap` — AXPressAction con fallback a click CGEvent
+- [x] `doubleTap` — dos llamadas AXPressAction, 100ms de separacion
+- [x] `longPress` — CGEvent mouseDown, mantener N segundos, mouseUp
+- [x] `type` — teclado CGEvent, elemento objetivo opcional (tap primero)
+- [x] `clear` — tap + Cmd+A + Delete
+- [x] `swipe` — drag de mouse CGEvent en 20 pasos sobre centro de ventana
+- [x] `scroll` — drag de mouse CGEvent en 20 pasos sobre centro del elemento (distancia = 40% altura, max 200px)
+- [x] `tapAt` — CGEvent global en coordenadas absolutas
 
-### UI Inspection
+### Inspeccion UI
 
-- [x] `tree` -- full AX tree, pretty-printed with role/title/label/id/value/frame
-- [x] `tree -s` -- recursive search on role/title/label/id/value (case-insensitive)
-- [x] `exists` -- boolean check (YES/NO)
-- [x] `elementAt` -- coordinate-based lookup, smallest-area element wins
-- [x] `waitFor` -- polling every 500ms, configurable timeout (default 10s)
+- [x] `tree` — arbol AX completo, formateado con role/title/label/id/value/frame
+- [x] `tree -s` — busqueda recursiva en role/title/label/id/value (case-insensitive)
+- [x] `exists` — verificacion booleana (SI/NO)
+- [x] `elementAt` — busqueda por coordenada, gana el elemento de menor area
+- [x] `waitFor` — polling cada 500ms, timeout configurable (default 10s)
 
-### Hardware & Data
+### Hardware y Datos
 
-- [x] `faceid` -- enroll/match/fail/status via AppleScript menu automation
-- [x] `media` -- `simctl addmedia` for photos/videos
-- [x] `paste` -- `simctl pbcopy/pbpaste` for clipboard
-- [x] `openurl` -- `simctl openurl` for deep links
-- [x] `screenshot` -- `simctl io screenshot`
+- [x] `faceid` — enroll/match/fail/status via automatizacion de menus AppleScript
+- [x] `media` — `simctl addmedia` para fotos/videos
+- [x] `paste` — `simctl pbcopy/pbpaste` para portapapeles
+- [x] `openurl` — `simctl openurl` para deep links
+- [x] `screenshot` — `simctl io screenshot`
 
 ### Scripting
 
-- [x] `.auto` script format -- line-based, comments with `#`
-- [x] Tokenizer with quoted string support (single and double quotes)
-- [x] Step numbering and per-step timing
-- [x] Fail-fast with line number and error reporting
-- [x] Total elapsed time summary
+- [x] Formato de scripts `.auto` — basado en lineas, comentarios con `#`
+- [x] Tokenizador con soporte de strings entre comillas (simples y dobles)
+- [x] Numeracion de pasos y tiempo por paso
+- [x] Fallo rapido con numero de linea y reporte de error
+- [x] Resumen de tiempo total transcurrido
 
 ---
 
-## Phase 2 -- iOS Hardening
+## Fase 2 — Robustecimiento iOS
 
-### Virtual Camera
+### Camara Virtual
 
-The iOS Simulator uses the Mac's webcam for camera access. In CI/CD there is no webcam. AutoPilot will create a virtual camera that feeds static images as a live camera feed.
+El Simulador iOS usa la webcam del Mac para acceso a camara. En CI/CD no hay webcam. AutoPilot creara una camara virtual que transmite imagenes estaticas como feed de camara en vivo.
 
-**Technical approach:** CoreMediaIO DAL (Device Abstraction Layer) plugin.
+**Enfoque tecnico:** Plugin CoreMediaIO DAL (Device Abstraction Layer).
 
-- A `.plugin` bundle placed in `/Library/CoreMediaIO/Plug-Ins/DAL/`
-- macOS loads it automatically as a camera device
-- The Simulator (and any app using AVCaptureSession) sees it as a real webcam
-- The plugin reads from a known file path and serves it as continuous frames
-- `auto camera feed photo.jpg` updates the file, the camera feed changes
+- Un bundle `.plugin` colocado en `/Library/CoreMediaIO/Plug-Ins/DAL/`
+- macOS lo carga automaticamente como dispositivo de camara
+- El Simulador (y cualquier app usando AVCaptureSession) lo ve como una webcam real
+- El plugin lee de una ruta de archivo conocida y lo sirve como frames continuos
+- `auto camera feed foto.jpg` actualiza el archivo, el feed de camara cambia
 
-**Commands:**
-- [ ] `auto camera install` -- copy DAL plugin to system directory
-- [ ] `auto camera feed <image>` -- set the image to broadcast as camera
-- [ ] `auto camera stop` -- stop broadcasting
+**Comandos:**
+- [ ] `auto camera install` — copiar plugin DAL al directorio del sistema
+- [ ] `auto camera feed <imagen>` — establecer la imagen a transmitir como camara
+- [ ] `auto camera stop` — dejar de transmitir
 
-**Use cases:** QR code scanning, AR features, document capture, selfie verification -- all testable in CI/CD.
+**Casos de uso:** Escaneo de QR, funciones AR, captura de documentos, verificacion de selfie — todo testeable en CI/CD.
 
-### Permissions
+### Permisos
 
-Grant or revoke app permissions without user interaction.
+Otorgar o revocar permisos de apps sin interaccion del usuario.
 
-**Technical approach:** `xcrun simctl privacy`
+**Enfoque tecnico:** `xcrun simctl privacy`
 
 - [ ] `auto permissions <bundleId> camera grant`
 - [ ] `auto permissions <bundleId> location grant`
@@ -114,86 +114,86 @@ Grant or revoke app permissions without user interaction.
 - [ ] `auto permissions <bundleId> notifications grant`
 - [ ] `auto permissions <bundleId> all reset`
 
-Supported services: `camera`, `photos`, `location`, `contacts`, `calendar`, `microphone`, `notifications`, `homekit`, `health`, `siri`, `speech-recognition`.
+Servicios soportados: `camera`, `photos`, `location`, `contacts`, `calendar`, `microphone`, `notifications`, `homekit`, `health`, `siri`, `speech-recognition`.
 
-### Location
+### Ubicacion
 
-Simulate GPS coordinates and routes.
+Simular coordenadas GPS y rutas.
 
-**Technical approach:** `xcrun simctl location`
+**Enfoque tecnico:** `xcrun simctl location`
 
-- [ ] `auto location <lat> <lon>` -- set fixed location
-- [ ] `auto location route <file.gpx>` -- play a GPX route
-- [ ] `auto location clear` -- reset to none
+- [ ] `auto location <lat> <lon>` — establecer ubicacion fija
+- [ ] `auto location route <archivo.gpx>` — reproducir una ruta GPX
+- [ ] `auto location clear` — resetear a ninguna
 
-### Push Notifications
+### Notificaciones Push
 
-Send push notifications to the simulator.
+Enviar notificaciones push al simulador.
 
-**Technical approach:** `xcrun simctl push`
+**Enfoque tecnico:** `xcrun simctl push`
 
-- [ ] `auto push <bundleId> <payload.json>` -- send from JSON file
-- [ ] `auto push <bundleId> --title "Title" --body "Body"` -- inline notification
+- [ ] `auto push <bundleId> <payload.json>` — enviar desde archivo JSON
+- [ ] `auto push <bundleId> --title "Titulo" --body "Cuerpo"` — notificacion inline
 
-### Advanced Gestures
+### Gestos Avanzados
 
-- [ ] Drag and drop between two elements
-- [ ] Pinch in/out (zoom) -- requires two-finger simulation via CGEvent
-- [ ] Rotate gesture
+- [ ] Drag and drop entre dos elementos
+- [ ] Pinch in/out (zoom) — requiere simulacion de dos dedos via CGEvent
+- [ ] Gesto de rotacion
 
 ---
 
-## Phase 3 -- Output & Reporting
+## Fase 3 — Salida y Reportes
 
-### JSON Output
+### Salida JSON
 
-- [ ] `--json` flag on all commands
-- [ ] `auto tree --json` -- full tree as JSON (for structural comparison, CI assertions)
-- [ ] `auto list --json` -- device list as JSON
-- [ ] Machine-readable output for pipeline integration (`jq`, scripts, dashboards)
+- [ ] Flag `--json` en todos los comandos
+- [ ] `auto tree --json` — arbol completo como JSON (para comparacion estructural, assertions en CI)
+- [ ] `auto list --json` — lista de dispositivos como JSON
+- [ ] Salida legible por maquinas para integracion con pipelines (`jq`, scripts, dashboards)
 
 ### Assertions
 
-Exit code-based assertions for CI/CD gating:
+Assertions basadas en codigos de salida para CI/CD:
 
-- [ ] `auto assert exists "Login"` -- exit 0 if found, exit 1 if not
-- [ ] `auto assert text "Welcome" "Hello, User"` -- exit 0 if text matches
-- [ ] `auto assert count "Cell" 5` -- exit 0 if exactly 5 elements match
+- [ ] `auto assert exists "Login"` — exit 0 si existe, exit 1 si no
+- [ ] `auto assert text "Bienvenido" "Hola, Usuario"` — exit 0 si el texto coincide
+- [ ] `auto assert count "Cell" 5` — exit 0 si hay exactamente 5 elementos
 
-### Script Reports
+### Reportes de Scripts
 
-- [ ] `auto run --screenshots <dir> script.auto` -- screenshot after each step
-- [ ] HTML report with screenshot per step, pass/fail status, timing
-- [ ] JUnit XML output for CI integration (Jenkins, GitHub Actions)
+- [ ] `auto run --screenshots <dir> script.auto` — screenshot despues de cada paso
+- [ ] Reporte HTML con screenshot por paso, estado pass/fail, tiempos
+- [ ] Salida JUnit XML para integracion CI (Jenkins, GitHub Actions)
 
 ---
 
-## Phase 4 -- Scripting Language
+## Fase 4 — Lenguaje de Scripting
 
-Extend `.auto` scripts beyond simple command sequences:
+Extender los scripts `.auto` mas alla de secuencias simples de comandos:
 
 ### Variables
 
 ```bash
-set $username "test@example.com"
-set $password "secret123"
-type "Email" $username
-type "Password" $password
+set $usuario "test@ejemplo.com"
+set $contrasena "secreto123"
+type "Email" $usuario
+type "Contrasena" $contrasena
 ```
 
-### Conditionals
+### Condicionales
 
 ```bash
-if exists "Cookie Banner"
-    tap "Accept"
+if exists "Banner de Cookies"
+    tap "Aceptar"
 endif
 
 if not exists "Error"
-    screenshot success.png
+    screenshot exito.png
 endif
 ```
 
-### Loops
+### Ciclos
 
 ```bash
 repeat 3
@@ -204,90 +204,90 @@ endrepeat
 ### Includes
 
 ```bash
-include shared/login.auto
-# continues with current script
+include compartido/login.auto
+# continua con el script actual
 ```
 
 ---
 
-## Phase 5 -- Android Backend
+## Fase 5 — Backend Android
 
-Same CLI, same commands, different backend. The user should not need to know whether the device is iOS or Android.
+Mismo CLI, mismos comandos, diferente backend. El usuario no deberia necesitar saber si el dispositivo es iOS o Android.
 
-### ADB Bridge
+### Bridge ADB
 
-**Technical approach:** `adb` for device management, `adb shell input` for interaction, `uiautomator dump` for UI inspection.
+**Enfoque tecnico:** `adb` para gestion de dispositivos, `adb shell input` para interaccion, `uiautomator dump` para inspeccion de UI.
 
-- [ ] `auto --platform android list` -- `adb devices`
-- [ ] `auto --platform android launch <package>` -- `adb shell am start`
-- [ ] `auto --platform android terminate <package>` -- `adb shell am force-stop`
-- [ ] `auto --platform android install <apk>` -- `adb install`
+- [ ] `auto --platform android list` — `adb devices`
+- [ ] `auto --platform android launch <paquete>` — `adb shell am start`
+- [ ] `auto --platform android terminate <paquete>` — `adb shell am force-stop`
+- [ ] `auto --platform android install <apk>` — `adb install`
 
-### UI Inspection
+### Inspeccion UI
 
-- [ ] `auto --platform android tree` -- `uiautomator dump` parsed to same tree format
-- [ ] `auto --platform android search "Login"` -- same matching algorithm on UIAutomator XML
+- [ ] `auto --platform android tree` — `uiautomator dump` parseado al mismo formato de arbol
+- [ ] `auto --platform android search "Login"` — mismo algoritmo de busqueda sobre XML de UIAutomator
 
-### Input
+### Entrada
 
-- [ ] `auto --platform android tap "Login"` -- coordinates from uiautomator + `adb shell input tap`
-- [ ] `auto --platform android type "text"` -- `adb shell input text`
-- [ ] `auto --platform android swipe up` -- `adb shell input swipe`
+- [ ] `auto --platform android tap "Login"` — coordenadas de uiautomator + `adb shell input tap`
+- [ ] `auto --platform android type "texto"` — `adb shell input text`
+- [ ] `auto --platform android swipe up` — `adb shell input swipe`
 
-### Platform Auto-Detection
+### Auto-Deteccion de Plataforma
 
-- [ ] Auto-detect: if iOS Simulator is running, use iOS. If ADB device is connected, use Android.
-- [ ] Explicit: `--platform ios` / `--platform android`
-- [ ] The `protocol/commands.json` serves as the shared contract for both backends
+- [ ] Auto-detectar: si el Simulador iOS esta corriendo, usar iOS. Si hay dispositivo ADB conectado, usar Android.
+- [ ] Explicito: `--platform ios` / `--platform android`
+- [ ] El `protocol/commands.json` sirve como contrato compartido para ambos backends
 
 ---
 
-## Phase 6 -- Distribution
+## Fase 6 — Distribucion
 
-### Build System
+### Sistema de Build
 
-- [ ] Makefile with `build`, `install`, `clean`, `test` targets
-- [ ] Universal binary: `swift build --arch arm64 --arch x86_64`
-- [ ] `make install` copies to `/usr/local/bin/auto`
+- [ ] Makefile con targets `build`, `install`, `clean`, `test`
+- [ ] Binario universal: `swift build --arch arm64 --arch x86_64`
+- [ ] `make install` copia a `/usr/local/bin/auto`
 
 ### Homebrew
 
-- [ ] Homebrew tap repository (`homebrew-autopilot`)
+- [ ] Repositorio homebrew tap (`homebrew-autopilot`)
 - [ ] `brew tap user/autopilot && brew install autopilot`
-- [ ] Bottle builds for fast installation
+- [ ] Bottles para instalacion rapida
 
 ### GitHub Releases
 
-- [ ] Prebuilt universal binaries per release
-- [ ] SHA256 checksums
-- [ ] Changelog per version
-- [ ] GitHub Actions workflow: build + test + release
+- [ ] Binarios universales pre-compilados por release
+- [ ] Checksums SHA256
+- [ ] Changelog por version
+- [ ] Workflow GitHub Actions: build + test + release
 
 ---
 
-## Phase 7 -- Network & Environment
+## Fase 7 — Red y Entorno
 
-### Network Conditioning
+### Condicionamiento de Red
 
-- [ ] Simulate slow network, packet loss, disconnection
-- [ ] Integration with macOS Network Link Conditioner or `simctl` APIs if available
+- [ ] Simular red lenta, perdida de paquetes, desconexion
+- [ ] Integracion con Network Link Conditioner de macOS o APIs de `simctl` si disponibles
 
 ### Keychain
 
-- [ ] Read/write keychain items on simulator
-- [ ] Reset keychain for clean test state
+- [ ] Leer/escribir items del keychain en el simulador
+- [ ] Resetear keychain para estado limpio de tests
 
-### Environment Variables
+### Variables de Entorno
 
-- [ ] Pass environment variables to app on launch
+- [ ] Pasar variables de entorno a la app al lanzar
 - [ ] `auto launch com.example.app --env API_URL=https://staging.api.com`
 
 ---
 
-## Future Vision
+## Vision a Futuro
 
-- **Web API** -- HTTP/WebSocket wrapper around AutoPilot for remote control from any language
-- **VS Code Extension** -- inspector panel, tree view, step-through scripts
-- **Visual Regression** -- structural tree comparison between runs (not pixel-based, structure-based)
-- **Parallel Execution** -- multiple simulators, same script, concurrent
-- **Recorder** -- `CGEventTap` to intercept clicks/taps and generate `.auto` scripts
+- **Web API** — Wrapper HTTP/WebSocket sobre AutoPilot para control remoto desde cualquier lenguaje
+- **Extension VS Code** — panel inspector, vista de arbol, ejecucion paso a paso de scripts
+- **Regresion Visual** — comparacion estructural del arbol entre ejecuciones (no basada en pixeles, basada en estructura)
+- **Ejecucion Paralela** — multiples simuladores, mismo script, concurrente
+- **Grabador** — `CGEventTap` para interceptar clicks/taps y generar scripts `.auto`
