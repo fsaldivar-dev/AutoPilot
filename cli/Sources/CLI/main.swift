@@ -79,12 +79,32 @@ func executeCommand(_ args: [String]) throws {
 
     case "launch":
         guard args.count >= 2 else {
-            print("Usage: auto launch <bundleId>")
+            print("Usage: auto launch <bundleId> [--env KEY=VALUE ...]")
             return
         }
-        try bridge.launchApp(bundleId: args[1])
+        let bundleId = args[1]
+        var envVars: [String: String] = [:]
+        var i = 2
+        while i < args.count {
+            if args[i] == "--env" && i + 1 < args.count {
+                let pair = args[i + 1]
+                if let eqIndex = pair.firstIndex(of: "=") {
+                    let key = String(pair[pair.startIndex..<eqIndex])
+                    let value = String(pair[pair.index(after: eqIndex)...])
+                    envVars[key] = value
+                }
+                i += 2
+            } else {
+                i += 1
+            }
+        }
+        try bridge.launchApp(bundleId: bundleId, envVars: envVars)
         let ms = elapsed(start)
-        print("Launched \(args[1]) (\(ms)ms)")
+        if envVars.isEmpty {
+            print("Launched \(bundleId) (\(ms)ms)")
+        } else {
+            print("Launched \(bundleId) with \(envVars.count) env var(s) (\(ms)ms)")
+        }
 
     case "tap":
         guard args.count >= 2 else {
@@ -417,7 +437,7 @@ func printUsage() {
       ping                              Check Simulator is running
       tree                              Print accessibility tree
       tree -s "query"                   Search elements
-      launch <bundleId>                 Launch app
+      launch <bundleId> [--env K=V ...]  Launch app (with env vars)
       tap <id|title|label>              Tap element
       longPress <id|title|label> [secs]  Long press element
       doubleTap <id|title|label>        Double tap element

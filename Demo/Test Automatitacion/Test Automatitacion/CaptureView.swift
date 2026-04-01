@@ -84,6 +84,12 @@ class CameraManager: NSObject, AVCapturePhotoCaptureDelegate {
     }
 
     func capturePhoto() {
+        // AutoPilot: imagen inyectada via variable de entorno (CI/CD sin camara)
+        if let path = ProcessInfo.processInfo.environment["AUTOPILOT_CAMERA_IMAGE"],
+           let image = UIImage(contentsOfFile: path) {
+            onPhotoCaptured?(image)
+            return
+        }
         sessionQueue.async { [self] in
             let settings = AVCapturePhotoSettings()
             if photoOutput.supportedFlashModes.contains(flashMode) {

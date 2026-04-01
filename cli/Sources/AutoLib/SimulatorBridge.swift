@@ -313,11 +313,21 @@ public final class SimulatorBridge {
     }
 
     /// Launch an app on the simulator.
-    public func launchApp(bundleId: String) throws {
+    public func launchApp(bundleId: String, envVars: [String: String] = [:]) throws {
         let deviceId = try getBootedDeviceId()
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
         process.arguments = ["simctl", "launch", deviceId, bundleId]
+
+        // Inject environment variables via SIMCTL_CHILD_ prefix
+        if !envVars.isEmpty {
+            var env = ProcessInfo.processInfo.environment
+            for (key, value) in envVars {
+                env["SIMCTL_CHILD_\(key)"] = value
+            }
+            process.environment = env
+        }
+
         try process.run()
         process.waitUntilExit()
     }
