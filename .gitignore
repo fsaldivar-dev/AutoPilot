@@ -1,0 +1,30 @@
+# Build artifacts
+.build/
+/auto
+*.o
+*.d
+
+# Xcode
+xcuserdata/
+*.xcuserstate
+DerivedData/
+build/
+
+# macOS
+.DS_Store
+._*
+.Spotlight-V100
+.Trashes
+
+# Claude Code
+.claude/
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*~
+
+# Test artifacts
+*.png
+!Demo/**/*.png
