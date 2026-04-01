@@ -22,6 +22,8 @@ enum MockHeaders {
 
     static const void *kAPImageDataKey = &kAPImageDataKey;
     static const void *kAPTimestampKey = &kAPTimestampKey;
+    static const void *kAPSessionInputsKey = &kAPSessionInputsKey;
+    static const void *kAPSessionOutputsKey = &kAPSessionOutputsKey;
 
     // ============================================================
     // Swizzle helper
@@ -154,26 +156,74 @@ enum MockHeaders {
     static IMP orig_outputs = NULL;
 
     static void ap_addInput(id self, SEL _cmd, id input) {
-        NSLog(@"[AutoPilot] addInput (mock no-op)");
+        NSLog(@"[AutoPilot] addInput (tracked)");
+        NSMutableArray *arr = objc_getAssociatedObject(self, kAPSessionInputsKey);
+        if (!arr) { arr = [NSMutableArray new]; objc_setAssociatedObject(self, kAPSessionInputsKey, arr, OBJC_ASSOCIATION_RETAIN_NONATOMIC); }
+        [arr addObject:input];
     }
 
     static void ap_addOutput(id self, SEL _cmd, id output) {
-        NSLog(@"[AutoPilot] addOutput (mock no-op)");
+        NSLog(@"[AutoPilot] addOutput (tracked)");
+        NSMutableArray *arr = objc_getAssociatedObject(self, kAPSessionOutputsKey);
+        if (!arr) { arr = [NSMutableArray new]; objc_setAssociatedObject(self, kAPSessionOutputsKey, arr, OBJC_ASSOCIATION_RETAIN_NONATOMIC); }
+        [arr addObject:output];
     }
 
     static void ap_removeInput(id self, SEL _cmd, id input) {
-        NSLog(@"[AutoPilot] removeInput (mock no-op)");
+        NSMutableArray *arr = objc_getAssociatedObject(self, kAPSessionInputsKey);
+        [arr removeObject:input];
     }
 
     static void ap_removeOutput(id self, SEL _cmd, id output) {
-        NSLog(@"[AutoPilot] removeOutput (mock no-op)");
+        NSMutableArray *arr = objc_getAssociatedObject(self, kAPSessionOutputsKey);
+        [arr removeObject:output];
     }
 
     static void ap_beginConfiguration(id self, SEL _cmd) {}
     static void ap_commitConfiguration(id self, SEL _cmd) {}
 
-    static NSArray *ap_inputs(id self, SEL _cmd) { return @[]; }
-    static NSArray *ap_outputs(id self, SEL _cmd) { return @[]; }
+    static NSArray *ap_inputs(id self, SEL _cmd) {
+        NSArray *arr = objc_getAssociatedObject(self, kAPSessionInputsKey);
+        return arr ?: @[];
+    }
+    static NSArray *ap_outputs(id self, SEL _cmd) {
+        NSArray *arr = objc_getAssociatedObject(self, kAPSessionOutputsKey);
+        return arr ?: @[];
+    }
+
+    // ============================================================
+    // Replacement: AVCaptureVideoPreviewLayer
+    // ============================================================
+
+    static IMP orig_previewSetSession = NULL;
+
+    static void ap_previewSetSession(CALayer *self, SEL _cmd, AVCaptureSession *session) {
+        NSLog(@"[AutoPilot] PreviewLayer.setSession → showing mock image");
+
+        // Load the image and set it as the layer contents
+        NSString *imagePath = [NSProcessInfo processInfo].environment[@"AUTOPILOT_CAMERA_IMAGE"];
+        if (imagePath) {
+            NSData *data = [NSData dataWithContentsOfFile:imagePath];
+            if (data) {
+                UIImage *img = [UIImage imageWithData:data];
+                if (img) {
+                    self.contents = (__bridge id)img.CGImage;
+                    self.contentsGravity = kCAGravityResizeAspectFill;
+                    self.masksToBounds = YES;
+                    return;
+                }
+            }
+        }
+
+        // Fallback: red placeholder
+        UIGraphicsBeginImageContext(CGSizeMake(400, 600));
+        [[UIColor darkGrayColor] setFill];
+        UIRectFill(CGRectMake(0, 0, 400, 600));
+        UIImage *placeholder = UIGraphicsGetImageFromCurrentImageContext();
+        UIGraphicsEndImageContext();
+        self.contents = (__bridge id)placeholder.CGImage;
+        self.contentsGravity = kCAGravityResizeAspectFill;
+    }
 
     // ============================================================
     // Replacement: AVCapturePhotoOutput
@@ -380,6 +430,12 @@ enum MockHeaders {
         ap_swizzle_instance_method(photoClass,
             @selector(isRawPhoto),
             (IMP)ap_isRawPhoto, &orig_isRawPhoto);
+
+        // Swizzle AVCaptureVideoPreviewLayer to show our image
+        Class previewLayerClass = [AVCaptureVideoPreviewLayer class];
+        ap_swizzle_instance_method(previewLayerClass,
+            @selector(setSession:),
+            (IMP)ap_previewSetSession, &orig_previewSetSession);
 
         NSLog(@"[AutoPilot] Camera mock active. Image: %@. Swizzled %d methods.",
               imagePath ?: @"(placeholder)",
