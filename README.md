@@ -38,7 +38,7 @@ auto screenshot resultado.png
 | Dependencias | Ninguna | Node, Appium, WDA | Xcode | Node, React Native |
 | Acceso a UI del sistema | Si (`tapAt`) | Limitado | Limitado | No |
 | Tamano del binario | ~311KB | ~200MB+ | N/A | ~150MB+ |
-| Camara virtual | Planeado | No | No | No |
+| Camara virtual | **Si** (`auto build`) | No | No | No |
 
 ---
 
@@ -258,6 +258,15 @@ auto screenshot                        # Guardar como screenshot.png
 auto screenshot resultado.png          # Nombre personalizado
 ```
 
+### Camara Virtual
+
+```bash
+auto build -project App.xcodeproj -scheme App \  # Compilar con mock de camara
+    -sdk iphonesimulator -destination 'id=XXXX'
+auto launch app --env AUTOPILOT_CAMERA_IMAGE=/ruta/foto.jpg  # Inyectar imagen
+auto launch app --env AUTOPILOT_QR_CODE="https://url.com"    # Inyectar QR
+```
+
 ### Scripting
 
 ```bash
@@ -339,32 +348,100 @@ echo "Codigo de salida: $?"  # 0 = exito, 1 = fallo
 
 ## Camara Virtual (CI/CD sin webcam)
 
-En CI/CD headless no hay webcam. El Simulador iOS no mapea camaras de macOS a `AVCaptureSession`. Investigamos multiples enfoques para resolver esto:
+En CI/CD headless no hay webcam. El Simulador iOS no mapea camaras de macOS a `AVCaptureSession`. AutoPilot resuelve esto inyectando un mock de camara a nivel de compilacion — **sin modificar el codigo de la app**.
 
-| Enfoque | Estado | Detalle |
-|---|---|---|
-| **CMIOExtension** | Codigo completo, bloqueado | Requiere entitlement de Apple (`system-extension.install`) |
-| **DAL Plugin** | Descartado | Removido en macOS 15 |
-| **Dylib injection** | Parcial | Swizzle intercepta APIs, ARM64 PAC impide inyectar datos de vuelta |
-| **Variables de entorno** | **Funcional** | 11 lineas en la app, imagen inyectada sin camara |
-
-### Solucion actual: Variables de entorno
+### `auto build` — Inyeccion automatica
 
 ```bash
-# Inyectar imagen como captura de camara
+# 1. Compilar la app con mock de camara inyectado
+auto build -project MiApp.xcodeproj -scheme MiApp \
+    -sdk iphonesimulator -destination 'id=<UDID>'
+
+# 2. Instalar en el simulador
+auto install ~/Library/Developer/Xcode/DerivedData/.../MiApp.app
+
+# 3. Lanzar con imagen para la camara
 auto launch com.example.app --env AUTOPILOT_CAMERA_IMAGE=/ruta/foto.jpg
 
-# Inyectar resultado de QR sin escanear
-auto launch com.example.app --env AUTOPILOT_QR_CODE="https://ejemplo.com"
+# 4. Cualquier tap en "capturar foto" inyecta la imagen al delegate
 ```
 
-La app detecta la variable y usa la imagen/codigo inyectado en vez del hardware. Requiere ~5 lineas por feature en la app. En dispositivo fisico, el flujo normal no se afecta.
+### Como funciona
 
-### Proxima iteracion: Swift dylib
+`auto build` wrapea `xcodebuild` e inyecta una static library ObjC (~28KB) via `-force_load`. La libreria contiene un `__attribute__((constructor))` que swizzlea ~25 metodos de AVFoundation al cargar. Solo se activa si `AUTOPILOT_CAMERA_IMAGE` esta seteada.
 
-Dylib escrita en Swift (no ObjC) que puede crear objetos nativos e invocar closures sin problemas de PAC. Funcionaria con cualquier app sin modificar codigo.
+```mermaid
+sequenceDiagram
+    participant AB as auto build
+    participant XC as xcodebuild
+    participant App as App en Simulador
 
-> **Documentacion completa:** [camera/BITACORA.md](camera/BITACORA.md) — 4 intentos, hallazgos, tropiezos y plan futuro.
+    AB->>AB: Compila AutoPilotCapture.m → .a (28KB)
+    AB->>XC: xcodebuild + OTHER_LDFLAGS=-force_load .a
+    XC-->>App: App con mock linkado
+
+    Note over App: Al lanzar con AUTOPILOT_CAMERA_IMAGE=...
+    App->>App: Constructor swizzlea AVFoundation
+    App->>App: authorizationStatus → .authorized
+    App->>App: defaultDevice → mock device
+    App->>App: startRunning → no-op
+    App->>App: capturePhoto → lee imagen de env var
+    App->>App: delegate recibe AVCapturePhoto con datos
+```
+
+### APIs swizzleadas
+
+| Clase | Metodos | Comportamiento mock |
+|---|---|---|
+| **AVCaptureDevice** | `authorizationStatus`, `requestAccess`, `defaultDevice` (x2) | Siempre autorizado, retorna mock device |
+| **AVCaptureDeviceInput** | `initWithDevice:`, `deviceInputWithDevice:` | Acepta cualquier device |
+| **AVCaptureSession** | `startRunning`, `stopRunning`, `isRunning`, `canAddInput/Output`, `addInput/Output`, `removeInput/Output`, `beginConfiguration`, `commitConfiguration`, `inputs`, `outputs` | No-ops, estado trackeado via associated objects |
+| **AVCapturePhotoOutput** | `capturePhoto:delegate:` | Lee `AUTOPILOT_CAMERA_IMAGE`, crea `AVCapturePhoto`, llama delegate |
+| **AVCapturePhoto** | `fileDataRepresentation`, `CGImageRepresentation`, `timestamp`, `photoCount`, `isRawPhoto` | Retorna datos de imagen inyectada |
+| **AVCaptureMetadataOutput** | `setMetadataObjectsDelegate:`, `setMetadataObjectTypes:` | No-ops (QR scanner no crashea) |
+| **AVCaptureVideoPreviewLayer** | `setSession:` | Muestra imagen como preview estatico |
+
+### Variables de entorno
+
+| Variable | Uso |
+|---|---|
+| `AUTOPILOT_CAMERA_IMAGE` | Ruta a imagen JPG/PNG en el Mac. Se inyecta como captura de camara. |
+| `AUTOPILOT_QR_CODE` | String de codigo QR. Se inyecta directamente al delegate del scanner. |
+
+### Ejemplo completo (CI/CD)
+
+```bash
+#!/bin/bash
+# test-camara.sh — Prueba de captura de camara en CI
+
+auto build -project App.xcodeproj -scheme App \
+    -sdk iphonesimulator -destination 'id=XXXX'
+
+auto install ~/Library/.../App.app
+auto launch com.example.app --env AUTOPILOT_CAMERA_IMAGE=test-photo.jpg
+
+auto waitFor "Capturar" 5
+auto tap "Capturar"                    # Navegar al tab de camara
+auto tap "Camera"                      # Tap boton de captura
+auto waitFor "Fotos capturadas" 5      # Verificar que se capturo
+auto screenshot resultado-camara.png
+```
+
+### Enfoques investigados
+
+| # | Enfoque | Resultado |
+|---|---|---|
+| 1 | CMIOExtension | Codigo completo, bloqueado por entitlement Apple |
+| 2 | Webcam del Mac | Simulador no mapea webcams a AVCaptureSession |
+| 3 | Dylib ObjC injection | Swizzle OK, ARM64 PAC bloquea creacion de objetos |
+| 4 | Variables de entorno | Funciona, requiere modificar codigo de la app |
+| 5 | Swift dylib | Swizzle OK, closures ABI incompatible |
+| 6 | Package + callback | Funciona, requiere 1 linea en la app |
+| 7 | Pre-build script | Parcial, no alcanza dependencias SPM |
+| 8 | VFS overlay + module map | Headers simplificados rompen modulo AVFoundation |
+| 9 | **Force-load + #undef AV_INIT_UNAVAILABLE** | **Funciona. Sin modificar codigo de la app.** |
+
+> **Documentacion completa:** [camera/BITACORA.md](camera/BITACORA.md) — 9 intentos documentados
 > **Spec de env vars:** [docs/ios/VARIABLES_ENTORNO.md](docs/ios/VARIABLES_ENTORNO.md)
 
 ---
@@ -374,7 +451,7 @@ Dylib escrita en Swift (no ObjC) que puede crear objetos nativos e invocar closu
 | Plataforma | Estado | Documentacion |
 |---|---|---|
 | **iOS** | Funcional | [docs/ios/ARQUITECTURA.md](docs/ios/ARQUITECTURA.md) — AXUIElement, CGEvent, simctl, AppleScript, algoritmo de matching |
-| **iOS Camara** | En progreso | [camera/BITACORA.md](camera/BITACORA.md) — Tropiezos, hallazgos, plan |
+| **iOS Camara** | **Funcional** | [camera/BITACORA.md](camera/BITACORA.md) — 9 intentos, `auto build` con force-load swizzle |
 | **iOS Env Vars** | Funcional | [docs/ios/VARIABLES_ENTORNO.md](docs/ios/VARIABLES_ENTORNO.md) — Inyeccion de datos para CI/CD |
 | **Android** | Futuro | [docs/android/README.md](docs/android/README.md) — ADB, UIAutomator, adb shell input |
 
@@ -389,6 +466,8 @@ AutoPilot/
 │   ├── Sources/
 │   │   ├── AutoLib/            # Libreria (testeable)
 │   │   │   ├── SimulatorBridge.swift   # AX, CGEvent, simctl, AppleScript
+│   │   │   ├── BuildInterceptor.swift  # auto build: compila mock, wrapea xcodebuild
+│   │   │   ├── MockHeaders.swift       # Codigo ObjC de swizzle (~25 metodos)
 │   │   │   ├── ScriptParser.swift      # Tokenizador y parser de .auto
 │   │   │   └── TreePrinter.swift       # Pretty-printer del arbol AX
 │   │   └── CLI/
