@@ -253,6 +253,44 @@ func executeCommand(_ args: [String]) throws {
             print(text)
         }
 
+    case "camera":
+        guard args.count >= 2 else {
+            print("Usage: auto camera <start|feed|stop|status> [image]")
+            return
+        }
+        switch args[1] {
+        case "start":
+            guard args.count >= 3 else {
+                print("Usage: auto camera start <image.jpg>")
+                return
+            }
+            try bridge.cameraStart(imagePath: args[2])
+            let ms = elapsed(start)
+            print("Camera started with '\(args[2])' (\(ms)ms)")
+        case "feed":
+            guard args.count >= 3 else {
+                print("Usage: auto camera feed <image.jpg>")
+                return
+            }
+            try bridge.cameraFeed(imagePath: args[2])
+            let ms = elapsed(start)
+            print("Camera feed updated: '\(args[2])' (\(ms)ms)")
+        case "stop":
+            bridge.cameraStop()
+            let ms = elapsed(start)
+            print("Camera stopped (\(ms)ms)")
+        case "status":
+            let status = bridge.cameraStatus()
+            let ms = elapsed(start)
+            if status.active {
+                print("ACTIVE — feed: \(status.imagePath ?? "none") (\(ms)ms)")
+            } else {
+                print("INACTIVE (\(ms)ms)")
+            }
+        default:
+            print("Unknown: \(args[1]). Use start/feed/stop/status")
+        }
+
     case "boot":
         guard args.count >= 2 else {
             print("Usage: auto boot <device_name|udid>")
@@ -394,6 +432,10 @@ func printUsage() {
       install <path/to/app.app>        Install app on simulator
       elementAt <x> <y>                 Element at coordinate
       screenshot [filename.png]         Screenshot (via simctl)
+      camera start <image>              Start virtual camera feed
+      camera feed <image>               Update camera image
+      camera stop                       Stop virtual camera
+      camera status                     Check camera status
       terminate <bundleId>              Kill app
       run <script.auto>                 Run automation script
 
