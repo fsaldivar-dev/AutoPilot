@@ -1,5 +1,8 @@
 import SwiftUI
-import SystemExtensions
+import CoreMediaIO
+import os.log
+
+private let log = Logger(subsystem: "dev.autopilot.camera", category: "App")
 
 @main
 struct AutoPilotCameraApp: App {
@@ -7,78 +10,74 @@ struct AutoPilotCameraApp: App {
 
     var body: some Scene {
         WindowGroup {
-            ContentView()
-                .frame(width: 400, height: 200)
+            ContentView(delegate: appDelegate)
+                .frame(width: 400, height: 250)
         }
     }
 }
 
-class AppDelegate: NSObject, NSApplicationDelegate, OSSystemExtensionRequestDelegate {
+class AppDelegate: NSObject, NSApplicationDelegate, ObservableObject {
+
+    @Published var status: String = "Iniciando camara virtual..."
+    private var providerSource: CameraProviderSource?
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        installExtension()
+        log.info("Iniciando CMIOExtensionProvider en proceso de la app...")
+        startCameraProvider()
     }
 
-    func installExtension() {
-        let request = OSSystemExtensionRequest.activationRequest(
-            forExtensionWithIdentifier: "dev.autopilot.camera.extension",
-            queue: .main
-        )
-        request.delegate = self
-        OSSystemExtensionManager.shared.submitRequest(request)
-    }
+    func startCameraProvider() {
+        providerSource = CameraProviderSource(clientQueue: nil)
+        log.info("Provider creado, iniciando servicio...")
 
-    // MARK: - OSSystemExtensionRequestDelegate
-
-    func request(_ request: OSSystemExtensionRequest, actionForReplacingExtension existing: OSSystemExtensionProperties, withExtension ext: OSSystemExtensionProperties) -> OSSystemExtensionRequest.ReplacementAction {
-        return .replace
-    }
-
-    func requestNeedsUserApproval(_ request: OSSystemExtensionRequest) {
-        print("Se requiere aprobacion del usuario en Preferencias del Sistema > Seguridad")
-    }
-
-    func request(_ request: OSSystemExtensionRequest, didFinishWithResult result: OSSystemExtensionRequest.Result) {
-        switch result {
-        case .completed:
-            print("Extension de camara instalada correctamente")
-        case .willCompleteAfterReboot:
-            print("Extension se completara despues de reiniciar")
-        @unknown default:
-            print("Resultado desconocido: \(result)")
+        // startService no retorna — se queda en run loop
+        // Lo ejecutamos en background
+        DispatchQueue.global(qos: .userInitiated).async {
+            CMIOExtensionProvider.startService(provider: self.providerSource!.provider)
+            // Si llega aqui, algo fallo
+            log.error("startService retorno inesperadamente")
         }
-    }
 
-    func request(_ request: OSSystemExtensionRequest, didFailWithError error: Error) {
-        print("Error instalando extension: \(error.localizedDescription)")
+        // Verificar despues de un momento
+        DispatchQueue.main.asyncAfter(deadline: .now() + 2) {
+            log.info("Camara virtual deberia estar activa")
+            self.status = "Camara virtual activa"
+        }
     }
 }
 
 struct ContentView: View {
-    @State private var status = "Instalando camara virtual..."
+    @ObservedObject var delegate: AppDelegate
 
     var body: some View {
         VStack(spacing: 16) {
             Image(systemName: "camera.fill")
                 .font(.system(size: 40))
-                .foregroundColor(.cyan)
+                .foregroundColor(delegate.status.contains("activa") ? .green : .cyan)
 
             Text("AutoPilot Camera")
                 .font(.title2)
                 .bold()
 
-            Text(status)
-                .foregroundColor(.secondary)
+            Text(delegate.status)
+                .foregroundColor(delegate.status.contains("activa") ? .green : .secondary)
+                .multilineTextAlignment(.center)
 
-            Text("Una vez instalada, usa desde la terminal:")
+            Divider()
+
+            Text("Usa desde la terminal:")
                 .font(.caption)
                 .foregroundColor(.secondary)
 
-            Text("auto camera start imagen.jpg")
-                .font(.system(.caption, design: .monospaced))
-                .padding(8)
-                .background(Color.black.opacity(0.05))
-                .cornerRadius(6)
+            VStack(alignment: .leading, spacing: 4) {
+                Text("auto camera start imagen.jpg")
+                Text("auto camera feed otra.jpg")
+                Text("auto camera stop")
+            }
+            .font(.system(.caption, design: .monospaced))
+            .padding(8)
+            .background(Color.black.opacity(0.05))
+            .cornerRadius(6)
         }
         .padding(24)
     }

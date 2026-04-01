@@ -7,49 +7,19 @@
 	objects = {
 
 /* Begin PBXBuildFile section */
-		06D1BB7C6456F8501ED449CE /* CameraProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09F7AFA02A27A555AF38F537 /* CameraProvider.swift */; };
 		1B85F4EB194B0D0C65A2BB88 /* AutoPilotCameraApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = 520D368E3022F5F6682DEFF5 /* AutoPilotCameraApp.swift */; };
-		403A8DE1C4A1E5278FAEF788 /* CameraDevice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AAED32BD0AF7284F6837F41 /* CameraDevice.swift */; };
-		48EC7803FE00D65A1C4A25FD /* CameraStream.swift in Sources */ = {isa = PBXBuildFile; fileRef = A54325514D8D687CCBAFADD8 /* CameraStream.swift */; };
-		CE4ACB89D99DEDA4B4CA3D7A /* AutoPilotCameraExtension.systemextension in Embed System Extensions */ = {isa = PBXBuildFile; fileRef = 7FEB9B18D09C908BD1DDDF93 /* AutoPilotCameraExtension.systemextension */; settings = {ATTRIBUTES = (RemoveHeadersOnCopy, ); }; };
-		F30EA9911FBB5A54BA06719D /* main.swift in Sources */ = {isa = PBXBuildFile; fileRef = C02C0AD7B5A9017E00219018 /* main.swift */; };
+		3C9D9DD455BE4CCB22C08CF6 /* CameraProvider.swift in Sources */ = {isa = PBXBuildFile; fileRef = 09F7AFA02A27A555AF38F537 /* CameraProvider.swift */; };
+		4147284EFF81A55DE4DDD244 /* CameraStream.swift in Sources */ = {isa = PBXBuildFile; fileRef = A54325514D8D687CCBAFADD8 /* CameraStream.swift */; };
+		BA8C596E829A966B9AE81ACD /* CameraDevice.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5AAED32BD0AF7284F6837F41 /* CameraDevice.swift */; };
 /* End PBXBuildFile section */
-
-/* Begin PBXContainerItemProxy section */
-		2AA47732A1B57F6F24FE9DA6 /* PBXContainerItemProxy */ = {
-			isa = PBXContainerItemProxy;
-			containerPortal = 408DAD35DC6D9F7A3D9C6834 /* Project object */;
-			proxyType = 1;
-			remoteGlobalIDString = A2D1A724DFA708F58313D902;
-			remoteInfo = AutoPilotCameraExtension;
-		};
-/* End PBXContainerItemProxy section */
-
-/* Begin PBXCopyFilesBuildPhase section */
-		264C74AE8A17E23E05F5EBBB /* Embed System Extensions */ = {
-			isa = PBXCopyFilesBuildPhase;
-			buildActionMask = 2147483647;
-			dstPath = "$(SYSTEM_EXTENSIONS_FOLDER_PATH)";
-			dstSubfolderSpec = 16;
-			files = (
-				CE4ACB89D99DEDA4B4CA3D7A /* AutoPilotCameraExtension.systemextension in Embed System Extensions */,
-			);
-			name = "Embed System Extensions";
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-/* End PBXCopyFilesBuildPhase section */
 
 /* Begin PBXFileReference section */
 		09F7AFA02A27A555AF38F537 /* CameraProvider.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraProvider.swift; sourceTree = "<group>"; };
-		147F20AB5FFB52235F883FA0 /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
-		28560A74820BAF41A31FA37E /* CameraExtension.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = CameraExtension.entitlements; sourceTree = "<group>"; };
 		419769CF077FBE2180942A42 /* AutoPilotCamera.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = AutoPilotCamera.entitlements; sourceTree = "<group>"; };
 		520D368E3022F5F6682DEFF5 /* AutoPilotCameraApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AutoPilotCameraApp.swift; sourceTree = "<group>"; };
 		5AAED32BD0AF7284F6837F41 /* CameraDevice.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraDevice.swift; sourceTree = "<group>"; };
-		7FEB9B18D09C908BD1DDDF93 /* AutoPilotCameraExtension.systemextension */ = {isa = PBXFileReference; explicitFileType = "wrapper.system-extension"; includeInIndex = 0; path = AutoPilotCameraExtension.systemextension; sourceTree = BUILT_PRODUCTS_DIR; };
 		86485EDF2C2CA1437521DAAB /* AutoPilotCamera.app */ = {isa = PBXFileReference; explicitFileType = wrapper.application; includeInIndex = 0; path = AutoPilotCamera.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		A54325514D8D687CCBAFADD8 /* CameraStream.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraStream.swift; sourceTree = "<group>"; };
-		C02C0AD7B5A9017E00219018 /* main.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = main.swift; sourceTree = "<group>"; };
 		D32C6DC756FB051BA6A34AEE /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
@@ -67,7 +37,6 @@
 			isa = PBXGroup;
 			children = (
 				86485EDF2C2CA1437521DAAB /* AutoPilotCamera.app */,
-				7FEB9B18D09C908BD1DDDF93 /* AutoPilotCameraExtension.systemextension */,
 			);
 			name = Products;
 			sourceTree = "<group>";
@@ -86,11 +55,8 @@
 			isa = PBXGroup;
 			children = (
 				5AAED32BD0AF7284F6837F41 /* CameraDevice.swift */,
-				28560A74820BAF41A31FA37E /* CameraExtension.entitlements */,
 				09F7AFA02A27A555AF38F537 /* CameraProvider.swift */,
 				A54325514D8D687CCBAFADD8 /* CameraStream.swift */,
-				147F20AB5FFB52235F883FA0 /* Info.plist */,
-				C02C0AD7B5A9017E00219018 /* main.swift */,
 			);
 			path = CameraExtension;
 			sourceTree = "<group>";
@@ -103,12 +69,10 @@
 			buildConfigurationList = 82277C2DDC0782CB794B20E0 /* Build configuration list for PBXNativeTarget "AutoPilotCamera" */;
 			buildPhases = (
 				BB85F924A71777604E65EE1E /* Sources */,
-				264C74AE8A17E23E05F5EBBB /* Embed System Extensions */,
 			);
 			buildRules = (
 			);
 			dependencies = (
-				3CF80F9DAA87E590B0E47DFD /* PBXTargetDependency */,
 			);
 			name = AutoPilotCamera;
 			packageProductDependencies = (
@@ -116,23 +80,6 @@
 			productName = AutoPilotCamera;
 			productReference = 86485EDF2C2CA1437521DAAB /* AutoPilotCamera.app */;
 			productType = "com.apple.product-type.application";
-		};
-		A2D1A724DFA708F58313D902 /* AutoPilotCameraExtension */ = {
-			isa = PBXNativeTarget;
-			buildConfigurationList = AC922F3454C9C558539D85A5 /* Build configuration list for PBXNativeTarget "AutoPilotCameraExtension" */;
-			buildPhases = (
-				CE7289BD28659C3BD76E1B66 /* Sources */,
-			);
-			buildRules = (
-			);
-			dependencies = (
-			);
-			name = AutoPilotCameraExtension;
-			packageProductDependencies = (
-			);
-			productName = AutoPilotCameraExtension;
-			productReference = 7FEB9B18D09C908BD1DDDF93 /* AutoPilotCameraExtension.systemextension */;
-			productType = "com.apple.product-type.system-extension";
 		};
 /* End PBXNativeTarget section */
 
@@ -143,6 +90,10 @@
 				BuildIndependentTargetsInParallel = YES;
 				LastUpgradeCheck = 1500;
 				TargetAttributes = {
+					1716E79197D034B590C57D16 = {
+						DevelopmentTeam = "";
+						ProvisioningStyle = Automatic;
+					};
 				};
 			};
 			buildConfigurationList = 23E251E1A8E898AFDD544447 /* Build configuration list for PBXProject "AutoPilotCamera" */;
@@ -160,7 +111,6 @@
 			projectRoot = "";
 			targets = (
 				1716E79197D034B590C57D16 /* AutoPilotCamera */,
-				A2D1A724DFA708F58313D902 /* AutoPilotCameraExtension */,
 			);
 		};
 /* End PBXProject section */
@@ -171,55 +121,21 @@
 			buildActionMask = 2147483647;
 			files = (
 				1B85F4EB194B0D0C65A2BB88 /* AutoPilotCameraApp.swift in Sources */,
-			);
-			runOnlyForDeploymentPostprocessing = 0;
-		};
-		CE7289BD28659C3BD76E1B66 /* Sources */ = {
-			isa = PBXSourcesBuildPhase;
-			buildActionMask = 2147483647;
-			files = (
-				403A8DE1C4A1E5278FAEF788 /* CameraDevice.swift in Sources */,
-				06D1BB7C6456F8501ED449CE /* CameraProvider.swift in Sources */,
-				48EC7803FE00D65A1C4A25FD /* CameraStream.swift in Sources */,
-				F30EA9911FBB5A54BA06719D /* main.swift in Sources */,
+				BA8C596E829A966B9AE81ACD /* CameraDevice.swift in Sources */,
+				3C9D9DD455BE4CCB22C08CF6 /* CameraProvider.swift in Sources */,
+				4147284EFF81A55DE4DDD244 /* CameraStream.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
 /* End PBXSourcesBuildPhase section */
 
-/* Begin PBXTargetDependency section */
-		3CF80F9DAA87E590B0E47DFD /* PBXTargetDependency */ = {
-			isa = PBXTargetDependency;
-			target = A2D1A724DFA708F58313D902 /* AutoPilotCameraExtension */;
-			targetProxy = 2AA47732A1B57F6F24FE9DA6 /* PBXContainerItemProxy */;
-		};
-/* End PBXTargetDependency section */
-
 /* Begin XCBuildConfiguration section */
-		53637F0099BAC2349B7C5B7F /* Debug */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_ENTITLEMENTS = CameraExtension/CameraExtension.entitlements;
-				COMBINE_HIDPI_IMAGES = YES;
-				ENABLE_HARDENED_RUNTIME = YES;
-				INFOPLIST_FILE = CameraExtension/Info.plist;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/../Frameworks",
-				);
-				PRODUCT_BUNDLE_IDENTIFIER = dev.autopilot.camera.extension;
-				SDKROOT = macosx;
-				SYSTEM_EXTENSION_API_VERSION = 1;
-			};
-			name = Debug;
-		};
 		5E93278FBCAB3F9AC03610D0 /* Release */ = {
 			isa = XCBuildConfiguration;
 			buildSettings = {
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = AutoPilotCamera/AutoPilotCamera.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
-				ENABLE_HARDENED_RUNTIME = YES;
 				INFOPLIST_FILE = AutoPilotCamera/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -263,8 +179,10 @@
 				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = dwarf;
+				DEVELOPMENT_TEAM = "";
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				ENABLE_TESTABILITY = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
@@ -292,23 +210,6 @@
 				SWIFT_VERSION = 5.9;
 			};
 			name = Debug;
-		};
-		768AAD6B30F533E2AF3EF52B /* Release */ = {
-			isa = XCBuildConfiguration;
-			buildSettings = {
-				CODE_SIGN_ENTITLEMENTS = CameraExtension/CameraExtension.entitlements;
-				COMBINE_HIDPI_IMAGES = YES;
-				ENABLE_HARDENED_RUNTIME = YES;
-				INFOPLIST_FILE = CameraExtension/Info.plist;
-				LD_RUNPATH_SEARCH_PATHS = (
-					"$(inherited)",
-					"@executable_path/../Frameworks",
-				);
-				PRODUCT_BUNDLE_IDENTIFIER = dev.autopilot.camera.extension;
-				SDKROOT = macosx;
-				SYSTEM_EXTENSION_API_VERSION = 1;
-			};
-			name = Release;
 		};
 		7CBDD961D14FC17D1F7D3518 /* Release */ = {
 			isa = XCBuildConfiguration;
@@ -343,8 +244,10 @@
 				CLANG_WARN_UNGUARDED_AVAILABILITY = YES_AGGRESSIVE;
 				CLANG_WARN_UNREACHABLE_CODE = YES;
 				CLANG_WARN__DUPLICATE_METHOD_MATCH = YES;
+				CODE_SIGN_STYLE = Automatic;
 				COPY_PHASE_STRIP = NO;
 				DEBUG_INFORMATION_FORMAT = "dwarf-with-dsym";
+				DEVELOPMENT_TEAM = "";
 				ENABLE_NS_ASSERTIONS = NO;
 				ENABLE_STRICT_OBJC_MSGSEND = YES;
 				GCC_C_LANGUAGE_STANDARD = gnu11;
@@ -372,7 +275,6 @@
 				ASSETCATALOG_COMPILER_APPICON_NAME = AppIcon;
 				CODE_SIGN_ENTITLEMENTS = AutoPilotCamera/AutoPilotCamera.entitlements;
 				COMBINE_HIDPI_IMAGES = YES;
-				ENABLE_HARDENED_RUNTIME = YES;
 				INFOPLIST_FILE = AutoPilotCamera/Info.plist;
 				LD_RUNPATH_SEARCH_PATHS = (
 					"$(inherited)",
@@ -400,15 +302,6 @@
 			buildConfigurations = (
 				91466C255F0339CF559FC894 /* Debug */,
 				5E93278FBCAB3F9AC03610D0 /* Release */,
-			);
-			defaultConfigurationIsVisible = 0;
-			defaultConfigurationName = Debug;
-		};
-		AC922F3454C9C558539D85A5 /* Build configuration list for PBXNativeTarget "AutoPilotCameraExtension" */ = {
-			isa = XCConfigurationList;
-			buildConfigurations = (
-				53637F0099BAC2349B7C5B7F /* Debug */,
-				768AAD6B30F533E2AF3EF52B /* Release */,
 			);
 			defaultConfigurationIsVisible = 0;
 			defaultConfigurationName = Debug;
