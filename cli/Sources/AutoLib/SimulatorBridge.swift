@@ -1007,6 +1007,14 @@ public final class SimulatorBridge {
         if lower == "\t" { return 48 }
         return map[lower]
     }
+
+    // MARK: - Build
+
+    /// Builds an Xcode project with camera mock injected via VFS overlay.
+    public func buildWithCameraMock(args: [String]) throws {
+        let interceptor = BuildInterceptor()
+        try interceptor.build(args: args)
+    }
 }
 
 // MARK: - Errors
