@@ -5,9 +5,19 @@ let package = Package(
     name: "auto",
     platforms: [.macOS(.v13)],
     targets: [
+        .target(
+            name: "AutoLib",
+            path: "Sources/AutoLib"
+        ),
         .executableTarget(
             name: "auto",
-            path: "Sources"
+            dependencies: ["AutoLib"],
+            path: "Sources/CLI"
+        ),
+        .testTarget(
+            name: "AutoTests",
+            dependencies: ["AutoLib"],
+            path: "Tests"
         )
     ]
 )
