@@ -461,6 +461,31 @@ Validado con:
 
 ---
 
+## AutoPilot Editor (IDE)
+
+Editor visual para crear y ejecutar scripts `.auto`. Tauri + React + Monaco (~15MB).
+
+```bash
+cd editor && npm install && npm run tauri dev
+```
+
+### Features
+
+| Feature | Descripcion |
+|---|---|
+| **Syntax Highlighting** | Keywords, strings, comentarios, numeros con tema oscuro |
+| **Autocomplete** | 35+ comandos + elementos del Simulador en tiempo real |
+| **Inspector Preview** | Screenshot real con overlays interactivos sobre cada elemento |
+| **Inspector Tree** | Arbol jerarquico con `$N`, tipo, label, coordenadas |
+| **Terminal** | Output en tiempo real, Play/Stop, Clear, abrir carpeta Screenshots |
+| **Auto-wait** | AXObserver detecta cambios UI — sin sleeps manuales |
+| **Duplicados** | `Camera[2]` selecciona el N-esimo duplicado (cross-platform) |
+| **Config** | `auto config` guarda proyecto, scheme, bundle en `.autopilot` |
+
+> **Documentacion completa del Editor:** [docs/editor/README.md](docs/editor/README.md)
+
+---
+
 ## Documentacion Tecnica
 
 | Plataforma | Estado | Documentacion |
@@ -468,6 +493,7 @@ Validado con:
 | **iOS** | Funcional | [docs/ios/ARQUITECTURA.md](docs/ios/ARQUITECTURA.md) — AXUIElement, CGEvent, simctl, AppleScript, algoritmo de matching |
 | **iOS Camara** | **Funcional** | [camera/BITACORA.md](camera/BITACORA.md) — 9 intentos, `auto build` con force-load swizzle |
 | **iOS Env Vars** | Funcional | [docs/ios/VARIABLES_ENTORNO.md](docs/ios/VARIABLES_ENTORNO.md) — Inyeccion de datos para CI/CD |
+| **Editor IDE** | **Funcional** | [docs/editor/README.md](docs/editor/README.md) — Tauri + React + Monaco |
 | **Android** | Futuro | [docs/android/README.md](docs/android/README.md) — ADB, UIAutomator, adb shell input |
 
 ---
@@ -488,6 +514,9 @@ AutoPilot/
 │   │   └── CLI/
 │   │       └── main.swift      # Punto de entrada, dispatch, script runner
 │   └── Tests/                  # Tests unitarios (27 tests)
+├── editor/                     # AutoPilot Editor (Tauri + React + Monaco)
+│   ├── src/                    # Frontend React (App.tsx, Inspector.tsx)
+│   └── src-tauri/              # Backend Rust (comandos auto)
 ├── camera/                     # Camara virtual
 │   ├── CameraExtension/        # CMIOExtension (pendiente entitlement)
 │   ├── CameraInject/           # Dylib ObjC (swizzle AVFoundation)
