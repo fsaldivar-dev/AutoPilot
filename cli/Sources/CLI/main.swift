@@ -4,6 +4,7 @@ import AutoLib
 
 let bridge = SimulatorBridge()
 let stabilizer = UIStabilizer()
+let elementIndex = ElementIndex()
 
 func run() throws {
     let args = Array(CommandLine.arguments.dropFirst())
@@ -129,17 +130,56 @@ func executeCommand(_ args: [String]) throws {
             print("Launched \(bundleId) with \(envVars.count) env var(s) (\(ms)ms)")
         }
 
+    case "index":
+        let root = try bridge.findSimulatorContent()
+        elementIndex.rebuild(from: root)
+        let ms = elapsed(start)
+        if args.count >= 2 {
+            // Filter by query
+            let matches = elementIndex.find(args[1])
+            if matches.isEmpty {
+                print("No elements matching '\(args[1])'")
+            } else {
+                for e in matches {
+                    let idx = "$\(e.index)".padding(toLength: 5, withPad: " ", startingAt: 0)
+                    let role = e.role.replacingOccurrences(of: "AX", with: "").padding(toLength: 12, withPad: " ", startingAt: 0)
+                    let label = e.label.isEmpty ? e.id : e.label
+                    print("\(idx) \(role) \"\(label)\"  \(e.frame)")
+                }
+            }
+        } else {
+            elementIndex.printIndex()
+        }
+        print("\n\(elementIndex.count) elements indexed (\(ms)ms)")
+
     case "tap":
         guard args.count >= 2 else {
             print("Usage: auto tap <identifier|title|label>")
-            print("       auto tap a,b,c    (tap multiple elements)")
+            print("       auto tap $N         (tap by index)")
+            print("       auto tap a,b,c      (tap multiple)")
             return
         }
         // Support comma-separated targets: tap 1,2,3,4,Confirmar
         let targets = args[1].split(separator: ",").map(String.init)
         for target in targets {
-            try bridge.tap(target: target)
-            print("Tapped '\(target)' (\(elapsed(start))ms)")
+            // $N syntax — resolve by element index
+            if target.hasPrefix("$"), let n = Int(target.dropFirst()) {
+                // Rebuild index if empty
+                if elementIndex.count == 0 {
+                    let root = try bridge.findSimulatorContent()
+                    elementIndex.rebuild(from: root)
+                }
+                guard let entry = elementIndex.get(n) else {
+                    print("Index $\(n) out of range (0..\(elementIndex.count - 1))")
+                    return
+                }
+                AXUIElementPerformAction(entry.element, kAXPressAction as CFString)
+                let label = entry.label.isEmpty ? entry.id : entry.label
+                print("Tapped $\(n) '\(label)' (\(elapsed(start))ms)")
+            } else {
+                try bridge.tap(target: target)
+                print("Tapped '\(target)' (\(elapsed(start))ms)")
+            }
         }
 
     case "longPress":
