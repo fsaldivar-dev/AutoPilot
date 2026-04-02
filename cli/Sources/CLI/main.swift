@@ -78,13 +78,25 @@ func executeCommand(_ args: [String]) throws {
         }
 
     case "launch":
-        guard args.count >= 2 else {
+        let config = AutoPilotConfig.readAll()
+        let bundleId: String
+        if args.count >= 2 {
+            bundleId = args[1]
+        } else if let b = config["bundle"] {
+            bundleId = b
+        } else {
             print("Usage: auto launch <bundleId> [--env KEY=VALUE ...]")
+            print("   or: auto config bundle com.example.app")
+            print("       auto launch")
             return
         }
-        let bundleId = args[1]
+
         var envVars: [String: String] = [:]
-        var i = 2
+        // Auto-inject camera image from config
+        if let img = config["image"] {
+            envVars["AUTOPILOT_CAMERA_IMAGE"] = img
+        }
+        var i = args.count >= 2 ? 2 : 1
         while i < args.count {
             if args[i] == "--env" && i + 1 < args.count {
                 let pair = args[i + 1]
@@ -399,13 +411,75 @@ func executeCommand(_ args: [String]) throws {
             exit(1)
         }
 
-    case "build":
-        let buildArgs = Array(args.dropFirst())
-        guard !buildArgs.isEmpty else {
-            print("Usage: auto build <xcodebuild args...>")
-            print("Example: auto build -project App.xcodeproj -scheme App -sdk iphonesimulator -destination 'platform=iOS Simulator,name=iPhone 16'")
+    case "config":
+        if args.count < 2 {
+            // Show all config
+            let config = AutoPilotConfig.readAll()
+            if config.isEmpty {
+                print("No config set. Use: auto config <key> <value>")
+                print("\nAvailable keys:")
+                for k in AutoPilotConfig.knownKeys {
+                    print("  \(k.key.padding(toLength: 10, withPad: " ", startingAt: 0)) \(k.description)")
+                }
+            } else {
+                print(".autopilot config:")
+                for (key, val) in config.sorted(by: { $0.key < $1.key }) {
+                    print("  \(key) = \(val)")
+                }
+            }
             return
         }
+        let key = args[1]
+        if args.count < 3 {
+            // Get single value
+            if let val = AutoPilotConfig.get(key) {
+                print("\(key) = \(val)")
+            } else {
+                print("\(key) is not set")
+            }
+            return
+        }
+        let value = args[2...].joined(separator: " ")
+        AutoPilotConfig.set(key, value: value)
+        print("Set \(key) = \(value)")
+
+    case "build":
+        var buildArgs = Array(args.dropFirst())
+
+        // If no args, try to build from .autopilot config
+        if buildArgs.isEmpty {
+            let config = AutoPilotConfig.readAll()
+            guard let project = config["project"] else {
+                print("Usage: auto build <xcodebuild args...>")
+                print("   or: auto config project App.xcodeproj")
+                print("       auto config scheme App")
+                print("       auto build")
+                return
+            }
+
+            if project.hasSuffix(".xcworkspace") {
+                buildArgs += ["-workspace", project]
+            } else {
+                buildArgs += ["-project", project]
+            }
+            if let scheme = config["scheme"] { buildArgs += ["-scheme", scheme] }
+            buildArgs += ["-sdk", "iphonesimulator"]
+
+            if let device = config["device"] {
+                // Check if it's a UDID or name
+                if device.contains("-") && device.count > 20 {
+                    buildArgs += ["-destination", "id=\(device)"]
+                } else {
+                    buildArgs += ["-destination", "platform=iOS Simulator,name=\(device)"]
+                }
+            } else {
+                // Use booted device
+                if let booted = try? bridge.getBootedDeviceId() {
+                    buildArgs += ["-destination", "id=\(booted)"]
+                }
+            }
+        }
+
         try bridge.buildWithCameraMock(args: buildArgs)
         let ms = elapsed(start)
         print("Build completed (\(ms)ms)")
@@ -472,7 +546,11 @@ func printUsage() {
       camera stop                       Stop virtual camera
       camera status                     Check camera status
       terminate <bundleId>              Kill app
-      build <xcodebuild args...>        Build with camera mock injected
+      config                             Show all config
+      config <key> <value>              Set config value
+      config <key>                      Get config value
+      build                             Build with camera mock (uses .autopilot)
+      build <xcodebuild args...>        Build with explicit args
       run <script.auto>                 Run automation script
 
     Script format (.auto):
