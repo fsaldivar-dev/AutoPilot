@@ -1,24 +1,24 @@
-# Capitulo 4 — Inyeccion sin recompilar
+# Capítulo 4 — Inyección sin recompilar
 
-## Un enfoque que nadie mas usa
+## Un enfoque que nadie más usa
 
-Despues de 9 intentos para resolver la camara virtual (Capitulo 3), teniamos una solucion funcional: `auto build` compila una static library ObjC y la inyecta via `-force_load`. Funciona con cualquier app, swizzlea 25 metodos de AVFoundation, y la app recibe fotos inyectadas como si vinieran de una camara real.
+Después de 9 intentos para resolver la cámara virtual (Capítulo 3), teníamos una solución funciónal: `auto build` compila una static library ObjC y la inyecta via `-force_load`. Funciona con cualquier app, swizzlea 25 métodos de AVFoundation, y la app recibe fotos inyectadas como si vinieran de una cámara real.
 
 Pero tenia un problema: **necesitas el proyecto Xcode**.
 
-Si alguien te pasa un `.app` ya compilado, o si quieres probar una app de terceros, o si estas en CI y no quieres recompilar cada vez que cambias la imagen de la camara — `auto build` no te sirve.
+Si alguien te pasa un `.app` ya compilado, o si quieres probar una app de terceros, o si estas en CI y no quieres recompilar cada vez que cambias la imagen de la cámara — `auto build` no te sirve.
 
 La pregunta era: ¿se puede inyectar el mock en una app que ya esta instalada en el Simulador, sin tocarla?
 
 ## DYLD_INSERT_LIBRARIES
 
-macOS tiene un mecanismo de inyeccion de codigo a nivel de dynamic linker: `DYLD_INSERT_LIBRARIES`. Al setear esta variable de entorno antes de lanzar un proceso, `dyld` carga la dylib especificada *junto con* el binario principal. El codigo de la dylib se ejecuta antes que `main()`.
+macOS tiene un mecanismo de inyección de código a nivel de dynamic linker: `DYLD_INSERT_LIBRARIES`. Al setear esta variable de entorno antes de lanzar un proceso, `dyld` carga la dylib específicada *junto con* el binario principal. El código de la dylib se ejecuta antes que `main()`.
 
-En seguridad, esto se usa para interceptar funciones (hooking). En desarrollo, Apple lo usa para herramientas como AddressSanitizer. En testing de iOS, **nadie lo usa**. Revisamos la documentacion de Maestro, Appium, Detox, AXe, idb, EarlGrey — ninguno menciona `DYLD_INSERT_LIBRARIES` como mecanismo de inyeccion.
+En seguridad, esto se usa para interceptar funciónes (hooking). En desarrollo, Apple lo usa para herramientas como AddressSanitizer. En testing de iOS, **nadie lo usa**. Revisamos la documentación de Maestro, Appium, Detox, AXe, idb, EarlGrey — ninguno menciona `DYLD_INSERT_LIBRARIES` como mecanismo de inyección.
 
-### Por que funciona en el Simulador
+### Por qué funcióna en el Simulador
 
-Las apps del Simulador iOS corren como procesos de macOS. No tienen code signing enforcement como en un dispositivo fisico. `dyld` acepta la variable de entorno sin restricciones.
+Las apps del Simulador iOS corren como procesos de macOS. No tienen code signing enforcement como en un dispositivo físico. `dyld` acepta la variable de entorno sin restricciones.
 
 `simctl` tiene un prefijo especial: cualquier variable de entorno con prefijo `SIMCTL_CHILD_` se pasa al proceso de la app sin el prefijo. Es decir:
 
@@ -28,13 +28,13 @@ SIMCTL_CHILD_DYLD_INSERT_LIBRARIES=/path/to/lib.dylib xcrun simctl launch booted
 
 La app arranca con `DYLD_INSERT_LIBRARIES=/path/to/lib.dylib`, `dyld` carga la dylib, y el `__attribute__((constructor))` se ejecuta antes que `main()`.
 
-### Por que NO funciona en dispositivo fisico
+### Por qué NO funcióna en dispositivo físico
 
-En un iPhone real, iOS verifica code signing de todas las librerias cargadas. ARM64 PAC (Pointer Authentication Codes) valida la integridad de punteros de funcion. Una dylib no firmada por Apple o por el desarrollador es rechazada. Esto es una limitacion fundamental — la inyeccion solo funciona en Simulador.
+En un iPhone real, iOS verifica code signing de todas las librerias cargadas. ARM64 PAC (Pointer Authentication Codes) valida la integridad de punteros de función. Una dylib no firmada por Apple o por el desarrollador es rechazada. Esto es una limitación fundamental — la inyección solo funcióna en Simulador.
 
 ## Compilar el mock como dylib
 
-El mismo codigo ObjC de MockHeaders.swift (534 lineas, 25 metodos swizzleados) que usabamos como static library se puede compilar como dylib:
+El mismo código ObjC de MockHeaders.swift (534 líneas, 25 métodos swizzleados) que usábamos como static library se puede compilar como dylib:
 
 ```bash
 xcrun clang -dynamiclib -arch arm64 \
@@ -50,7 +50,7 @@ El resultado es una dylib de ~75KB que se cachea en `~/.autopilot/` y se reutili
 
 ### Tropiezo: QuartzCore faltante
 
-La primera compilacion fallo:
+La primera compilación falló:
 
 ```
 Undefined symbols for architecture arm64:
@@ -58,19 +58,19 @@ Undefined symbols for architecture arm64:
   "_kCAGravityResize", referenced from: _ap_previewSetSession
 ```
 
-`CACurrentMediaTime()` y `kCAGravityResize` vienen de QuartzCore. Con `-force_load` no era problema porque el binario final de la app ya linkea QuartzCore. Con `-dynamiclib`, la dylib necesita declarar todas sus dependencias explicitamente. Solucion: agregar `-framework QuartzCore`.
+`CACurrentMediaTime()` y `kCAGravityResize` vienen de QuartzCore. Con `-force_load` no era problema porque el binario final de la app ya linkea QuartzCore. Con `-dynamiclib`, la dylib necesita declarar todas sus dependencias explícitamente. Solución: agregar `-framework QuartzCore`.
 
 ## Hot-swap: cambiar la imagen sin relanzar
 
 Con `auto build` (force-load), la imagen se lee del environment variable `AUTOPILOT_CAMERA_IMAGE`. Esta variable se setea una vez al lanzar la app y no cambia. Si quieres otra imagen, relanzas.
 
-Con dylib injection, descubrimos que podiamos hacer algo mejor.
+Con dylib injection, descubrimos que podíamos hacer algo mejor.
 
 ### El problema
 
 Las variables de entorno son inmutables post-launch. `[NSProcessInfo processInfo].environment` retorna un snapshot del momento en que el proceso arranco. No hay forma de cambiar `AUTOPILOT_CAMERA_IMAGE` desde fuera una vez que la app esta corriendo.
 
-### La solucion: un path fijo
+### La solución: un path fijo
 
 En vez de leer de una variable de entorno, el mock lee de un **archivo en una ubicacion fija**: `/tmp/autopilot-camera-image.jpg`. Cada vez que la app llama `capturePhoto`, el mock lee el archivo en ese momento — no lo cachea.
 
@@ -98,7 +98,7 @@ Un descubrimiento temprano (Intento 4 en la bitacora) fue que `/tmp/` del Simula
 
 ### Tropiezo: constructor condicionado
 
-El constructor original de MockHeaders solo activaba el swizzle si existia la variable `AUTOPILOT_CAMERA_IMAGE`:
+El constructor original de MockHeaders solo activaba el swizzle si existía la variable `AUTOPILOT_CAMERA_IMAGE`:
 
 ```objc
 if (!imagePath && !qrCode) {
@@ -107,7 +107,7 @@ if (!imagePath && !qrCode) {
 }
 ```
 
-Con dylib injection, la dylib SOLO se carga cuando el usuario pide `--inject`. Si la dylib esta presente, siempre debe activar el swizzle — la imagen puede llegar despues via `auto inject`. Solucion: remover la condicion.
+Con dylib injection, la dylib SOLO se carga cuando el usuario pide `--inject`. Si la dylib esta presente, siempre debe activar el swizzle — la imagen puede llegar después via `auto inject`. Solución: remover la condicion.
 
 ## El flujo final
 
@@ -115,7 +115,7 @@ Con dylib injection, la dylib SOLO se carga cuando el usuario pide `--inject`. S
 # Lanzar app con mock inyectado
 auto launch com.example.app --inject selfie.jpg
 
-# La app muestra selfie.jpg en el preview de camara
+# La app muestra selfie.jpg en el preview de cámara
 # El usuario toca "Capturar" → recibe selfie.jpg
 
 # Cambiar imagen sin relanzar
@@ -128,7 +128,7 @@ En un script `.auto`:
 
 ```bash
 launch com.example.app --inject selfie.jpg
-waitFor "Camara lista" 10
+waitFor "Cámara lista" 10
 tap "Capturar Foto"
 screenshot resultado-1.png
 
@@ -151,24 +151,24 @@ Tres fotos, tres imagenes diferentes, una sola sesion de la app, sin relanzar.
 | Modifica el binario | No (dylib externa) | Si (linkada al binario) |
 | Hot-swap de imagen | Si (`auto inject`) | No (relanzar) |
 | Mecanismo | `DYLD_INSERT_LIBRARIES` | `-force_load` |
-| Tamano | ~75KB dylib cacheada | ~28KB static lib (por build) |
-| Funciona en device fisico | No (code signing) | No (solo Simulador) |
-| Compilacion | Una vez | Cada build |
+| Tamaño | ~75KB dylib cacheada | ~28KB static lib (por build) |
+| Funciona en device físico | No (code signing) | No (solo Simulador) |
+| Compilación | Una vez | Cada build |
 
 No es que uno sea mejor que el otro. Son complementarios. Si tienes el proyecto Xcode y quieres el mock integrado en el binario, usa `auto build`. Si quieres probar una app ya instalada o cambiar imagenes en caliente, usa `launch --inject`.
 
-## Que aprendimos
+## Qué aprendimos
 
-1. **`DYLD_INSERT_LIBRARIES` es una herramienta de testing viable** — nadie la usa para esto, pero funciona perfectamente en el Simulador.
+1. **`DYLD_INSERT_LIBRARIES` es una herramienta de testing viable** — nadie la usa para esto, pero funcióna perfectamente en el Simulador.
 
-2. **Las apps del Simulador son procesos de macOS** — comparten `/tmp/`, aceptan dylibs, no tienen code signing enforcement. Esto abre posibilidades que no existen en dispositivos fisicos.
+2. **Las apps del Simulador son procesos de macOS** — comparten `/tmp/`, aceptan dylibs, no tienen code signing enforcement. Esto abre posibilidades que no existen en dispositivos físicos.
 
 3. **Las variables de entorno son inmutables post-launch** — si necesitas cambiar estado desde fuera, usa archivos en disco, no env vars.
 
-4. **`-dynamiclib` requiere dependencias explicitas** — a diferencia de static libs que resuelven dependencias al linkear con el binario final.
+4. **`-dynamiclib` requiere dependencias explícitas** — a diferencia de static libs que resuelven dependencias al linkear con el binario final.
 
-5. **El hot-swap cambia la ergonomia de testing** — poder cambiar la imagen de camara sin relanzar la app permite scripts de prueba mas ricos y realistas.
+5. **El hot-swap cambia la ergonomía de testing** — poder cambiar la imagen de cámara sin relanzar la app permite scripts de prueba más ricos y realistas.
 
 ---
 
-*Anterior: [Capitulo 3 — La camara virtual](03-la-camara-virtual.md) | Siguiente: [Capitulo 5 — El editor](05-el-editor.md)*
+*Anterior: [Capítulo 3 — La cámara virtual](03-la-camara-virtual.md) | Siguiente: [Capítulo 5 — El editor](05-el-editor.md)*
