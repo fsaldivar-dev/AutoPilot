@@ -484,6 +484,27 @@ func executeCommand(_ args: [String]) throws {
         let ms = elapsed(start)
         print("Build completed (\(ms)ms)")
 
+    case "inspect":
+        guard args.count >= 2 else {
+            print("Usage: auto inspect <query>")
+            return
+        }
+        // Search from the app level (includes window chrome, nav bars, etc.)
+        let app = try bridge.findSimulator()
+        let result = AXDebug.inspect(root: app, query: args[1])
+        if result.isEmpty {
+            // Also try the full tree dump
+            print("No matches in AX tree for '\(args[1])'")
+            print("Trying full attribute dump...")
+            let full = AXDebug.inspect(root: app, query: "", maxDepth: 5)
+            // Filter lines containing the query
+            let filtered = full.split(separator: "\n").filter { $0.lowercased().contains(args[1].lowercased()) }
+            for line in filtered { print(line) }
+            if filtered.isEmpty { print("Not found anywhere in AX tree.") }
+        } else {
+            print(result)
+        }
+
     case "help", "--help", "-h":
         printUsage()
 
