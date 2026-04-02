@@ -277,10 +277,20 @@ enum MockHeaders {
         return result;
     }
 
+    static NSString *ap_resolveImagePath(void) {
+        // 1. Fixed file (updated by "auto inject")
+        NSString *fixed = @"/tmp/autopilot-camera-image.jpg";
+        if ([[NSFileManager defaultManager] fileExistsAtPath:fixed]) return fixed;
+        // 2. Env var (set at launch time)
+        NSString *env = [NSProcessInfo processInfo].environment[@"AUTOPILOT_CAMERA_IMAGE"];
+        if (env && [[NSFileManager defaultManager] fileExistsAtPath:env]) return env;
+        return nil;
+    }
+
     static void ap_previewSetSession(CALayer *self, SEL _cmd, AVCaptureSession *session) {
         NSLog(@"[AutoPilot] PreviewLayer.setSession -> showing mock image");
 
-        NSString *imagePath = [NSProcessInfo processInfo].environment[@"AUTOPILOT_CAMERA_IMAGE"];
+        NSString *imagePath = ap_resolveImagePath();
         UIImage *img = nil;
         if (imagePath) {
             NSData *data = [NSData dataWithContentsOfFile:imagePath];
@@ -309,8 +319,8 @@ enum MockHeaders {
                                 id<AVCapturePhotoCaptureDelegate> delegate) {
         NSLog(@"[AutoPilot] capturePhoto intercepted");
 
-        // Load image from env var
-        NSString *imagePath = [NSProcessInfo processInfo].environment[@"AUTOPILOT_CAMERA_IMAGE"];
+        // Load image from fixed path or env var (re-read each time to support hot-swap)
+        NSString *imagePath = ap_resolveImagePath();
         NSData *imageData = nil;
 
         if (imagePath) {
@@ -409,15 +419,8 @@ enum MockHeaders {
 
     __attribute__((constructor))
     static void AutoPilotCaptureInit(void) {
-        NSString *imagePath = [NSProcessInfo processInfo].environment[@"AUTOPILOT_CAMERA_IMAGE"];
-        NSString *qrCode = [NSProcessInfo processInfo].environment[@"AUTOPILOT_QR_CODE"];
-
-        if (!imagePath && !qrCode) {
-            NSLog(@"[AutoPilot] Camera mock inactive (no AUTOPILOT_CAMERA_IMAGE or AUTOPILOT_QR_CODE)");
-            return;
-        }
-
-        NSLog(@"[AutoPilot] Camera mock activating...");
+        NSString *imagePath = ap_resolveImagePath();
+        NSLog(@"[AutoPilot] Camera mock activating... Image: %@", imagePath ?: @"(none yet, use 'auto inject <image>')");
 
         Class deviceClass = [AVCaptureDevice class];
         Class sessionClass = [AVCaptureSession class];
