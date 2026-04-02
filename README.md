@@ -382,6 +382,10 @@ auto install ~/Library/Developer/Xcode/DerivedData/.../MiApp.app
 auto launch com.example.app
 ```
 
+### Demo
+
+https://github.com/fsaldivar-dev/AutoPilot/blob/main/assets/demos/demo-inject.mp4
+
 ### Como funciona
 
 Ambos enfoques compilan el mismo codigo ObjC (~25 metodos swizzleados de AVFoundation) con `__attribute__((constructor))` que se ejecuta al cargar la app.
