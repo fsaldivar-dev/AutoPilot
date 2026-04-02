@@ -618,7 +618,7 @@ public final class SimulatorBridge {
         return simApp.processIdentifier
     }
 
-    private func findSimulatorContent() throws -> AXUIElement {
+    public func findSimulatorContent() throws -> AXUIElement {
         // Re-discover the Simulator process each time (handles PID changes)
         let workspace = NSWorkspace.shared
         guard let simRunning = workspace.runningApplications.first(where: {
