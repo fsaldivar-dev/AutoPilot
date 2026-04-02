@@ -109,11 +109,15 @@ func executeCommand(_ args: [String]) throws {
     case "tap":
         guard args.count >= 2 else {
             print("Usage: auto tap <identifier|title|label>")
+            print("       auto tap a,b,c    (tap multiple elements)")
             return
         }
-        try bridge.tap(target: args[1])
-        let ms = elapsed(start)
-        print("Tapped '\(args[1])' (\(ms)ms)")
+        // Support comma-separated targets: tap 1,2,3,4,Confirmar
+        let targets = args[1].split(separator: ",").map(String.init)
+        for target in targets {
+            try bridge.tap(target: target)
+            print("Tapped '\(target)' (\(elapsed(start))ms)")
+        }
 
     case "longPress":
         guard args.count >= 2 else {
