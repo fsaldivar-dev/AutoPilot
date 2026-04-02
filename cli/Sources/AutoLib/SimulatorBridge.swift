@@ -609,7 +609,7 @@ public final class SimulatorBridge {
 
     // MARK: - Private: Simulator access
 
-    private func findSimulatorPID() -> pid_t? {
+    public func findSimulatorPID() -> pid_t? {
         let workspace = NSWorkspace.shared
         guard let simApp = workspace.runningApplications.first(where: {
             $0.bundleIdentifier == "com.apple.iphonesimulator"

@@ -3,6 +3,7 @@ import AppKit
 import AutoLib
 
 let bridge = SimulatorBridge()
+let stabilizer = UIStabilizer()
 
 func run() throws {
     let args = Array(CommandLine.arguments.dropFirst())
@@ -28,11 +29,20 @@ func runScript(path: String) throws {
     let content = try String(contentsOfFile: path, encoding: .utf8)
     let steps = parseScript(content)
 
+    // Attach stabilizer for auto-wait between steps
+    if let pid = try? bridge.findSimulatorPID() {
+        stabilizer.attach(pid: pid)
+    }
+
     let totalStart = CFAbsoluteTimeGetCurrent()
 
     for (i, step) in steps.enumerated() {
         let label = step.tokens.joined(separator: " ")
         print("[\(i + 1)] \(label)")
+
+        // Auto-wait: let UI stabilize before each action
+        stabilizer.waitForStable(quietPeriod: 0.3, timeout: 3.0)
+        stabilizer.resetCounter()
 
         do {
             try executeCommand(step.tokens)
@@ -42,6 +52,7 @@ func runScript(path: String) throws {
         }
     }
 
+    stabilizer.detach()
     let totalMs = elapsed(totalStart)
     print("\n\(steps.count) step(s) completed (\(totalMs)ms)")
 }
