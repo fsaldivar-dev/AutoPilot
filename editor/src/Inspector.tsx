@@ -17,17 +17,17 @@ interface ParsedElement extends AXElement {
   h: number;
 }
 
-// Actions use $N index when available, fallback to "label"
-function makeActions(idx: number | null, label: string) {
-  const ref = idx !== null ? `$${idx}` : `"${label}"`;
+// Actions use label[N] for duplicates, plain label otherwise
+function makeActions(label: string, suffix: string) {
+  const ref = suffix ? `${label}${suffix}` : label;
   return [
     { label: "tap", icon: "👆", cmd: `tap ${ref}` },
     { label: "doubleTap", icon: "👆👆", cmd: `doubleTap ${ref}` },
     { label: "longPress", icon: "✊", cmd: `longPress ${ref} 1` },
     { label: "type", icon: "⌨️", cmd: `type ${ref} "text"` },
     { label: "clear", icon: "🗑", cmd: `clear ${ref}` },
-    { label: "waitFor", icon: "⏳", cmd: `waitFor "${label}" 10` },
-    { label: "exists", icon: "❓", cmd: `exists "${label}"` },
+    { label: "waitFor", icon: "⏳", cmd: `waitFor ${ref} 10` },
+    { label: "exists", icon: "❓", cmd: `exists ${ref}` },
   ];
 }
 
@@ -212,7 +212,14 @@ export default function Inspector({ elements, indexed, screenshot, onInsert, onC
 
       {/* Actions bar */}
       {activeElement && (() => {
-        const actions = makeActions(activeIndex, activeDisplay);
+        // Check if label has duplicates → add [N] suffix
+        const dupes = indexed.filter(e => e.label === activeDisplay);
+        let suffix = "";
+        if (dupes.length > 1 && activeIndex !== null) {
+          const pos = dupes.findIndex(e => e.index === activeIndex);
+          if (pos >= 0) suffix = `[${pos + 1}]`;
+        }
+        const actions = makeActions(activeDisplay, suffix);
         return (
           <div className="inspector-actions">
             <div className="actions-info">
