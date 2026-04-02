@@ -66,6 +66,7 @@ function App() {
   const [currentStep, setCurrentStep] = useState(-1);
   const [treeElements, setTreeElements] = useState<AXElement[]>([]);
   const [labels, setLabels] = useState<string[]>([]);
+  const [screenshot, setScreenshot] = useState("");
   const [showTree, setShowTree] = useState(false);
   const editorRef = useRef<any>(null);
   const abortRef = useRef(false);
@@ -110,13 +111,15 @@ function App() {
 
   const refreshTree = useCallback(async () => {
     try {
-      const result = await invoke<{ raw: string; elements: AXElement[]; labels: string[] }>("get_ax_tree");
+      appendOutput("--- Capturing screenshot + tree... ---");
+      const result = await invoke<{ screenshot: string; elements: AXElement[]; labels: string[] }>("inspect");
       setTreeElements(result.elements);
       setLabels(result.labels);
+      setScreenshot(result.screenshot);
       setShowTree(true);
-      appendOutput("--- Tree: " + result.elements.length + " elements ---");
+      appendOutput("--- Inspector: " + result.elements.length + " elements ---");
     } catch (err: any) {
-      appendOutput(`Tree error: ${err}`);
+      appendOutput(`Inspect error: ${err}`);
     }
   }, [appendOutput]);
 
@@ -212,6 +215,7 @@ function App() {
         {showTree && (
           <Inspector
             elements={treeElements}
+            screenshot={screenshot}
             onInsert={insertToEditor}
             onClose={() => setShowTree(false)}
           />
