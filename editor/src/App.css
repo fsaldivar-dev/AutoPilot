@@ -194,6 +194,134 @@ html, body, #root {
   word-break: break-all;
 }
 
+/* Tree Inspector Panel */
+.tree-panel {
+  width: 320px;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg);
+  border-right: 1px solid var(--border);
+}
+
+.tree-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--fg-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-light);
+}
+
+.btn-close {
+  background: none;
+  border: none;
+  color: var(--fg-dim);
+  font-size: 16px;
+  cursor: pointer;
+  padding: 0 4px;
+  line-height: 1;
+  box-shadow: none;
+}
+
+.btn-close:hover {
+  color: var(--accent);
+}
+
+.tree-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+
+.tree-item {
+  display: flex;
+  align-items: flex-start;
+  flex-wrap: wrap;
+  gap: 4px;
+  padding: 4px 8px;
+  font-size: 11px;
+  cursor: pointer;
+  border-left: 2px solid transparent;
+  transition: all 0.1s;
+}
+
+.tree-item:hover {
+  background: var(--bg-light);
+  border-left-color: var(--blue);
+}
+
+.tree-item.selected {
+  background: var(--bg-lighter);
+  border-left-color: var(--accent);
+}
+
+.tree-icon {
+  font-size: 11px;
+  flex-shrink: 0;
+}
+
+.tree-role {
+  color: var(--blue);
+  font-weight: 600;
+  font-size: 10px;
+  flex-shrink: 0;
+}
+
+.tree-label {
+  color: var(--green);
+  font-family: 'SF Mono', monospace;
+  font-size: 11px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 150px;
+}
+
+.tree-frame {
+  color: var(--fg-dim);
+  font-size: 9px;
+  font-family: 'SF Mono', monospace;
+  opacity: 0.5;
+}
+
+/* Action Menu */
+.action-menu {
+  width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+  padding-top: 6px;
+  border-top: 1px solid var(--border);
+}
+
+.action-btn {
+  display: flex;
+  align-items: center;
+  gap: 3px;
+  padding: 3px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-light);
+  color: var(--fg);
+  font-size: 10px;
+  cursor: pointer;
+  transition: all 0.1s;
+  box-shadow: none;
+  font-family: inherit;
+}
+
+.action-btn:hover {
+  background: var(--blue);
+  color: #fff;
+  border-color: var(--blue);
+}
+
 /* Statusbar */
 .statusbar {
   padding: 4px 16px;

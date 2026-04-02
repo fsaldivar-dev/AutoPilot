@@ -44,32 +44,93 @@ fn get_ax_tree() -> Result<Value, String> {
 
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
 
-    // Parse tree output into labels for autocomplete
-    let mut elements: Vec<String> = Vec::new();
+    // Parse tree output into structured elements
+    // Format: "  AXButton  label="Login"  id=loginBtn  [100,200 50x30]"
+    let mut elements: Vec<Value> = Vec::new();
+    let mut labels: Vec<String> = Vec::new();
+
     for line in stdout.lines() {
-        // Extract quoted strings (labels, titles, ids)
-        let mut chars = line.chars().peekable();
-        while let Some(c) = chars.next() {
-            if c == '"' {
-                let mut s = String::new();
-                while let Some(&nc) = chars.peek() {
-                    chars.next();
-                    if nc == '"' { break; }
-                    s.push(nc);
-                }
-                if !s.is_empty() {
-                    elements.push(s);
+        let trimmed = line.trim();
+        if trimmed.is_empty() || trimmed.starts_with('(') { continue; }
+
+        let depth = line.len() - line.trim_start().len();
+        let mut role = String::new();
+        let mut label = String::new();
+        let mut id = String::new();
+        let mut value = String::new();
+        let mut frame = String::new();
+
+        // Extract role (first word starting with AX)
+        if let Some(ax_start) = trimmed.find("AX") {
+            let rest = &trimmed[ax_start..];
+            role = rest.split_whitespace().next().unwrap_or("").to_string();
+        }
+
+        // Extract quoted strings after keywords
+        if let Some(i) = trimmed.find("label=\"") {
+            let start = i + 7;
+            if let Some(end) = trimmed[start..].find('"') {
+                label = trimmed[start..start+end].to_string();
+            }
+        }
+        if label.is_empty() {
+            // Try title (quoted string right after role)
+            if let Some(i) = trimmed.find("\"") {
+                let start = i + 1;
+                if let Some(end) = trimmed[start..].find('"') {
+                    let candidate = &trimmed[start..start+end];
+                    if !candidate.contains('=') {
+                        label = candidate.to_string();
+                    }
                 }
             }
         }
+        if let Some(i) = trimmed.find("id=") {
+            let start = i + 3;
+            let rest = &trimmed[start..];
+            id = rest.split_whitespace().next().unwrap_or("").to_string();
+        }
+        if let Some(i) = trimmed.find("value=\"") {
+            let start = i + 7;
+            if let Some(end) = trimmed[start..].find('"') {
+                value = trimmed[start..start+end].to_string();
+            }
+        }
+        if let Some(i) = trimmed.find('[') {
+            if let Some(end) = trimmed[i..].find(']') {
+                frame = trimmed[i..i+end+1].to_string();
+            }
+        }
+
+        let display = if !label.is_empty() { label.clone() }
+            else if !id.is_empty() { id.clone() }
+            else if !value.is_empty() { value.clone() }
+            else { role.clone() };
+
+        if !display.is_empty() && display != role {
+            labels.push(display.clone());
+        }
+
+        if !role.is_empty() {
+            elements.push(serde_json::json!({
+                "role": role,
+                "label": label,
+                "id": id,
+                "value": value,
+                "frame": frame,
+                "depth": depth / 2,
+                "display": display,
+            }));
+        }
     }
 
-    elements.sort();
-    elements.dedup();
+    labels.sort();
+    labels.dedup();
 
     Ok(serde_json::json!({
         "raw": stdout,
-        "elements": elements
+        "elements": elements,
+        "labels": labels
     }))
 }
 
