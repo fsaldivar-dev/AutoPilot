@@ -90,6 +90,7 @@ export default function Inspector({ elements, screenshot, onInsert, onClose }: I
   }, [parsed]);
 
   // Adjust elements to be relative to the content area
+  // Sort by area descending so small elements (buttons) render ON TOP of large ones (groups)
   const adjusted = useMemo(() => {
     return parsed
       .filter(el => el.x >= viewport.offsetX && el.y >= viewport.offsetY)
@@ -97,7 +98,8 @@ export default function Inspector({ elements, screenshot, onInsert, onClose }: I
         ...el,
         x: el.x - viewport.offsetX,
         y: el.y - viewport.offsetY,
-      }));
+      }))
+      .sort((a, b) => (b.w * b.h) - (a.w * a.h));
   }, [parsed, viewport]);
 
   const active = hovered || selected;
