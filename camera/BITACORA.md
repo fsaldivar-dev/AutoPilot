@@ -201,3 +201,46 @@ auto launch app --env AUTOPILOT_CAMERA_IMAGE=/path/to/image.jpg
 | `camera/CameraExtension/` | CMIOExtension Swift | Bloqueado por entitlement |
 | `camera/CameraInject/AutoPilotCamera.m` | Dylib ObjC swizzle | Parcial (descartado) |
 | `packages/AutoPilotAVFoundation/` | Package swizzle (requiere 1 linea en app) | Funcional, superado por auto build |
+
+## Sesion 2026-04-02
+
+### Editor IDE (AutoPilot Editor)
+
+**Stack:** Tauri 2 + React + TypeScript + Monaco Editor
+
+**Features implementados:**
+- Monaco editor con syntax highlighting para lenguaje .auto
+- Tema oscuro "AutoPilot" (Tokyo Night inspired)
+- 35+ comandos en autocomplete con snippets
+- Inspector visual: Preview (screenshot real + overlays) y Tree (jerarquico)
+- Terminal inferior con Play/Stop/Clear/Screenshots
+- Auto-wait via AXObserver (detecta cambios UI en tiempo real)
+- Indexacion de elementos ($N) para desambiguar duplicados
+- Sintaxis Camera[2] para seleccionar el N-esimo duplicado (cross-platform)
+- Boton Screenshots para abrir carpeta en Finder
+
+### CLI — Nuevos features
+
+- `auto config` — configuracion persistente en .autopilot
+- `auto build` sin args lee de .autopilot
+- `auto launch` sin args lee bundle + image de .autopilot
+- `auto index` — lista elementos con $N, tipo, label, coordenadas
+- `auto index Camera` — filtra duplicados
+- `auto inspect` — debug de atributos AX
+- `tap Camera[2]` — tapea el N-esimo duplicado
+- `tap 1,2,3,4,Confirmar` — multi-tap con comas
+- Auto-wait entre comandos de scripts (AXObserver, sin polling)
+
+### CI/CD — E2E Tests
+
+- Workflow "E2E Tests" en GitHub Actions (macos-15)
+- Hardware: Face ID enroll/match/status + pasteboard
+- Camera: auto build + mock capture + screenshot
+- Todo verde en 6 minutos
+
+### Hallazgos
+
+- SwiftUI NavigationBar buttons no se exponen via macOS AX (AXChildren=[0])
+- AXObserver funciona para detectar cambios UI en tiempo real
+- El arbol AX se resuelve en el mismo orden que UIAutomator → Camera[N] es cross-platform
+- Xcode 26 ENABLE_DEBUG_DYLIB=NO necesario para force_load
