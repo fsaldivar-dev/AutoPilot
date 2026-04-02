@@ -1015,6 +1015,63 @@ public final class SimulatorBridge {
         let interceptor = BuildInterceptor()
         try interceptor.build(args: args)
     }
+
+    // MARK: - Inject (dylib)
+
+    /// Well-known path where the mock reads images from.
+    public static let injectImagePath = "/tmp/autopilot-camera-image.jpg"
+
+    /// Copies an image to the well-known path so the mock picks it up on next capture.
+    public func setInjectImage(_ sourcePath: String) throws {
+        let absPath = sourcePath.hasPrefix("/") ? sourcePath : FileManager.default.currentDirectoryPath + "/" + sourcePath
+        guard FileManager.default.fileExists(atPath: absPath) else {
+            throw InjectError.imageNotFound(absPath)
+        }
+        let dest = SimulatorBridge.injectImagePath
+        try? FileManager.default.removeItem(atPath: dest)
+        try FileManager.default.copyItem(atPath: absPath, toPath: dest)
+    }
+
+    /// Launches an app with the camera mock dylib injected via DYLD_INSERT_LIBRARIES.
+    /// Optionally sets an initial image for the mock.
+    public func injectAndLaunch(bundleId: String, imagePath: String?, extraEnv: [String: String] = [:]) throws {
+        let injector = DylibInjector()
+        let dylibPath = try injector.ensureDylib()
+
+        // Copy initial image if provided
+        if let img = imagePath {
+            try setInjectImage(img)
+        }
+
+        let deviceId = try getBootedDeviceId()
+
+        // Terminate if running (ignore errors — app may not be running)
+        let term = Process()
+        term.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
+        term.arguments = ["simctl", "terminate", deviceId, bundleId]
+        try? term.run()
+        term.waitUntilExit()
+
+        // Build env vars — only need dylib path, image is read from fixed file
+        var env = ProcessInfo.processInfo.environment
+        env["SIMCTL_CHILD_DYLD_INSERT_LIBRARIES"] = dylibPath
+
+        for (key, value) in extraEnv {
+            env["SIMCTL_CHILD_\(key)"] = value
+        }
+
+        // Launch with dylib injection
+        let launch = Process()
+        launch.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
+        launch.arguments = ["simctl", "launch", deviceId, bundleId]
+        launch.environment = env
+        try launch.run()
+        launch.waitUntilExit()
+
+        guard launch.terminationStatus == 0 else {
+            throw BridgeError.simctlFailed("simctl launch failed (exit \(launch.terminationStatus))")
+        }
+    }
 }
 
 // MARK: - Errors
