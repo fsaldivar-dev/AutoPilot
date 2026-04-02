@@ -92,23 +92,27 @@ func executeCommand(_ args: [String]) throws {
     case "launch":
         let config = AutoPilotConfig.readAll()
         let bundleId: String
-        if args.count >= 2 {
+        if args.count >= 2 && !args[1].hasPrefix("--") {
             bundleId = args[1]
         } else if let b = config["bundle"] {
             bundleId = b
         } else {
-            print("Usage: auto launch <bundleId> [--env KEY=VALUE ...]")
+            print("Usage: auto launch <bundleId> [--inject image.jpg] [--env KEY=VALUE ...]")
             print("   or: auto config bundle com.example.app")
             print("       auto launch")
             return
         }
 
         var envVars: [String: String] = [:]
+        var injectImage: String? = nil
+        var recompile = false
+
         // Auto-inject camera image from config
         if let img = config["image"] {
             envVars["AUTOPILOT_CAMERA_IMAGE"] = img
         }
-        var i = args.count >= 2 ? 2 : 1
+
+        var i = args.count >= 2 && !args[1].hasPrefix("--") ? 2 : 1
         while i < args.count {
             if args[i] == "--env" && i + 1 < args.count {
                 let pair = args[i + 1]
@@ -118,16 +122,46 @@ func executeCommand(_ args: [String]) throws {
                     envVars[key] = value
                 }
                 i += 2
+            } else if args[i] == "--inject" {
+                if i + 1 < args.count && !args[i + 1].hasPrefix("--") {
+                    injectImage = args[i + 1]
+                    i += 2
+                } else {
+                    // --inject without image: use config image
+                    injectImage = config["image"]
+                    i += 1
+                }
+            } else if args[i] == "--recompile" {
+                recompile = true
+                i += 1
             } else {
                 i += 1
             }
         }
-        try bridge.launchApp(bundleId: bundleId, envVars: envVars)
-        let ms = elapsed(start)
-        if envVars.isEmpty {
-            print("Launched \(bundleId) (\(ms)ms)")
+
+        if let injectImg = injectImage {
+            // Resolve relative path
+            var imgPath = injectImg
+            if !imgPath.hasPrefix("/") {
+                imgPath = FileManager.default.currentDirectoryPath + "/" + imgPath
+            }
+
+            if recompile {
+                let injector = DylibInjector()
+                try injector.recompile()
+            }
+
+            try bridge.injectAndLaunch(bundleId: bundleId, imagePath: imgPath, extraEnv: envVars)
+            let ms = elapsed(start)
+            print("Launched \(bundleId) with camera mock → \(imgPath) (\(ms)ms)")
         } else {
-            print("Launched \(bundleId) with \(envVars.count) env var(s) (\(ms)ms)")
+            try bridge.launchApp(bundleId: bundleId, envVars: envVars)
+            let ms = elapsed(start)
+            if envVars.isEmpty {
+                print("Launched \(bundleId) (\(ms)ms)")
+            } else {
+                print("Launched \(bundleId) with \(envVars.count) env var(s) (\(ms)ms)")
+            }
         }
 
     case "index":
@@ -513,6 +547,15 @@ func executeCommand(_ args: [String]) throws {
         AutoPilotConfig.set(key, value: value)
         print("Set \(key) = \(value)")
 
+    case "inject":
+        guard args.count >= 2 else {
+            print("Usage: auto inject <image.jpg>")
+            print("Changes the mock camera image without relaunching the app.")
+            return
+        }
+        try bridge.setInjectImage(args[1])
+        print("Camera image updated → \(SimulatorBridge.injectImagePath)")
+
     case "build":
         var buildArgs = Array(args.dropFirst())
 
@@ -617,7 +660,7 @@ func printUsage() {
       ping                              Check Simulator is running
       tree                              Print accessibility tree
       tree -s "query"                   Search elements
-      launch <bundleId> [--env K=V ...]  Launch app (with env vars)
+      launch <bundleId> [--inject img]   Launch app (--inject for camera mock)
       tap <id|title|label>              Tap element
       longPress <id|title|label> [secs]  Long press element
       doubleTap <id|title|label>        Double tap element
@@ -632,6 +675,7 @@ func printUsage() {
       install <path/to/app.app>        Install app on simulator
       elementAt <x> <y>                 Element at coordinate
       screenshot [filename.png]         Screenshot (via simctl)
+      inject <image.jpg>                 Change mock camera image (hot-swap)
       camera start <image>              Start virtual camera feed
       camera feed <image>               Update camera image
       camera stop                       Stop virtual camera
