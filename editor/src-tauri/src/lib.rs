@@ -1,12 +1,28 @@
 use std::process::Command;
+use std::path::PathBuf;
 use serde_json::Value;
+
+fn auto_binary() -> PathBuf {
+    // Look for auto binary: next to the editor, in parent dir, or in PATH
+    let candidates = [
+        std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.join("auto"))),
+        std::env::current_dir().ok().map(|d| d.join("auto")),
+        std::env::current_dir().ok().map(|d| d.join("../auto")),
+        Some(PathBuf::from("/Users/franciscojaviersaldivarrubio/Documents/AutomationApp/auto")),
+    ];
+    for c in candidates.iter().flatten() {
+        if c.exists() { return c.clone(); }
+    }
+    PathBuf::from("auto") // fallback to PATH
+}
 
 #[tauri::command]
 fn run_auto(args: Vec<String>) -> Result<String, String> {
-    let output = Command::new("./auto")
+    let bin = auto_binary();
+    let output = Command::new(&bin)
         .args(&args)
         .output()
-        .map_err(|e| format!("Failed to run auto: {}", e))?;
+        .map_err(|e| format!("Failed to run {}: {}", bin.display(), e))?;
 
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
@@ -20,7 +36,8 @@ fn run_auto(args: Vec<String>) -> Result<String, String> {
 
 #[tauri::command]
 fn get_ax_tree() -> Result<Value, String> {
-    let output = Command::new("./auto")
+    let bin = auto_binary();
+    let output = Command::new(&bin)
         .args(["tree"])
         .output()
         .map_err(|e| format!("Failed to get tree: {}", e))?;
