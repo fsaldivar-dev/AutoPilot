@@ -23,6 +23,7 @@ const AUTO_COMMANDS = [
 
   // Interaccion
   { label: "tap", detail: "Tap en elemento", insertText: 'tap "${1:element}"' },
+  { label: "tap (multi)", detail: "Tap varios elementos", insertText: "tap ${1:1,2,3,4,Confirmar}" },
   { label: "doubleTap", detail: "Doble tap", insertText: 'doubleTap "${1:element}"' },
   { label: "longPress", detail: "Presion larga (segundos)", insertText: 'longPress "${1:element}" ${2:1}' },
   { label: "tapAt", detail: "Tap en coordenadas x y", insertText: "tapAt ${1:x} ${2:y}" },
