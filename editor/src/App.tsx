@@ -197,7 +197,7 @@ function App() {
         </div>
         <div className="toolbar-right">
           <button className="btn btn-tree" onClick={refreshTree} disabled={running}>
-            <span className="btn-icon">🌳</span> Tree
+            <span className="btn-icon">🌳</span> Inspect
           </button>
           {!running ? (
             <button className="btn btn-play" onClick={runScript}>
@@ -211,7 +211,8 @@ function App() {
         </div>
       </header>
 
-      <main className="panels">
+      <div className="main-area">
+        {/* Left: Inspector (Preview / Tree tabs) */}
         {showTree && (
           <Inspector
             elements={treeElements}
@@ -221,39 +222,45 @@ function App() {
           />
         )}
 
-        <section className="editor-panel">
-          <Editor
-            defaultLanguage="auto"
-            value={script}
-            onChange={(v) => setScript(v || "")}
-            onMount={handleEditorMount}
-            options={{
-              fontSize: 14,
-              fontFamily: "'SF Mono', 'Fira Code', 'Menlo', monospace",
-              minimap: { enabled: false },
-              lineNumbers: "on",
-              scrollBeyondLastLine: false,
-              wordWrap: "on",
-              padding: { top: 12 },
-              suggestOnTriggerCharacters: true,
-              quickSuggestions: true,
-              tabSize: 2,
-              renderLineHighlight: "all",
-              cursorBlinking: "smooth",
-            }}
-          />
-        </section>
+        {/* Center + Bottom */}
+        <div className="editor-area">
+          {/* Editor */}
+          <section className="editor-panel">
+            <Editor
+              defaultLanguage="auto"
+              value={script}
+              onChange={(v) => setScript(v || "")}
+              onMount={handleEditorMount}
+              options={{
+                fontSize: 14,
+                fontFamily: "'SF Mono', 'Fira Code', 'Menlo', monospace",
+                minimap: { enabled: false },
+                lineNumbers: "on",
+                scrollBeyondLastLine: false,
+                wordWrap: "off",
+                padding: { top: 12 },
+                suggestOnTriggerCharacters: true,
+                quickSuggestions: true,
+                tabSize: 2,
+                renderLineHighlight: "all",
+                cursorBlinking: "smooth",
+              }}
+            />
+          </section>
 
-        <section className="output-panel">
-          <div className="output-header">
-            <span>Output</span>
-            {running && <span className="running-indicator" />}
-          </div>
-          <pre className="output-content">
-            {output || "Press Play to run script..."}
-          </pre>
-        </section>
-      </main>
+          {/* Bottom: Terminal-style output */}
+          <section className="terminal-panel">
+            <div className="terminal-header">
+              <span>Terminal</span>
+              {running && <span className="running-indicator" />}
+              <button className="btn-clear" onClick={() => setOutput("")}>Clear</button>
+            </div>
+            <pre className="terminal-content">
+              {output || "$ auto run script.auto\nReady..."}
+            </pre>
+          </section>
+        </div>
+      </div>
 
       <footer className="statusbar">
         {running ? (
@@ -261,7 +268,7 @@ function App() {
         ) : labels.length > 0 ? (
           <span>{labels.length} UI elements | {treeElements.length} nodes</span>
         ) : (
-          <span>Click Tree to inspect Simulator UI</span>
+          <span>Click Inspect to capture Simulator UI</span>
         )}
       </footer>
     </div>
