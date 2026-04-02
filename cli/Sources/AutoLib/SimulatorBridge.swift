@@ -960,7 +960,7 @@ public final class SimulatorBridge {
         return children as? [AXUIElement]
     }
 
-    private func getBootedDeviceId() throws -> String {
+    public func getBootedDeviceId() throws -> String {
         let process = Process()
         let pipe = Pipe()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
