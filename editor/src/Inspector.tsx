@@ -65,16 +65,40 @@ export default function Inspector({ elements, screenshot, onInsert, onClose }: I
     return result;
   }, [elements]);
 
-  // Simulator viewport bounds
-  const bounds = useMemo(() => {
-    if (parsed.length === 0) return { maxX: 430, maxY: 932 };
-    let maxX = 0, maxY = 0;
+  // Find the content area offset (largest AXGroup = simulator content)
+  // AX frames include macOS window chrome, screenshot is only iOS content
+  const viewport = useMemo(() => {
+    if (parsed.length === 0) return { offsetX: 0, offsetY: 0, width: 430, height: 932 };
+
+    // Find the largest element by area — that's the simulator content group
+    let contentEl = parsed[0];
+    let maxArea = 0;
     for (const el of parsed) {
-      maxX = Math.max(maxX, el.x + el.w);
-      maxY = Math.max(maxY, el.y + el.h);
+      const area = el.w * el.h;
+      if (area > maxArea) {
+        maxArea = area;
+        contentEl = el;
+      }
     }
-    return { maxX, maxY };
+
+    return {
+      offsetX: contentEl.x,
+      offsetY: contentEl.y,
+      width: contentEl.w,
+      height: contentEl.h,
+    };
   }, [parsed]);
+
+  // Adjust elements to be relative to the content area
+  const adjusted = useMemo(() => {
+    return parsed
+      .filter(el => el.x >= viewport.offsetX && el.y >= viewport.offsetY)
+      .map(el => ({
+        ...el,
+        x: el.x - viewport.offsetX,
+        y: el.y - viewport.offsetY,
+      }));
+  }, [parsed, viewport]);
 
   const active = hovered || selected;
 
@@ -86,17 +110,17 @@ export default function Inspector({ elements, screenshot, onInsert, onClose }: I
       </div>
 
       <div className="inspector-canvas" ref={containerRef}>
-        <div className="canvas-viewport" style={{ aspectRatio: `${bounds.maxX} / ${bounds.maxY}` }}>
+        <div className="canvas-viewport" style={{ aspectRatio: `${viewport.width} / ${viewport.height}` }}>
           {/* Real screenshot as background */}
           {screenshot && (
             <img src={screenshot} alt="Simulator" className="canvas-screenshot" draggable={false} />
           )}
 
-          {/* Overlay hitboxes */}
-          <svg className="canvas-overlay" viewBox={`0 0 ${bounds.maxX} ${bounds.maxY}`}>
-            {parsed.map((el, i) => {
-              const isHovered = hovered === el;
-              const isSelected = selected === el;
+          {/* Overlay hitboxes — coordinates adjusted to content area */}
+          <svg className="canvas-overlay" viewBox={`0 0 ${viewport.width} ${viewport.height}`} preserveAspectRatio="none">
+            {adjusted.map((el, i) => {
+              const isHovered = hovered?.display === el.display && hovered?.frame === el.frame;
+              const isSelected = selected?.display === el.display && selected?.frame === el.frame;
               const color = roleColor(el.role);
 
               return (
@@ -104,10 +128,10 @@ export default function Inspector({ elements, screenshot, onInsert, onClose }: I
                   key={i}
                   x={el.x} y={el.y} width={el.w} height={el.h}
                   fill={isHovered || isSelected ? color : "transparent"}
-                  fillOpacity={isSelected ? 0.3 : isHovered ? 0.2 : 0}
+                  fillOpacity={isSelected ? 0.25 : isHovered ? 0.15 : 0}
                   stroke={isHovered || isSelected ? color : "transparent"}
-                  strokeWidth={isSelected ? 2.5 : isHovered ? 1.5 : 0}
-                  rx="4"
+                  strokeWidth={isSelected ? 2 : isHovered ? 1 : 0}
+                  rx="3"
                   style={{ cursor: "pointer" }}
                   onClick={(e) => { e.stopPropagation(); setSelected(isSelected ? null : el); }}
                   onMouseEnter={() => setHovered(el)}
@@ -121,8 +145,8 @@ export default function Inspector({ elements, screenshot, onInsert, onClose }: I
           {hovered && !selected && (
             <div className="canvas-tooltip"
               style={{
-                left: `${(hovered.x / bounds.maxX) * 100}%`,
-                top: `${(hovered.y / bounds.maxY) * 100 - 4}%`,
+                left: `${(hovered.x / viewport.width) * 100}%`,
+                top: `${Math.max(0, (hovered.y / viewport.height) * 100 - 3)}%`,
               }}>
               <span className="tooltip-role" style={{ color: roleColor(hovered.role) }}>
                 {hovered.role.replace("AX", "")}
