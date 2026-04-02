@@ -154,17 +154,16 @@ func executeCommand(_ args: [String]) throws {
 
     case "tap":
         guard args.count >= 2 else {
-            print("Usage: auto tap <identifier|title|label>")
-            print("       auto tap $N         (tap by index)")
-            print("       auto tap a,b,c      (tap multiple)")
+            print("Usage: auto tap <label>")
+            print("       auto tap Camera[2]  (second Camera)")
+            print("       auto tap $N         (by index)")
+            print("       auto tap a,b,c      (multiple)")
             return
         }
-        // Support comma-separated targets: tap 1,2,3,4,Confirmar
         let targets = args[1].split(separator: ",").map(String.init)
         for target in targets {
             // $N syntax — resolve by element index
             if target.hasPrefix("$"), let n = Int(target.dropFirst()) {
-                // Rebuild index if empty
                 if elementIndex.count == 0 {
                     let root = try bridge.findSimulatorContent()
                     elementIndex.rebuild(from: root)
@@ -177,8 +176,28 @@ func executeCommand(_ args: [String]) throws {
                 let label = entry.label.isEmpty ? entry.id : entry.label
                 print("Tapped $\(n) '\(label)' (\(elapsed(start))ms)")
             } else {
-                try bridge.tap(target: target)
-                print("Tapped '\(target)' (\(elapsed(start))ms)")
+                // Parse label[N] syntax
+                let (label, occurrence) = TargetResolver.parse(target)
+
+                if let occurrence {
+                    // Find all matches and pick the Nth
+                    let root = try bridge.findSimulatorContent()
+                    let matches = TargetResolver.findAll(in: root, matching: label)
+                    guard occurrence >= 1 && occurrence <= matches.count else {
+                        if matches.isEmpty {
+                            print("No elements matching '\(label)'")
+                        } else {
+                            print("'\(label)' has \(matches.count) match(es), requested [\(occurrence)]")
+                        }
+                        return
+                    }
+                    let (element, _) = matches[occurrence - 1]
+                    AXUIElementPerformAction(element, kAXPressAction as CFString)
+                    print("Tapped '\(label)[\(occurrence)]' (\(elapsed(start))ms)")
+                } else {
+                    try bridge.tap(target: target)
+                    print("Tapped '\(target)' (\(elapsed(start))ms)")
+                }
             }
         }
 
