@@ -286,6 +286,9 @@ function App() {
             <div className="terminal-header">
               <span>Terminal</span>
               {running && <span className="running-indicator" />}
+              <button className="btn-clear" onClick={async () => {
+                try { await invoke("open_screenshots"); } catch {}
+              }}>📂 Screenshots</button>
               <button className="btn-clear" onClick={() => setOutput("")}>Clear</button>
             </div>
             <pre className="terminal-content">

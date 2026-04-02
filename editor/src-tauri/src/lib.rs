@@ -243,12 +243,26 @@ fn inspect() -> Result<Value, String> {
     }))
 }
 
+#[tauri::command]
+fn open_screenshots() -> Result<String, String> {
+    let dir = std::env::current_dir()
+        .unwrap_or_default()
+        .join("screenshots");
+    // Create if doesn't exist
+    let _ = std::fs::create_dir_all(&dir);
+    Command::new("open")
+        .arg(&dir)
+        .spawn()
+        .map_err(|e| format!("Failed to open: {}", e))?;
+    Ok(dir.to_string_lossy().to_string())
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
-        .invoke_handler(tauri::generate_handler![run_auto, get_ax_tree, get_element_index, inspect])
+        .invoke_handler(tauri::generate_handler![run_auto, get_ax_tree, get_element_index, inspect, open_screenshots])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
