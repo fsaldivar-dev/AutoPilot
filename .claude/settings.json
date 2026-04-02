@@ -1,0 +1,23 @@
+{
+  "enabledPlugins": {
+    "code-review@claude-code-marketplace": true,
+    "commit-commands@claude-code-marketplace": true,
+    "feature-dev@claude-code-marketplace": true,
+    "frontend-design@claude-code-marketplace": true,
+    "security-guidance@claude-code-marketplace": true,
+    "pr-review-toolkit@claude-code-marketplace": true
+  },
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "prompt",
+            "prompt": "Check if the code change introduces security issues (command injection, XSS, SQL injection, hardcoded secrets). Only flag real issues with high confidence. $ARGUMENTS"
+          }
+        ]
+      }
+    ]
+  }
+}
