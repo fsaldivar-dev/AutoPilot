@@ -1,0 +1,168 @@
+# Capitulo 2 — Arquitectura
+
+## Cuatro capas, cero dependencias
+
+Una vez que entiendes que el Simulador iOS es una app de macOS con accesibilidad expuesta, la arquitectura se vuelve obvia. No necesitas inventar nada — solo necesitas hablar con macOS en su propio idioma.
+
+AutoPilot se construye sobre 4 APIs de macOS. Cada una resuelve un problema distinto:
+
+| Capa | API | Que resuelve | Ejemplo |
+|---|---|---|---|
+| **Lectura** | AXUIElement | Ver la UI de la app | `auto tree`, `auto exists "Login"` |
+| **Entrada** | CGEvent | Simular interaccion humana | `auto type "Hola"`, `auto swipe up` |
+| **Control** | xcrun simctl | Gestionar el Simulador | `auto launch`, `auto screenshot` |
+| **Menus** | AppleScript | Acceder a menus nativos | `auto faceid match` |
+
+Ninguna de estas APIs es nueva o experimental. AXUIElement existe desde macOS 10.2 (2002). CGEvent desde 10.4 (2005). `simctl` desde Xcode 6 (2014). AppleScript desde System 7 (1993). Lo que es nuevo es usarlas *juntas* para controlar un Simulador iOS sin XCUITest.
+
+```mermaid
+graph TB
+    subgraph CLI["auto (binario Swift, 311KB)"]
+        MAIN[main.swift<br/>Dispatch de comandos]
+        SCRIPT[ScriptParser.swift<br/>Tokenizador + Parser]
+    end
+
+    subgraph Bridge["SimulatorBridge.swift"]
+        AX_READ["Capa 1: Lectura<br/>AXUIElement"]
+        CGE["Capa 2: Entrada<br/>CGEvent"]
+        SIM["Capa 3: Control<br/>xcrun simctl"]
+        ASCRIPT["Capa 4: Menus<br/>AppleScript"]
+    end
+
+    subgraph macOS["macOS"]
+        AXAPI["Accessibility Framework"]
+        CGEAPI["Core Graphics"]
+        SIMCTL["Xcode CLI Tools"]
+        OSA["osascript"]
+    end
+
+    MAIN --> AX_READ
+    MAIN --> CGE
+    MAIN --> SIM
+    MAIN --> ASCRIPT
+    MAIN --> SCRIPT
+
+    AX_READ --> AXAPI
+    CGE --> CGEAPI
+    SIM --> SIMCTL
+    ASCRIPT --> OSA
+
+    style CLI fill:#00D4FF,color:#000
+    style Bridge fill:#1E3A5F,color:#fff
+    style macOS fill:#0a2540,color:#fff
+```
+
+Lo que sigue es el detalle tecnico de cada capa. Si prefieres la vision general, salta a la [tabla resumen](#resumen) al final.
+
+---
+
+> **Nota:** La documentacion tecnica completa de cada capa esta en [docs/ios/ARQUITECTURA.md](../ios/ARQUITECTURA.md). Este capitulo es un resumen narrativo con los hallazgos mas importantes.
+
+---
+
+## Capa 1: AXUIElement — Leer la UI sin tocar la app
+
+El descubrimiento fundamental: el Simulador renderiza las vistas de iOS como elementos nativos de accesibilidad de macOS.
+
+Cuando una app iOS muestra un boton con label "Login", el Simulador crea un `AXButton` con `kAXTitleAttribute = "Login"` en su arbol de accesibilidad. Esto no es una feature del Simulador — es un efecto secundario de como macOS renderiza ventanas.
+
+Para conectarse:
+
+```
+NSWorkspace → buscar com.apple.iphonesimulator → obtener PID
+    → AXUIElementCreateApplication(pid) → obtener ventana
+    → recorrer AXChildren recursivamente → arbol completo
+```
+
+### Hallazgos que no estan documentados en otro lugar
+
+- **El arbol no esta disponible inmediatamente.** Despues de activar el Simulador, los elementos tardan hasta 3 segundos en aparecer. AutoPilot reintenta 15 veces con intervalos de 200ms.
+
+- **SwiftUI NavigationBar es invisible.** Los botones de la barra de navegacion de SwiftUI tienen `AXChildren = [0]`. Estan renderizados visualmente pero el framework de accesibilidad no los expone. Solucion: `tapAt` con coordenadas.
+
+- **Los placeholders viven en Value, no en Title.** En SwiftUI, el texto placeholder de un `TextField` aparece en `kAXValueAttribute`, no en `kAXTitleAttribute` ni `kAXDescriptionAttribute`. Sin buscar en Value, campos de texto con placeholder son invisibles.
+
+- **La profundidad maxima importa.** Sin limite, la recursion puede colgarse en arboles muy profundos. AutoPilot limita a 20 niveles.
+
+### Algoritmo de busqueda
+
+Encontrar el elemento correcto es critico. AutoPilot usa dos pasadas:
+
+1. **Match exacto** (toda la profundidad): identifier == query OR title == query OR label == query OR value == query
+2. **Match parcial** (toda la profundidad): label.contains(query), selecciona el mas corto (mas especifico)
+
+Todas las comparaciones son case-insensitive.
+
+---
+
+## Capa 2: CGEvent — Simular un humano
+
+AXUIElement puede hacer tap (`kAXPressAction`), pero no puede escribir texto, ni hacer swipe, ni long press. Para eso necesitas eventos de entrada a nivel kernel.
+
+`CGEvent` envia eventos de teclado y mouse directamente al proceso del Simulador. El Simulador los traduce en gestos de iOS.
+
+### Hallazgos
+
+- **postToPid vs cghidEventTap.** `postToPid` envia el evento solo al Simulador — perfecto para escribir texto. `.post(tap: .cghidEventTap)` es global y alcanza UIs del sistema (photo picker, alertas de permisos). Cada accion usa el metodo correcto.
+
+- **Swipe necesita movimiento suave.** Un salto directo de punto A a punto B no se reconoce como swipe. AutoPilot simula 20 pasos incrementales de drag con 15ms entre cada uno.
+
+- **30ms entre teclas.** Menos causa caracteres perdidos. Mas es innecesariamente lento.
+
+---
+
+## Capa 3: xcrun simctl — Controlar el ciclo de vida
+
+`simctl` es la herramienta CLI de Apple para gestionar simuladores. AutoPilot la ejecuta como subproceso.
+
+Lo que agrega AutoPilot sobre simctl puro:
+- **Resolucion de nombre a UDID** — pasas "iPhone 16", AutoPilot busca el UDID
+- **Inyeccion de variables de entorno** — via prefijo `SIMCTL_CHILD_`
+- **Inyeccion de dylib** — via `SIMCTL_CHILD_DYLD_INSERT_LIBRARIES` (Capitulo 4)
+
+---
+
+## Capa 4: AppleScript — El ultimo recurso
+
+Face ID no tiene API, ni en simctl ni en accesibilidad. Vive en el menu `Features > Face ID` del Simulador. La unica forma de acceder es automatizar el menu con AppleScript.
+
+```applescript
+tell application "System Events" to tell process "Simulator"
+    click menu item "Matching Face" of menu "Face ID" 
+        of menu item "Face ID" of menu "Features" of menu bar 1
+end tell
+```
+
+Es fragil (depende del idioma del sistema y la estructura exacta del menu), pero es la unica opcion.
+
+---
+
+## Resumen
+
+```
+Terminal
+    |
+    auto tap "Login"
+    |
+    ├─ Capa 1 (AXUIElement): Buscar "Login" en el arbol → encontrar AXButton
+    ├─ Capa 1 (AXUIElement): AXUIElementPerformAction(kAXPressAction)
+    │   └─ Si falla: Capa 2 (CGEvent) → calcular centro → mouseDown + mouseUp
+    |
+    auto type "correo@test.com"
+    |
+    ├─ Capa 2 (CGEvent): keyDown + keyUp por cada caracter, 30ms entre teclas
+    |
+    auto screenshot resultado.png
+    |
+    ├─ Capa 3 (simctl): xcrun simctl io <device> screenshot resultado.png
+    |
+    auto faceid match
+    |
+    └─ Capa 4 (AppleScript): click menu item "Matching Face" of menu "Face ID"...
+```
+
+La documentacion tecnica completa con diagramas Mermaid de cada flujo esta en [docs/ios/ARQUITECTURA.md](../ios/ARQUITECTURA.md).
+
+---
+
+*Anterior: [Capitulo 1 — El problema](01-el-problema.md) | Siguiente: [Capitulo 3 — La camara virtual](03-la-camara-virtual.md)*
