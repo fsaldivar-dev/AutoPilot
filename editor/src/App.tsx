@@ -148,17 +148,19 @@ function App() {
     });
 
     monaco.languages.registerCompletionItemProvider("auto", {
-      triggerCharacters: ["$"],
+      triggerCharacters: [" ", "$"],
       provideCompletionItems: (model, position) => {
         const line = model.getLineContent(position.lineNumber);
         const beforeCursor = line.substring(0, position.column - 1);
+        const currentIndexed = indexedRef.current;
 
-        // If typing $... show indexed elements
-        const dollarMatch = beforeCursor.match(/\$(\w*)$/);
-        if (dollarMatch) {
-          const currentIndexed = indexedRef.current;
-          // Group indexed by label to show [N] for duplicates
-          const byLabel: Record<string, typeof currentIndexed[number][]> = {};
+        // After a command (tap, doubleTap, etc.) show elements
+        const afterCommand = beforeCursor.match(/^\s*(tap|doubleTap|longPress|type|clear|exists|waitFor|scroll)\s+(.*)$/i);
+        if (afterCommand || beforeCursor.includes("$")) {
+          const filter = afterCommand ? afterCommand[2] : beforeCursor.split("$").pop() || "";
+
+          // Group by label to detect duplicates
+          const byLabel: Record<string, any[]> = {};
           for (const el of currentIndexed) {
             const key = el.label || el.role;
             if (!byLabel[key]) byLabel[key] = [];
@@ -166,26 +168,27 @@ function App() {
           }
 
           const suggestions = currentIndexed.map((el) => {
-            const group = byLabel[el.label || el.role] || [];
+            const displayLabel = el.label || el.role;
+            const group = byLabel[displayLabel] || [];
             const hasMultiple = group.length > 1;
             const occurrence = hasMultiple ? group.indexOf(el) + 1 : 0;
             const suffix = hasMultiple ? `[${occurrence}]` : "";
-            const displayLabel = el.label || el.role;
+            const ref = `${displayLabel}${suffix}`;
 
             return {
-              label: `$${displayLabel}${suffix}`,
+              label: ref,
               kind: monaco.languages.CompletionItemKind.Variable,
-              detail: `${el.role} ${el.frame}`,
-              insertText: hasMultiple ? `${displayLabel}${suffix}` : displayLabel,
+              detail: `${el.role}  ${el.frame}`,
+              insertText: ref,
+              filterText: `$${displayLabel} ${displayLabel}`,
               sortText: `0_${displayLabel}_${String(occurrence).padStart(2, "0")}`,
-              filterText: `$${displayLabel}`,
             };
           });
 
           return { suggestions } as any;
         }
 
-        // Default: command suggestions + labels
+        // Default: command suggestions
         const suggestions = AUTO_COMMANDS.map((cmd) => ({
           label: cmd.label,
           kind: monaco.languages.CompletionItemKind.Function,
@@ -195,15 +198,6 @@ function App() {
             ? monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet
             : undefined,
         }));
-        for (const el of labelsRef.current) {
-          suggestions.push({
-            label: `"${el}"`,
-            kind: monaco.languages.CompletionItemKind.Value,
-            detail: "UI Element",
-            insertText: `"${el}"`,
-            insertTextRules: undefined,
-          });
-        }
         return { suggestions } as any;
       },
     });
