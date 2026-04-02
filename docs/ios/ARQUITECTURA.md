@@ -305,3 +305,105 @@ tap "Login Button"     → ["tap", "Login Button"]
 type 'Hello World'     → ["type", "Hello World"]
 scroll "tabla" down    → ["scroll", "tabla", "down"]
 ```
+
+---
+
+## Capa 5: Inyeccion de Camara (Camera Mock)
+
+El Simulador iOS no tiene webcam. AutoPilot inyecta un mock de camara que swizzlea ~25 metodos de AVFoundation, permitiendo probar flujos de camara en CI/CD headless.
+
+### Dos modos de inyeccion
+
+| | `launch --inject` (dylib) | `auto build` (static lib) |
+|---|---|---|
+| Necesita proyecto Xcode | No | Si |
+| Modifica el binario | No | Si |
+| Hot-swap de imagen | Si (`auto inject`) | No |
+| Mecanismo | `DYLD_INSERT_LIBRARIES` | `-force_load` |
+| Cuando usar | Apps ya compiladas/instaladas | Cuando tienes el proyecto |
+
+### `launch --inject` — Inyeccion sin recompilar
+
+```mermaid
+sequenceDiagram
+    participant CLI as auto launch --inject
+    participant DI as DylibInjector
+    participant DYLD as DYLD_INSERT_LIBRARIES
+    participant App as App en Simulador
+
+    CLI->>DI: ensureDylib()
+    DI->>DI: Compila MockHeaders.m → dylib (una vez)
+    DI->>DI: Cachea en ~/.autopilot/libAutoPilotCapture.dylib
+    CLI->>CLI: Copia imagen → /tmp/autopilot-camera-image.jpg
+    CLI->>DYLD: simctl launch + DYLD_INSERT_LIBRARIES
+    DYLD-->>App: App carga con dylib inyectada
+
+    Note over App: __attribute__((constructor))
+    App->>App: Swizzlea AVFoundation (25 metodos)
+    App->>App: capturePhoto → lee /tmp/autopilot-camera-image.jpg
+```
+
+### `auto inject` — Hot-swap de imagen
+
+Cambia la imagen de camara sin relanzar la app. Solo copia el archivo al path fijo que el mock lee en cada captura.
+
+```mermaid
+sequenceDiagram
+    participant CLI as auto inject paisaje.jpg
+    participant FS as /tmp/autopilot-camera-image.jpg
+    participant App as App (mock activo)
+
+    CLI->>FS: Copia nueva imagen
+    Note over App: La app sigue corriendo
+    App->>App: Usuario toca "Capturar"
+    App->>FS: Lee /tmp/autopilot-camera-image.jpg
+    App->>App: delegate recibe nueva imagen
+```
+
+### Flujo de resolucion de imagen
+
+El mock busca la imagen en este orden:
+
+1. `/tmp/autopilot-camera-image.jpg` — path fijo, actualizado por `auto inject`
+2. `AUTOPILOT_CAMERA_IMAGE` env var — seteada al lanzar
+3. Placeholder rojo (100x100) — si no hay imagen
+
+### Metodos swizzleados
+
+| Clase | Metodos | Mock |
+|---|---|---|
+| **AVCaptureDevice** | `authorizationStatus`, `requestAccess`, `defaultDevice` (x2) | Siempre autorizado, retorna mock device |
+| **AVCaptureDeviceInput** | `initWithDevice:`, `deviceInputWithDevice:` | Acepta cualquier device |
+| **AVCaptureSession** | `startRunning`, `stopRunning`, `isRunning`, `canAdd*`, `add*`, `remove*`, `begin/commitConfiguration`, `inputs`, `outputs` | No-ops, estado via associated objects |
+| **AVCapturePhotoOutput** | `capturePhoto:delegate:` | Lee imagen, crea AVCapturePhoto, llama delegate |
+| **AVCapturePhoto** | `fileDataRepresentation`, `CGImageRepresentation`, `timestamp`, `photoCount`, `isRawPhoto` | Retorna datos de imagen inyectada |
+| **AVCaptureMetadataOutput** | `setMetadataObjectsDelegate:`, `setMetadataObjectTypes:` | No-ops (QR scanner no crashea) |
+| **AVCaptureVideoPreviewLayer** | `setSession:` | Preview con labels "LIVE" + "AutoPilot" |
+
+### Demo
+
+Video demostrando el flujo completo: launch sin mock → `launch --inject` → hot-swap con `inject`:
+
+https://github.com/fsaldivar-dev/AutoPilot/blob/main/assets/demos/demo-inject.mp4
+
+| Sin mock | Con `--inject` | Hot-swap |
+|---|---|---|
+| ![sin mock](../../assets/demos/01-sin-mock.png) | ![con mock](../../assets/demos/02-con-mock-preview.png) | ![hot-swap](../../assets/demos/04-hot-swap.png) |
+
+### Ejemplo en script .auto
+
+```bash
+# test-camara.auto
+launch com.example.app --inject selfie.jpg
+waitFor "Camara lista" 10
+tap "Capturar Foto"
+screenshot resultado-1.png
+
+inject paisaje.jpg
+tap "Capturar Foto"
+screenshot resultado-2.png
+
+inject documento.jpg
+tap "Capturar Foto"
+screenshot resultado-3.png
+```

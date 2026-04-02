@@ -38,7 +38,7 @@ auto screenshot resultado.png
 | Dependencias | Ninguna | Node, Appium, WDA | Xcode | Node, React Native |
 | Acceso a UI del sistema | Si (`tapAt`) | Limitado | Limitado | No |
 | Tamano del binario | ~311KB | ~200MB+ | N/A | ~150MB+ |
-| Camara virtual | **Si** (`auto build`) | No | No | No |
+| Camara virtual | **Si** (`--inject` / `auto build`) | No | No | No |
 
 ---
 
@@ -261,10 +261,13 @@ auto screenshot resultado.png          # Nombre personalizado
 ### Camara Virtual
 
 ```bash
-auto build -project App.xcodeproj -scheme App \  # Compilar con mock de camara
+# Inyectar mock en cualquier app ya instalada (sin recompilar)
+auto launch com.example.app --inject selfie.jpg
+auto inject paisaje.jpg                          # Cambiar imagen en caliente
+
+# O compilar con mock integrado (cuando tienes el proyecto)
+auto build -project App.xcodeproj -scheme App \
     -sdk iphonesimulator -destination 'id=XXXX'
-auto launch app --env AUTOPILOT_CAMERA_IMAGE=/ruta/foto.jpg  # Inyectar imagen
-auto launch app --env AUTOPILOT_QR_CODE="https://url.com"    # Inyectar QR
 ```
 
 ### Scripting
@@ -348,45 +351,70 @@ echo "Codigo de salida: $?"  # 0 = exito, 1 = fallo
 
 ## Camara Virtual (CI/CD sin webcam)
 
-En CI/CD headless no hay webcam. El Simulador iOS no mapea camaras de macOS a `AVCaptureSession`. AutoPilot resuelve esto inyectando un mock de camara a nivel de compilacion — **sin modificar el codigo de la app**.
+En CI/CD headless no hay webcam. El Simulador iOS no mapea camaras de macOS a `AVCaptureSession`. AutoPilot resuelve esto con dos enfoques:
 
-### `auto build` — Inyeccion automatica
+### `launch --inject` — Inyeccion sin recompilar (recomendado)
+
+Inyecta el mock de camara en **cualquier app ya instalada** via `DYLD_INSERT_LIBRARIES`. No necesitas el proyecto Xcode ni recompilar.
 
 ```bash
-# 1. Compilar la app con mock de camara inyectado
+# 1. Lanzar app con mock de camara
+auto launch com.example.app --inject selfie.jpg
+
+# 2. La app usa la imagen inyectada al capturar foto
+auto tap "Capturar"
+
+# 3. Cambiar imagen en caliente (sin relanzar)
+auto inject paisaje.jpg
+auto tap "Capturar"
+```
+
+La dylib se compila una sola vez y se cachea en `~/.autopilot/`. Las ejecuciones siguientes son instantaneas.
+
+### `auto build` — Inyeccion a nivel de compilacion
+
+Cuando tienes el proyecto Xcode, `auto build` integra el mock directamente en el binario via `-force_load`.
+
+```bash
 auto build -project MiApp.xcodeproj -scheme MiApp \
     -sdk iphonesimulator -destination 'id=<UDID>'
-
-# 2. Instalar en el simulador
 auto install ~/Library/Developer/Xcode/DerivedData/.../MiApp.app
-
-# 3. Lanzar con imagen para la camara
-auto launch com.example.app --env AUTOPILOT_CAMERA_IMAGE=/ruta/foto.jpg
-
-# 4. Cualquier tap en "capturar foto" inyecta la imagen al delegate
+auto launch com.example.app
 ```
+
+### Demo
+
+https://github.com/fsaldivar-dev/AutoPilot/blob/main/assets/demos/demo-inject.mp4
 
 ### Como funciona
 
-`auto build` wrapea `xcodebuild` e inyecta una static library ObjC (~28KB) via `-force_load`. La libreria contiene un `__attribute__((constructor))` que swizzlea ~25 metodos de AVFoundation al cargar. Solo se activa si `AUTOPILOT_CAMERA_IMAGE` esta seteada.
+Ambos enfoques compilan el mismo codigo ObjC (~25 metodos swizzleados de AVFoundation) con `__attribute__((constructor))` que se ejecuta al cargar la app.
+
+| | `launch --inject` | `auto build` |
+|---|---|---|
+| Necesita proyecto Xcode | No | Si |
+| Modifica el binario | No (dylib externa) | Si (static lib linkada) |
+| Cambio de imagen en caliente | Si (`auto inject`) | No (requiere relanzar) |
+| Mecanismo | `DYLD_INSERT_LIBRARIES` | `-force_load` |
 
 ```mermaid
 sequenceDiagram
-    participant AB as auto build
-    participant XC as xcodebuild
+    participant CLI as auto launch --inject
+    participant DL as DYLD_INSERT_LIBRARIES
     participant App as App en Simulador
 
-    AB->>AB: Compila AutoPilotCapture.m → .a (28KB)
-    AB->>XC: xcodebuild + OTHER_LDFLAGS=-force_load .a
-    XC-->>App: App con mock linkado
+    CLI->>CLI: Compila dylib (una vez, cachea en ~/.autopilot/)
+    CLI->>CLI: Copia imagen a /tmp/autopilot-camera-image.jpg
+    CLI->>DL: simctl launch + DYLD_INSERT_LIBRARIES=dylib
+    DL-->>App: App carga con dylib inyectada
 
-    Note over App: Al lanzar con AUTOPILOT_CAMERA_IMAGE=...
-    App->>App: Constructor swizzlea AVFoundation
-    App->>App: authorizationStatus → .authorized
-    App->>App: defaultDevice → mock device
-    App->>App: startRunning → no-op
-    App->>App: capturePhoto → lee imagen de env var
+    Note over App: Constructor swizzlea AVFoundation
+    App->>App: capturePhoto → lee /tmp/autopilot-camera-image.jpg
     App->>App: delegate recibe AVCapturePhoto con datos
+
+    Note over CLI,App: auto inject otra.jpg (hot-swap)
+    CLI->>CLI: Copia nueva imagen a /tmp/autopilot-camera-image.jpg
+    App->>App: Siguiente capturePhoto usa la nueva imagen
 ```
 
 ### APIs swizzleadas
@@ -425,17 +453,24 @@ El preview layer simula un feed en vivo con etiquetas visuales. La foto capturad
 #!/bin/bash
 # test-camara.sh — Prueba de captura de camara en CI
 
-auto build -project App.xcodeproj -scheme App \
-    -sdk iphonesimulator -destination 'id=XXXX'
+# Opcion A: sin recompilar (app ya instalada)
+auto launch com.example.app --inject test-photo.jpg
 
-auto install ~/Library/.../App.app
-auto launch com.example.app --env AUTOPILOT_CAMERA_IMAGE=test-photo.jpg
+# Opcion B: con recompilacion
+# auto build -project App.xcodeproj -scheme App \
+#     -sdk iphonesimulator -destination 'id=XXXX'
+# auto install ~/Library/.../App.app
+# auto launch com.example.app
 
 auto waitFor "Capturar" 5
-auto tap "Capturar"                    # Navegar al tab de camara
-auto tap "Camera"                      # Tap boton de captura
+auto tap "Capturar"                    # Tap boton de captura
 auto waitFor "Fotos capturadas" 5      # Verificar que se capturo
 auto screenshot resultado-camara.png
+
+# Probar con otra imagen
+auto inject otra-foto.jpg
+auto tap "Capturar"
+auto screenshot resultado-camara-2.png
 ```
 
 ### Enfoques investigados
@@ -451,6 +486,7 @@ auto screenshot resultado-camara.png
 | 7 | Pre-build script | Parcial, no alcanza dependencias SPM |
 | 8 | VFS overlay + module map | Headers simplificados rompen modulo AVFoundation |
 | 9 | **Force-load + #undef AV_INIT_UNAVAILABLE** | **Funciona. Sin modificar codigo de la app.** |
+| 10 | **DYLD_INSERT_LIBRARIES + dylib** | **Funciona. Sin recompilar. Hot-swap de imagenes.** |
 
 Validado con:
 - **Demo app** (Explorea) — foto capturada, QR scanner, preview con labels
@@ -507,6 +543,7 @@ AutoPilot/
 │   ├── Sources/
 │   │   ├── AutoLib/            # Libreria (testeable)
 │   │   │   ├── SimulatorBridge.swift   # AX, CGEvent, simctl, AppleScript
+│   │   │   ├── DylibInjector.swift    # auto inject: compila dylib, cachea en ~/.autopilot/
 │   │   │   ├── BuildInterceptor.swift  # auto build: compila mock, wrapea xcodebuild
 │   │   │   ├── MockHeaders.swift       # Codigo ObjC de swizzle (~25 metodos)
 │   │   │   ├── ScriptParser.swift      # Tokenizador y parser de .auto
