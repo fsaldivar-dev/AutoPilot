@@ -144,7 +144,43 @@ function App() {
     });
 
     monaco.languages.registerCompletionItemProvider("auto", {
-      provideCompletionItems: () => {
+      triggerCharacters: ["$"],
+      provideCompletionItems: (model, position) => {
+        const line = model.getLineContent(position.lineNumber);
+        const beforeCursor = line.substring(0, position.column - 1);
+
+        // If typing $... show indexed elements
+        const dollarMatch = beforeCursor.match(/\$(\w*)$/);
+        if (dollarMatch) {
+          // Group indexed by label to show [N] for duplicates
+          const byLabel: Record<string, typeof indexed[number][]> = {};
+          for (const el of indexed) {
+            const key = el.label || el.role;
+            if (!byLabel[key]) byLabel[key] = [];
+            byLabel[key].push(el);
+          }
+
+          const suggestions = indexed.map((el) => {
+            const group = byLabel[el.label || el.role] || [];
+            const hasMultiple = group.length > 1;
+            const occurrence = hasMultiple ? group.indexOf(el) + 1 : 0;
+            const suffix = hasMultiple ? `[${occurrence}]` : "";
+            const displayLabel = el.label || el.role;
+
+            return {
+              label: `$${displayLabel}${suffix}`,
+              kind: monaco.languages.CompletionItemKind.Variable,
+              detail: `${el.role} ${el.frame}`,
+              insertText: hasMultiple ? `${displayLabel}${suffix}` : displayLabel,
+              sortText: `0_${displayLabel}_${String(occurrence).padStart(2, "0")}`,
+              filterText: `$${displayLabel}`,
+            };
+          });
+
+          return { suggestions } as any;
+        }
+
+        // Default: command suggestions + labels
         const suggestions = AUTO_COMMANDS.map((cmd) => ({
           label: cmd.label,
           kind: monaco.languages.CompletionItemKind.Function,
