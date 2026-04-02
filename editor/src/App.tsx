@@ -5,72 +5,79 @@ import "./App.css";
 
 const DEFAULT_SCRIPT = `# Mi script de automatizacion
 # Escribe comandos y presiona Play
+# Click Tree para ver elementos del Simulator
 
 ping
-tree -s "Login"
 `;
 
 const AUTO_COMMANDS = [
-  // Conexion
-  { label: "ping", detail: "Verificar conexion con Simulador" },
-
-  // Inspeccion UI
-  { label: "tree", detail: "Arbol de accesibilidad completo" },
-  { label: "tree -s", detail: "Buscar elementos por texto", insertText: 'tree -s "${1:query}"' },
-  { label: "exists", detail: "Verificar si elemento existe", insertText: 'exists "${1:element}"' },
-  { label: "elementAt", detail: "Elemento en coordenada", insertText: "elementAt ${1:x} ${2:y}" },
-  { label: "waitFor", detail: "Esperar a que aparezca", insertText: 'waitFor "${1:element}" ${2:10}' },
-
-  // Interaccion
+  { label: "ping", detail: "Verificar conexion" },
+  { label: "tree", detail: "Arbol de accesibilidad" },
+  { label: "tree -s", detail: "Buscar elementos", insertText: 'tree -s "${1:query}"' },
   { label: "tap", detail: "Tap en elemento", insertText: 'tap "${1:element}"' },
   { label: "tap (multi)", detail: "Tap varios elementos", insertText: "tap ${1:1,2,3,4,Confirmar}" },
   { label: "doubleTap", detail: "Doble tap", insertText: 'doubleTap "${1:element}"' },
-  { label: "longPress", detail: "Presion larga (segundos)", insertText: 'longPress "${1:element}" ${2:1}' },
-  { label: "tapAt", detail: "Tap en coordenadas x y", insertText: "tapAt ${1:x} ${2:y}" },
+  { label: "longPress", detail: "Presion larga", insertText: 'longPress "${1:element}" ${2:1}' },
+  { label: "tapAt", detail: "Tap coordenadas", insertText: "tapAt ${1:x} ${2:y}" },
   { label: "type", detail: "Escribir texto", insertText: 'type "${1:text}"' },
-  { label: "clear", detail: "Limpiar campo de texto", insertText: 'clear "${1:field}"' },
-  { label: "swipe", detail: "Deslizar pantalla", insertText: "swipe ${1|up,down,left,right|}" },
-  { label: "scroll", detail: "Scroll dentro de elemento", insertText: 'scroll "${1:element}" ${2|down,up|}' },
-
-  // Apps
-  { label: "launch", detail: "Abrir app por bundle ID", insertText: "launch ${1:com.example.app}" },
+  { label: "clear", detail: "Limpiar campo", insertText: 'clear "${1:field}"' },
+  { label: "swipe", detail: "Deslizar", insertText: "swipe ${1|up,down,left,right|}" },
+  { label: "scroll", detail: "Scroll elemento", insertText: 'scroll "${1:element}" ${2|down,up|}' },
+  { label: "exists", detail: "Verificar existencia", insertText: 'exists "${1:element}"' },
+  { label: "waitFor", detail: "Esperar elemento", insertText: 'waitFor "${1:element}" ${2:10}' },
+  { label: "elementAt", detail: "Elemento en coordenada", insertText: "elementAt ${1:x} ${2:y}" },
+  { label: "screenshot", detail: "Captura de pantalla", insertText: "screenshot ${1:file.png}" },
+  { label: "launch", detail: "Abrir app", insertText: "launch ${1:com.example.app}" },
   { label: "terminate", detail: "Cerrar app", insertText: "terminate ${1:com.example.app}" },
-  { label: "install", detail: "Instalar .app en simulador", insertText: "install ${1:/path/to/app.app}" },
-
-  // Simulador
+  { label: "install", detail: "Instalar app", insertText: "install ${1:/path/to/app.app}" },
   { label: "boot", detail: "Encender simulador", insertText: 'boot "${1:iPhone 17 Pro}"' },
   { label: "shutdown", detail: "Apagar simulador", insertText: 'shutdown "${1:iPhone 17 Pro}"' },
-  { label: "list", detail: "Listar simuladores disponibles" },
-
-  // Face ID
-  { label: "faceid enroll", detail: "Activar Face ID en simulador" },
-  { label: "faceid match", detail: "Simular escaneo exitoso" },
-  { label: "faceid fail", detail: "Simular escaneo fallido" },
-  { label: "faceid status", detail: "Verificar si Face ID esta activo" },
-
-  // Camara
-  { label: "camera start", detail: "Iniciar feed de camara virtual", insertText: "camera start ${1:image.jpg}" },
-  { label: "camera feed", detail: "Actualizar imagen de camara", insertText: "camera feed ${1:image.jpg}" },
-  { label: "camera stop", detail: "Detener camara virtual" },
-  { label: "camera status", detail: "Estado de camara virtual" },
-  { label: "build", detail: "Compilar app con mock de camara", insertText: "build -project ${1:App.xcodeproj} -scheme ${2:App} -sdk iphonesimulator -destination ${3:'id=XXXX'}" },
-
-  // Datos
-  { label: "screenshot", detail: "Captura de pantalla", insertText: "screenshot ${1:file.png}" },
+  { label: "list", detail: "Listar simuladores" },
+  { label: "faceid enroll", detail: "Activar Face ID" },
+  { label: "faceid match", detail: "Face ID exitoso" },
+  { label: "faceid fail", detail: "Face ID fallido" },
+  { label: "faceid status", detail: "Estado Face ID" },
+  { label: "camera start", detail: "Iniciar camara virtual", insertText: "camera start ${1:image.jpg}" },
+  { label: "camera feed", detail: "Actualizar imagen", insertText: "camera feed ${1:image.jpg}" },
+  { label: "camera stop", detail: "Detener camara" },
+  { label: "camera status", detail: "Estado camara" },
+  { label: "build", detail: "Compilar con mock", insertText: "build -project ${1:App.xcodeproj} -scheme ${2:App} -sdk iphonesimulator -destination ${3:'id=XXXX'}" },
   { label: "media", detail: "Inyectar foto a galeria", insertText: "media ${1:photo.jpg}" },
-  { label: "paste", detail: "Escribir en portapapeles", insertText: 'paste "${1:text}"' },
-  { label: "openurl", detail: "Abrir URL o deep link", insertText: 'openurl "${1:miapp://ruta}"' },
-
-  // Scripting
-  { label: "run", detail: "Ejecutar otro script .auto", insertText: "run ${1:script.auto}" },
+  { label: "paste", detail: "Portapapeles", insertText: 'paste "${1:text}"' },
+  { label: "openurl", detail: "Abrir URL", insertText: 'openurl "${1:miapp://ruta}"' },
+  { label: "run", detail: "Ejecutar script", insertText: "run ${1:script.auto}" },
 ];
+
+const ELEMENT_ACTIONS = [
+  { label: "tap", icon: "👆", cmd: (el: string) => `tap "${el}"` },
+  { label: "doubleTap", icon: "👆👆", cmd: (el: string) => `doubleTap "${el}"` },
+  { label: "longPress", icon: "✊", cmd: (el: string) => `longPress "${el}" 1` },
+  { label: "type", icon: "⌨️", cmd: (el: string) => `type "${el}" "text"` },
+  { label: "clear", icon: "🗑", cmd: (el: string) => `clear "${el}"` },
+  { label: "exists", icon: "❓", cmd: (el: string) => `exists "${el}"` },
+  { label: "waitFor", icon: "⏳", cmd: (el: string) => `waitFor "${el}" 10` },
+  { label: "scroll", icon: "📜", cmd: (el: string) => `scroll "${el}" down` },
+];
+
+interface AXElement {
+  role: string;
+  label: string;
+  id: string;
+  value: string;
+  frame: string;
+  depth: number;
+  display: string;
+}
 
 function App() {
   const [script, setScript] = useState(DEFAULT_SCRIPT);
   const [output, setOutput] = useState("");
   const [running, setRunning] = useState(false);
   const [currentStep, setCurrentStep] = useState(-1);
-  const [elements, setElements] = useState<string[]>([]);
+  const [treeElements, setTreeElements] = useState<AXElement[]>([]);
+  const [labels, setLabels] = useState<string[]>([]);
+  const [showTree, setShowTree] = useState(false);
+  const [selectedElement, setSelectedElement] = useState<AXElement | null>(null);
   const editorRef = useRef<any>(null);
   const abortRef = useRef(false);
 
@@ -78,27 +85,24 @@ function App() {
     setOutput((prev) => prev + text + "\n");
   }, []);
 
+  const insertToEditor = useCallback((text: string) => {
+    setScript((prev) => prev.trimEnd() + "\n" + text + "\n");
+    setSelectedElement(null);
+  }, []);
+
   const runScript = useCallback(async () => {
     setRunning(true);
     abortRef.current = false;
     setOutput("");
-
     const lines = script.split("\n");
     let stepNum = 0;
-
     for (let i = 0; i < lines.length; i++) {
-      if (abortRef.current) {
-        appendOutput("\n--- STOPPED ---");
-        break;
-      }
-
+      if (abortRef.current) { appendOutput("\n--- STOPPED ---"); break; }
       const trimmed = lines[i].trim();
       if (!trimmed || trimmed.startsWith("#")) continue;
-
       stepNum++;
       setCurrentStep(i);
       appendOutput(`[${stepNum}] ${trimmed}`);
-
       try {
         const args = parseCommand(trimmed);
         const result = await invoke<string>("run_auto", { args });
@@ -108,21 +112,20 @@ function App() {
         break;
       }
     }
-
     appendOutput(`\n${stepNum} step(s) completed`);
     setCurrentStep(-1);
     setRunning(false);
   }, [script, appendOutput]);
 
-  const stopScript = useCallback(() => {
-    abortRef.current = true;
-  }, []);
+  const stopScript = useCallback(() => { abortRef.current = true; }, []);
 
   const refreshTree = useCallback(async () => {
     try {
-      const result = await invoke<{ raw: string; elements: string[] }>("get_ax_tree");
-      setElements(result.elements);
-      appendOutput("--- AX Tree: " + result.elements.length + " elements ---");
+      const result = await invoke<{ raw: string; elements: AXElement[]; labels: string[] }>("get_ax_tree");
+      setTreeElements(result.elements);
+      setLabels(result.labels);
+      setShowTree(true);
+      appendOutput("--- Tree: " + result.elements.length + " elements ---");
     } catch (err: any) {
       appendOutput(`Tree error: ${err}`);
     }
@@ -157,8 +160,7 @@ function App() {
             ? monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet
             : undefined,
         }));
-
-        for (const el of elements) {
+        for (const el of labels) {
           suggestions.push({
             label: `"${el}"`,
             kind: monaco.languages.CompletionItemKind.Value,
@@ -167,7 +169,6 @@ function App() {
             insertTextRules: undefined,
           });
         }
-
         return { suggestions } as any;
       },
     });
@@ -192,6 +193,20 @@ function App() {
       },
     });
     monaco.editor.setTheme("autopilot");
+  };
+
+  const roleIcon = (role: string) => {
+    if (role.includes("Button")) return "🔘";
+    if (role.includes("TextField") || role.includes("TextArea")) return "📝";
+    if (role.includes("StaticText")) return "📄";
+    if (role.includes("Image")) return "🖼";
+    if (role.includes("Group")) return "📦";
+    if (role.includes("Heading")) return "🏷";
+    if (role.includes("Tab")) return "📑";
+    if (role.includes("Slider")) return "🎚";
+    if (role.includes("CheckBox") || role.includes("Toggle")) return "☑️";
+    if (role.includes("Toolbar")) return "🔧";
+    return "◻️";
   };
 
   return (
@@ -219,6 +234,39 @@ function App() {
       </header>
 
       <main className="panels">
+        {showTree && (
+          <section className="tree-panel">
+            <div className="tree-header">
+              <span>Inspector ({treeElements.length})</span>
+              <button className="btn-close" onClick={() => setShowTree(false)}>×</button>
+            </div>
+            <div className="tree-list">
+              {treeElements.map((el, i) => (
+                <div key={i} className={`tree-item ${selectedElement === el ? "selected" : ""}`}
+                  style={{ paddingLeft: `${8 + el.depth * 12}px` }}
+                  onClick={() => setSelectedElement(selectedElement === el ? null : el)}>
+                  <span className="tree-icon">{roleIcon(el.role)}</span>
+                  <span className="tree-role">{el.role.replace("AX", "")}</span>
+                  {el.display && el.display !== el.role && (
+                    <span className="tree-label">{el.display}</span>
+                  )}
+                  {el.frame && <span className="tree-frame">{el.frame}</span>}
+                  {selectedElement === el && (
+                    <div className="action-menu" onClick={(e) => e.stopPropagation()}>
+                      {ELEMENT_ACTIONS.map((action) => (
+                        <button key={action.label} className="action-btn"
+                          onClick={() => insertToEditor(action.cmd(el.display || el.role))}>
+                          <span>{action.icon}</span> {action.label}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
+
         <section className="editor-panel">
           <Editor
             defaultLanguage="auto"
@@ -256,10 +304,10 @@ function App() {
       <footer className="statusbar">
         {running ? (
           <span>Running step {currentStep + 1}...</span>
-        ) : elements.length > 0 ? (
-          <span>{elements.length} UI elements loaded</span>
+        ) : labels.length > 0 ? (
+          <span>{labels.length} UI elements | {treeElements.length} nodes</span>
         ) : (
-          <span>Click Tree to load UI elements for autocomplete</span>
+          <span>Click Tree to inspect Simulator UI</span>
         )}
       </footer>
     </div>
@@ -271,24 +319,13 @@ function parseCommand(line: string): string[] {
   let current = "";
   let inQuote = false;
   let quoteChar = "";
-
   for (const c of line) {
     if (inQuote) {
-      if (c === quoteChar) {
-        inQuote = false;
-        args.push(current);
-        current = "";
-      } else {
-        current += c;
-      }
-    } else if (c === '"' || c === "'") {
-      inQuote = true;
-      quoteChar = c;
-    } else if (c === " ") {
-      if (current) { args.push(current); current = ""; }
-    } else {
-      current += c;
-    }
+      if (c === quoteChar) { inQuote = false; args.push(current); current = ""; }
+      else { current += c; }
+    } else if (c === '"' || c === "'") { inQuote = true; quoteChar = c; }
+    else if (c === " ") { if (current) { args.push(current); current = ""; } }
+    else { current += c; }
   }
   if (current) args.push(current);
   return args;
