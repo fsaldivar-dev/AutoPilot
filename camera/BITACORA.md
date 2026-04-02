@@ -244,3 +244,109 @@ auto launch app --env AUTOPILOT_CAMERA_IMAGE=/path/to/image.jpg
 - AXObserver funciona para detectar cambios UI en tiempo real
 - El arbol AX se resuelve en el mismo orden que UIAutomator → Camera[N] es cross-platform
 - Xcode 26 ENABLE_DEBUG_DYLIB=NO necesario para force_load
+
+### Intento 10: DYLD_INSERT_LIBRARIES + dylib (sin recompilar)
+**Resultado:** FUNCIONA. Inyeccion en cualquier .app ya instalada sin proyecto Xcode.
+
+**Motivacion:** El intento 9 (force-load) funciona perfecto pero requiere tener el proyecto Xcode y recompilar. Para apps de terceros o apps ya instaladas, eso no aplica. Necesitabamos un camino que no toque el binario.
+
+**Enfoque:**
+1. El mismo codigo ObjC de MockHeaders.swift se compila como **dylib** (shared library) en vez de static lib
+2. Se cachea en `~/.autopilot/libAutoPilotCapture.dylib` — se compila una sola vez
+3. `auto launch app --inject imagen.jpg` lanza la app con `SIMCTL_CHILD_DYLD_INSERT_LIBRARIES` apuntando a la dylib
+4. El constructor se ejecuta igual que con force-load, swizzlea los mismos ~25 metodos
+
+**Compilacion de la dylib:**
+```bash
+xcrun clang -dynamiclib -arch arm64 \
+  -isysroot $(xcrun --sdk iphonesimulator --show-sdk-path) \
+  -target arm64-apple-ios16.0-simulator \
+  -fobjc-arc -fno-modules \
+  -framework AVFoundation -framework UIKit \
+  -framework CoreMedia -framework QuartzCore \
+  AutoPilotCapture.m -o libAutoPilotCapture.dylib
+```
+
+**Tropiezo 1: Linker symbols faltantes**
+- Primera compilacion fallo con `Undefined symbols: _CACurrentMediaTime, _kCAGravityResize`
+- Causa: `ap_timestamp()` usa `CACurrentMediaTime()` y `ap_previewSetSession()` usa `kCAGravityResize`
+- Ambos vienen de QuartzCore, que no estaba en los frameworks de la dylib
+- Solucion: agregar `-framework QuartzCore` a los flags de clang
+
+**Tropiezo 2: La env var AUTOPILOT_CAMERA_IMAGE es inmutable post-launch**
+- El mock leia la imagen de `[NSProcessInfo processInfo].environment[@"AUTOPILOT_CAMERA_IMAGE"]`
+- Esto se setea una vez al lanzar via `SIMCTL_CHILD_` y no cambia en runtime
+- Para hot-swap de imagen sin relanzar, necesitabamos otro mecanismo
+- Solucion: leer de un **path fijo** `/tmp/autopilot-camera-image.jpg` que se puede sobreescribir en cualquier momento
+
+**Tropiezo 3: Constructor condicionado a env var**
+- El constructor original solo activaba el swizzle si `AUTOPILOT_CAMERA_IMAGE` o `AUTOPILOT_QR_CODE` existian
+- Con dylib injection, la dylib SOLO se carga cuando el usuario pide `--inject`, asi que siempre debe activarse
+- Solucion: remover la condicion, siempre swizzlear cuando la dylib esta presente
+
+**Hot-swap de imagen (`auto inject`):**
+- Nuevo comando que copia una imagen a `/tmp/autopilot-camera-image.jpg`
+- El mock lee de ese path **cada vez que se llama `capturePhoto`** (no cachea la imagen)
+- Permite cambiar la imagen sin relanzar la app
+- `ap_resolveImagePath()` busca en orden: path fijo → env var → nil (placeholder)
+
+**Diseno del comando:**
+- Primera iteracion: `auto inject com.example.app foto.jpg` — comando separado
+- Segunda iteracion: `auto launch app --inject foto.jpg` — flag de launch (mas natural)
+- El usuario sugierio que un comando separado no se sentia bien, que lanzar con inject era mas claro
+- Ademas, `auto inject foto.jpg` (sin bundle) quedo como hot-swap mid-session
+
+**Flujo final:**
+```bash
+# Lanzar con mock (compila dylib si no existe, cachea en ~/.autopilot/)
+auto launch com.example.app --inject selfie.jpg
+
+# Cambiar imagen sin relanzar
+auto inject paisaje.jpg
+
+# En script .auto
+launch com.example.app --inject selfie.jpg
+tap "Capturar"
+inject paisaje.jpg
+tap "Capturar"
+```
+
+**Probado end-to-end:**
+1. `auto launch dev.autopilot.test.CameraTestApp --inject temp/test-image.jpg`
+   - Dylib compilada (75KB), cacheada en ~/.autopilot/
+   - App lanzada con DYLD_INSERT_LIBRARIES
+   - Constructor swizzlea 25 metodos
+   - Preview muestra imagen con labels LIVE + AutoPilot
+2. `auto inject temp/test-image.jpg`
+   - Imagen copiada a /tmp/autopilot-camera-image.jpg
+   - Siguiente captura usa la nueva imagen
+3. Grabado video demo (`scripts/demo-inject.sh`) con ffmpeg capturando pantalla completa
+
+**Comparativa de enfoques:**
+
+| | `launch --inject` (intento 10) | `auto build` (intento 9) |
+|---|---|---|
+| Necesita proyecto Xcode | No | Si |
+| Modifica el binario | No (dylib externa) | Si (static lib linkada) |
+| Hot-swap de imagen | Si (`auto inject`) | No (requiere relanzar) |
+| Mecanismo | `DYLD_INSERT_LIBRARIES` | `-force_load` |
+| Tamano | 75KB dylib | ~28KB static lib |
+| Compilacion | Una vez (cacheada) | Cada build |
+
+**Archivos nuevos/modificados:**
+
+| Archivo | Cambio |
+|---|---|
+| `cli/Sources/AutoLib/DylibInjector.swift` | Nuevo — compila dylib, cachea en ~/.autopilot/ |
+| `cli/Sources/AutoLib/MockHeaders.swift` | `ap_resolveImagePath()`, constructor sin condicion |
+| `cli/Sources/AutoLib/SimulatorBridge.swift` | `injectAndLaunch()`, `setInjectImage()` |
+| `cli/Sources/CLI/main.swift` | `launch --inject`, `inject` command |
+| `scripts/demo-inject.sh` | Script de grabacion de demo |
+| `assets/demos/` | Video + screenshots del demo |
+
+**Hallazgos clave:**
+- `DYLD_INSERT_LIBRARIES` funciona sin problemas en el Simulador iOS (no hay code signing enforcement como en dispositivo fisico)
+- El Simulador comparte `/tmp/` con macOS — las apps del simulador pueden leer paths del Mac
+- `-dynamiclib` requiere todos los frameworks como dependencias explicitas (a diferencia de static lib que los resuelve al linkear con el binario final)
+- La dylib de 75KB es autocontenida — no necesita que la app tenga ningun framework extra
+- El hot-swap funciona porque `capturePhoto` lee el archivo en cada invocacion, no lo cachea
