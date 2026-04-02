@@ -16,8 +16,13 @@ build/
 .Spotlight-V100
 .Trashes
 
-# Claude Code
-.claude/
+# Claude Code (keep settings + agents, ignore local/personal)
+.claude/settings.local.json
+.claude/plans/
+.claude/projects/
+.claude/memory/
+.claude/image-cache/
+.claude/shell-snapshots/
 
 # IDE
 .vscode/
@@ -29,6 +34,7 @@ build/
 *.png
 !Demo/**/*.png
 !assets/**/*.png
+!docs/**/*.png
 
 # Compiled dylibs
 *.dylib
