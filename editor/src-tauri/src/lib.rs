@@ -134,12 +134,62 @@ fn get_ax_tree() -> Result<Value, String> {
     }))
 }
 
+/// Captures screenshot + AX tree in one call. Returns base64 image + elements.
+#[tauri::command]
+fn inspect() -> Result<Value, String> {
+    let bin = auto_binary();
+
+    // 1. Screenshot to temp file
+    let tmp = std::env::temp_dir().join("autopilot-inspect.png");
+    let tmp_str = tmp.to_string_lossy().to_string();
+    let _ = Command::new(&bin)
+        .args(["screenshot", &tmp_str])
+        .output()
+        .map_err(|e| format!("Screenshot failed: {}", e))?;
+
+    // 2. Read image as base64
+    let image_b64 = if tmp.exists() {
+        use std::io::Read;
+        let mut file = std::fs::File::open(&tmp).map_err(|e| e.to_string())?;
+        let mut bytes = Vec::new();
+        file.read_to_end(&mut bytes).map_err(|e| e.to_string())?;
+        use std::fmt::Write;
+        let mut b64 = String::new();
+        for chunk in bytes.chunks(3) {
+            let b = match chunk.len() {
+                3 => [chunk[0], chunk[1], chunk[2], 0],
+                2 => [chunk[0], chunk[1], 0, 0],
+                1 => [chunk[0], 0, 0, 0],
+                _ => [0, 0, 0, 0],
+            };
+            let n = ((b[0] as u32) << 16) | ((b[1] as u32) << 8) | (b[2] as u32);
+            const T: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+            let _ = write!(b64, "{}{}", T[(n >> 18 & 63) as usize] as char, T[(n >> 12 & 63) as usize] as char);
+            if chunk.len() > 1 { let _ = write!(b64, "{}", T[(n >> 6 & 63) as usize] as char); } else { b64.push('='); }
+            if chunk.len() > 2 { let _ = write!(b64, "{}", T[(n & 63) as usize] as char); } else { b64.push('='); }
+        }
+        let _ = std::fs::remove_file(&tmp);
+        b64
+    } else {
+        String::new()
+    };
+
+    // 3. Get tree
+    let tree_result = get_ax_tree()?;
+
+    Ok(serde_json::json!({
+        "screenshot": format!("data:image/png;base64,{}", image_b64),
+        "elements": tree_result["elements"],
+        "labels": tree_result["labels"],
+    }))
+}
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
-        .invoke_handler(tauri::generate_handler![run_auto, get_ax_tree])
+        .invoke_handler(tauri::generate_handler![run_auto, get_ax_tree, inspect])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

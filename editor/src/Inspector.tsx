@@ -1,6 +1,6 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useRef } from "react";
 
-interface AXElement {
+export interface AXElement {
   role: string;
   label: string;
   id: string;
@@ -25,11 +25,9 @@ const ACTIONS = [
   { label: "clear", icon: "🗑", cmd: (el: string) => `clear "${el}"` },
   { label: "waitFor", icon: "⏳", cmd: (el: string) => `waitFor "${el}" 10` },
   { label: "exists", icon: "❓", cmd: (el: string) => `exists "${el}"` },
-  { label: "scroll", icon: "📜", cmd: (el: string) => `scroll "${el}" down` },
 ];
 
 function parseFrame(frame: string): { x: number; y: number; w: number; h: number } | null {
-  // Format: [x,y widthxheight]
   const m = frame.match(/\[(\d+),(\d+)\s+(\d+)x(\d+)\]/);
   if (!m) return null;
   return { x: +m[1], y: +m[2], w: +m[3], h: +m[4] };
@@ -40,60 +38,42 @@ function roleColor(role: string): string {
   if (role.includes("TextField") || role.includes("TextArea")) return "#E5C07B";
   if (role.includes("StaticText")) return "#98C379";
   if (role.includes("Image")) return "#C678DD";
-  if (role.includes("Group") || role.includes("Tab")) return "#61AFEF";
   if (role.includes("Heading")) return "#D19A66";
-  return "#565F89";
+  return "#61AFEF";
 }
 
 interface InspectorProps {
   elements: AXElement[];
+  screenshot: string;
   onInsert: (cmd: string) => void;
   onClose: () => void;
 }
 
-export default function Inspector({ elements, onInsert, onClose }: InspectorProps) {
+export default function Inspector({ elements, screenshot, onInsert, onClose }: InspectorProps) {
   const [selected, setSelected] = useState<ParsedElement | null>(null);
   const [hovered, setHovered] = useState<ParsedElement | null>(null);
-  const [filter, setFilter] = useState("");
+  const containerRef = useRef<HTMLDivElement>(null);
 
-  // Parse elements with frames
   const parsed = useMemo(() => {
     const result: ParsedElement[] = [];
     for (const el of elements) {
       const f = parseFrame(el.frame);
-      if (f && f.w > 0 && f.h > 0) {
+      if (f && f.w > 2 && f.h > 2) {
         result.push({ ...el, ...f });
       }
     }
     return result;
   }, [elements]);
 
-  // Filter
-  const filtered = useMemo(() => {
-    if (!filter) return parsed;
-    const q = filter.toLowerCase();
-    return parsed.filter(
-      (el) =>
-        el.display.toLowerCase().includes(q) ||
-        el.role.toLowerCase().includes(q) ||
-        el.id.toLowerCase().includes(q)
-    );
-  }, [parsed, filter]);
-
-  // Calculate scale to fit in panel
-  const layout = useMemo(() => {
-    if (parsed.length === 0) return { scale: 1, offsetX: 0, offsetY: 0, viewW: 400, viewH: 700 };
+  // Simulator viewport bounds
+  const bounds = useMemo(() => {
+    if (parsed.length === 0) return { maxX: 430, maxY: 932 };
     let maxX = 0, maxY = 0;
     for (const el of parsed) {
       maxX = Math.max(maxX, el.x + el.w);
       maxY = Math.max(maxY, el.y + el.h);
     }
-    const panelW = 380;
-    const panelH = 600;
-    const scale = Math.min(panelW / maxX, panelH / maxY) * 0.95;
-    const offsetX = (panelW - maxX * scale) / 2;
-    const offsetY = 8;
-    return { scale, offsetX, offsetY, viewW: maxX, viewH: maxY };
+    return { maxX, maxY };
   }, [parsed]);
 
   const active = hovered || selected;
@@ -102,57 +82,55 @@ export default function Inspector({ elements, onInsert, onClose }: InspectorProp
     <div className="inspector">
       <div className="inspector-header">
         <span>Inspector ({parsed.length})</span>
-        <div className="inspector-controls">
-          <input
-            className="inspector-search"
-            placeholder="Buscar..."
-            value={filter}
-            onChange={(e) => setFilter(e.target.value)}
-          />
-          <button className="btn-close" onClick={onClose}>×</button>
-        </div>
+        <button className="btn-close" onClick={onClose}>×</button>
       </div>
 
-      {/* Visual Layout */}
-      <div className="inspector-canvas">
-        <svg width="100%" height="100%" viewBox={`0 0 ${layout.viewW} ${layout.viewH}`}>
-          {/* Background */}
-          <rect x="0" y="0" width={layout.viewW} height={layout.viewH} fill="#1A1B26" rx="12" />
+      <div className="inspector-canvas" ref={containerRef}>
+        <div className="canvas-viewport" style={{ aspectRatio: `${bounds.maxX} / ${bounds.maxY}` }}>
+          {/* Real screenshot as background */}
+          {screenshot && (
+            <img src={screenshot} alt="Simulator" className="canvas-screenshot" draggable={false} />
+          )}
 
-          {/* Elements */}
-          {filtered.map((el, i) => {
-            const isActive = active === el;
-            const isSelected = selected === el;
-            const color = roleColor(el.role);
-            const opacity = filter && !filtered.includes(el) ? 0.1 : isActive ? 0.4 : 0.15;
+          {/* Overlay hitboxes */}
+          <svg className="canvas-overlay" viewBox={`0 0 ${bounds.maxX} ${bounds.maxY}`}>
+            {parsed.map((el, i) => {
+              const isHovered = hovered === el;
+              const isSelected = selected === el;
+              const color = roleColor(el.role);
 
-            return (
-              <g key={i}
-                onClick={(e) => { e.stopPropagation(); setSelected(isSelected ? null : el); }}
-                onMouseEnter={() => setHovered(el)}
-                onMouseLeave={() => setHovered(null)}
-                style={{ cursor: "pointer" }}>
+              return (
                 <rect
+                  key={i}
                   x={el.x} y={el.y} width={el.w} height={el.h}
-                  fill={color} fillOpacity={opacity}
-                  stroke={color} strokeOpacity={isActive ? 0.9 : 0.3}
-                  strokeWidth={isActive ? 2 : 0.5}
-                  rx="3"
+                  fill={isHovered || isSelected ? color : "transparent"}
+                  fillOpacity={isSelected ? 0.3 : isHovered ? 0.2 : 0}
+                  stroke={isHovered || isSelected ? color : "transparent"}
+                  strokeWidth={isSelected ? 2.5 : isHovered ? 1.5 : 0}
+                  rx="4"
+                  style={{ cursor: "pointer" }}
+                  onClick={(e) => { e.stopPropagation(); setSelected(isSelected ? null : el); }}
+                  onMouseEnter={() => setHovered(el)}
+                  onMouseLeave={() => setHovered(null)}
                 />
-                {/* Label if element is big enough */}
-                {el.w > 30 && el.h > 12 && (
-                  <text
-                    x={el.x + el.w / 2} y={el.y + el.h / 2 + 4}
-                    textAnchor="middle" fill={color} fillOpacity={isActive ? 1 : 0.7}
-                    fontSize={Math.min(11, el.h * 0.6, el.w * 0.15)}
-                    fontFamily="SF Mono, monospace" fontWeight="500">
-                    {el.display.length > 20 ? el.display.slice(0, 18) + "..." : el.display}
-                  </text>
-                )}
-              </g>
-            );
-          })}
-        </svg>
+              );
+            })}
+          </svg>
+
+          {/* Tooltip on hover */}
+          {hovered && !selected && (
+            <div className="canvas-tooltip"
+              style={{
+                left: `${(hovered.x / bounds.maxX) * 100}%`,
+                top: `${(hovered.y / bounds.maxY) * 100 - 4}%`,
+              }}>
+              <span className="tooltip-role" style={{ color: roleColor(hovered.role) }}>
+                {hovered.role.replace("AX", "")}
+              </span>
+              {hovered.display && <span className="tooltip-label">"{hovered.display}"</span>}
+            </div>
+          )}
+        </div>
       </div>
 
       {/* Detail + Actions */}
@@ -162,9 +140,7 @@ export default function Inspector({ elements, onInsert, onClose }: InspectorProp
             <span className="detail-role" style={{ color: roleColor(active.role) }}>
               {active.role.replace("AX", "")}
             </span>
-            {active.display && (
-              <span className="detail-label">"{active.display}"</span>
-            )}
+            {active.display && <span className="detail-label">"{active.display}"</span>}
             {active.id && <span className="detail-id">id={active.id}</span>}
             <span className="detail-frame">{active.frame}</span>
           </div>
