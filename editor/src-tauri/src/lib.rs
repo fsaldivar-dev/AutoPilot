@@ -134,6 +134,63 @@ fn get_ax_tree() -> Result<Value, String> {
     }))
 }
 
+/// Gets the element index ($N) for precise targeting.
+#[tauri::command]
+fn get_element_index() -> Result<Value, String> {
+    let bin = auto_binary();
+    let output = Command::new(&bin)
+        .args(["index"])
+        .output()
+        .map_err(|e| format!("Failed to get index: {}", e))?;
+
+    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let mut elements: Vec<Value> = Vec::new();
+
+    for line in stdout.lines() {
+        let trimmed = line.trim();
+        // Parse: $0    Button       "Inicio"                       [53,762 60x30]
+        if !trimmed.starts_with('$') { continue; }
+
+        let parts: Vec<&str> = trimmed.splitn(2, |c: char| c.is_whitespace()).collect();
+        if parts.len() < 2 { continue; }
+
+        let idx_str = parts[0].trim_start_matches('$');
+        let idx: i64 = idx_str.parse().unwrap_or(-1);
+        if idx < 0 { continue; }
+
+        let rest = parts[1].trim();
+        // Extract role (first word)
+        let role_end = rest.find(|c: char| c.is_whitespace()).unwrap_or(rest.len());
+        let role = &rest[..role_end];
+        let after_role = rest[role_end..].trim();
+
+        // Extract label (quoted string)
+        let mut label = String::new();
+        if let Some(q1) = after_role.find('"') {
+            if let Some(q2) = after_role[q1+1..].find('"') {
+                label = after_role[q1+1..q1+1+q2].to_string();
+            }
+        }
+
+        // Extract frame [x,y wxh]
+        let mut frame = String::new();
+        if let Some(b1) = after_role.find('[') {
+            if let Some(b2) = after_role[b1..].find(']') {
+                frame = after_role[b1..b1+b2+1].to_string();
+            }
+        }
+
+        elements.push(serde_json::json!({
+            "index": idx,
+            "role": role,
+            "label": label,
+            "frame": frame,
+        }));
+    }
+
+    Ok(serde_json::json!({ "elements": elements }))
+}
+
 /// Captures screenshot + AX tree in one call. Returns base64 image + elements.
 #[tauri::command]
 fn inspect() -> Result<Value, String> {
@@ -174,13 +231,15 @@ fn inspect() -> Result<Value, String> {
         String::new()
     };
 
-    // 3. Get tree
+    // 3. Get tree + index
     let tree_result = get_ax_tree()?;
+    let index_result = get_element_index()?;
 
     Ok(serde_json::json!({
         "screenshot": format!("data:image/png;base64,{}", image_b64),
         "elements": tree_result["elements"],
         "labels": tree_result["labels"],
+        "indexed": index_result["elements"],
     }))
 }
 
@@ -189,7 +248,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
-        .invoke_handler(tauri::generate_handler![run_auto, get_ax_tree, inspect])
+        .invoke_handler(tauri::generate_handler![run_auto, get_ax_tree, get_element_index, inspect])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }

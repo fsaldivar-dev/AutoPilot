@@ -17,15 +17,19 @@ interface ParsedElement extends AXElement {
   h: number;
 }
 
-const ACTIONS = [
-  { label: "tap", icon: "👆", cmd: (el: string) => `tap "${el}"` },
-  { label: "doubleTap", icon: "👆👆", cmd: (el: string) => `doubleTap "${el}"` },
-  { label: "longPress", icon: "✊", cmd: (el: string) => `longPress "${el}" 1` },
-  { label: "type", icon: "⌨️", cmd: (el: string) => `type "${el}" "text"` },
-  { label: "clear", icon: "🗑", cmd: (el: string) => `clear "${el}"` },
-  { label: "waitFor", icon: "⏳", cmd: (el: string) => `waitFor "${el}" 10` },
-  { label: "exists", icon: "❓", cmd: (el: string) => `exists "${el}"` },
-];
+// Actions use $N index when available, fallback to "label"
+function makeActions(idx: number | null, label: string) {
+  const ref = idx !== null ? `$${idx}` : `"${label}"`;
+  return [
+    { label: "tap", icon: "👆", cmd: `tap ${ref}` },
+    { label: "doubleTap", icon: "👆👆", cmd: `doubleTap ${ref}` },
+    { label: "longPress", icon: "✊", cmd: `longPress ${ref} 1` },
+    { label: "type", icon: "⌨️", cmd: `type ${ref} "text"` },
+    { label: "clear", icon: "🗑", cmd: `clear ${ref}` },
+    { label: "waitFor", icon: "⏳", cmd: `waitFor "${label}" 10` },
+    { label: "exists", icon: "❓", cmd: `exists "${label}"` },
+  ];
+}
 
 function parseFrame(frame: string): { x: number; y: number; w: number; h: number } | null {
   const m = frame.match(/\[(\d+),(\d+)\s+(\d+)x(\d+)\]/);
@@ -54,14 +58,22 @@ function roleIcon(role: string): string {
   return "◻️";
 }
 
+interface IndexedElement {
+  index: number;
+  role: string;
+  label: string;
+  frame: string;
+}
+
 interface InspectorProps {
   elements: AXElement[];
+  indexed: IndexedElement[];
   screenshot: string;
   onInsert: (cmd: string) => void;
   onClose: () => void;
 }
 
-export default function Inspector({ elements, screenshot, onInsert, onClose }: InspectorProps) {
+export default function Inspector({ elements, indexed, screenshot, onInsert, onClose }: InspectorProps) {
   const [tab, setTab] = useState<"preview" | "tree">("preview");
   const [selected, setSelected] = useState<ParsedElement | null>(null);
   const [hovered, setHovered] = useState<ParsedElement | null>(null);
@@ -94,9 +106,25 @@ export default function Inspector({ elements, screenshot, onInsert, onClose }: I
       .sort((a, b) => (b.w * b.h) - (a.w * a.h));
   }, [parsed, viewport]);
 
+  // Find $N index for an element by matching label + frame
+  const findIndex = (el: { display?: string; label?: string; frame?: string; role?: string }): number | null => {
+    const label = el.display || el.label || "";
+    const frame = el.frame || "";
+    for (const idx of indexed) {
+      if (idx.label === label && idx.frame === frame) return idx.index;
+      if (idx.label === label && idx.role === el.role?.replace("AX", "")) return idx.index;
+    }
+    // Fallback: match by label only
+    for (const idx of indexed) {
+      if (idx.label === label) return idx.index;
+    }
+    return null;
+  };
+
   const active = hovered || selected;
   const activeElement = tab === "preview" ? active : treeSelected;
   const activeDisplay = activeElement?.display || activeElement?.id || activeElement?.role || "";
+  const activeIndex = activeElement ? findIndex(activeElement) : null;
 
   return (
     <div className="inspector">
@@ -138,17 +166,21 @@ export default function Inspector({ elements, screenshot, onInsert, onClose }: I
                 );
               })}
             </svg>
-            {hovered && !selected && (
-              <div className="canvas-tooltip" style={{
-                left: `${(hovered.x / viewport.width) * 100}%`,
-                top: `${Math.max(0, (hovered.y / viewport.height) * 100 - 3)}%`,
-              }}>
-                <span className="tooltip-role" style={{ color: roleColor(hovered.role) }}>
-                  {hovered.role.replace("AX", "")}
-                </span>
-                {hovered.display && <span className="tooltip-label">"{hovered.display}"</span>}
-              </div>
-            )}
+            {hovered && !selected && (() => {
+              const idx = findIndex(hovered);
+              return (
+                <div className="canvas-tooltip" style={{
+                  left: `${(hovered.x / viewport.width) * 100}%`,
+                  top: `${Math.max(0, (hovered.y / viewport.height) * 100 - 3)}%`,
+                }}>
+                  {idx !== null && <span className="tooltip-index">${idx}</span>}
+                  <span className="tooltip-role" style={{ color: roleColor(hovered.role) }}>
+                    {hovered.role.replace("AX", "")}
+                  </span>
+                  {hovered.display && <span className="tooltip-label">"{hovered.display}"</span>}
+                </div>
+              );
+            })()}
           </div>
         </div>
       )}
@@ -156,47 +188,55 @@ export default function Inspector({ elements, screenshot, onInsert, onClose }: I
       {/* Tree Tab */}
       {tab === "tree" && (
         <div className="inspector-tree">
-          {elements.map((el, i) => (
-            <div key={i}
-              className={`tree-row ${treeSelected === el ? "selected" : ""}`}
-              style={{ paddingLeft: `${8 + el.depth * 14}px` }}
-              onClick={() => setTreeSelected(treeSelected === el ? null : el)}>
-              <span className="tree-icon">{roleIcon(el.role)}</span>
-              <span className="tree-role" style={{ color: roleColor(el.role) }}>
-                {el.role.replace("AX", "")}
-              </span>
-              {el.display && el.display !== el.role && (
-                <span className="tree-label">"{el.display}"</span>
-              )}
-              {el.frame && <span className="tree-frame">{el.frame}</span>}
-            </div>
-          ))}
+          {elements.map((el, i) => {
+            const idx = findIndex(el);
+            return (
+              <div key={i}
+                className={`tree-row ${treeSelected === el ? "selected" : ""}`}
+                style={{ paddingLeft: `${8 + el.depth * 14}px` }}
+                onClick={() => setTreeSelected(treeSelected === el ? null : el)}>
+                {idx !== null && <span className="tree-index">${idx}</span>}
+                <span className="tree-icon">{roleIcon(el.role)}</span>
+                <span className="tree-role" style={{ color: roleColor(el.role) }}>
+                  {el.role.replace("AX", "")}
+                </span>
+                {el.display && el.display !== el.role && (
+                  <span className="tree-label">"{el.display}"</span>
+                )}
+                {el.frame && <span className="tree-frame">{el.frame}</span>}
+              </div>
+            );
+          })}
         </div>
       )}
 
       {/* Actions bar */}
-      {activeElement && (
-        <div className="inspector-actions">
-          <div className="actions-info">
-            <span style={{ color: roleColor(activeElement.role), fontWeight: 700, fontSize: 12 }}>
-              {activeElement.role.replace("AX", "")}
-            </span>
-            {activeDisplay && <span className="actions-label">"{activeDisplay}"</span>}
+      {activeElement && (() => {
+        const actions = makeActions(activeIndex, activeDisplay);
+        return (
+          <div className="inspector-actions">
+            <div className="actions-info">
+              {activeIndex !== null && <span className="actions-index">${activeIndex}</span>}
+              <span style={{ color: roleColor(activeElement.role), fontWeight: 700, fontSize: 12 }}>
+                {activeElement.role.replace("AX", "")}
+              </span>
+              {activeDisplay && <span className="actions-label">"{activeDisplay}"</span>}
+            </div>
+            <div className="actions-buttons">
+              {actions.map((action) => (
+                <button key={action.label} className="action-btn"
+                  onClick={() => {
+                    onInsert(action.cmd);
+                    setSelected(null);
+                    setTreeSelected(null);
+                  }}>
+                  <span>{action.icon}</span> {action.label}
+                </button>
+              ))}
+            </div>
           </div>
-          <div className="actions-buttons">
-            {ACTIONS.map((action) => (
-              <button key={action.label} className="action-btn"
-                onClick={() => {
-                  onInsert(action.cmd(activeDisplay));
-                  setSelected(null);
-                  setTreeSelected(null);
-                }}>
-                <span>{action.icon}</span> {action.label}
-              </button>
-            ))}
-          </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }
