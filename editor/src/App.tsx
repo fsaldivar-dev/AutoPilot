@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback } from "react";
 import Editor, { OnMount } from "@monaco-editor/react";
 import { invoke } from "@tauri-apps/api/core";
+import Inspector from "./Inspector";
 import "./App.css";
 
 const DEFAULT_SCRIPT = `# Mi script de automatizacion
@@ -48,17 +49,6 @@ const AUTO_COMMANDS = [
   { label: "run", detail: "Ejecutar script", insertText: "run ${1:script.auto}" },
 ];
 
-const ELEMENT_ACTIONS = [
-  { label: "tap", icon: "👆", cmd: (el: string) => `tap "${el}"` },
-  { label: "doubleTap", icon: "👆👆", cmd: (el: string) => `doubleTap "${el}"` },
-  { label: "longPress", icon: "✊", cmd: (el: string) => `longPress "${el}" 1` },
-  { label: "type", icon: "⌨️", cmd: (el: string) => `type "${el}" "text"` },
-  { label: "clear", icon: "🗑", cmd: (el: string) => `clear "${el}"` },
-  { label: "exists", icon: "❓", cmd: (el: string) => `exists "${el}"` },
-  { label: "waitFor", icon: "⏳", cmd: (el: string) => `waitFor "${el}" 10` },
-  { label: "scroll", icon: "📜", cmd: (el: string) => `scroll "${el}" down` },
-];
-
 interface AXElement {
   role: string;
   label: string;
@@ -77,7 +67,6 @@ function App() {
   const [treeElements, setTreeElements] = useState<AXElement[]>([]);
   const [labels, setLabels] = useState<string[]>([]);
   const [showTree, setShowTree] = useState(false);
-  const [selectedElement, setSelectedElement] = useState<AXElement | null>(null);
   const editorRef = useRef<any>(null);
   const abortRef = useRef(false);
 
@@ -195,20 +184,6 @@ function App() {
     monaco.editor.setTheme("autopilot");
   };
 
-  const roleIcon = (role: string) => {
-    if (role.includes("Button")) return "🔘";
-    if (role.includes("TextField") || role.includes("TextArea")) return "📝";
-    if (role.includes("StaticText")) return "📄";
-    if (role.includes("Image")) return "🖼";
-    if (role.includes("Group")) return "📦";
-    if (role.includes("Heading")) return "🏷";
-    if (role.includes("Tab")) return "📑";
-    if (role.includes("Slider")) return "🎚";
-    if (role.includes("CheckBox") || role.includes("Toggle")) return "☑️";
-    if (role.includes("Toolbar")) return "🔧";
-    return "◻️";
-  };
-
   return (
     <div className="app">
       <header className="toolbar">
@@ -235,36 +210,11 @@ function App() {
 
       <main className="panels">
         {showTree && (
-          <section className="tree-panel">
-            <div className="tree-header">
-              <span>Inspector ({treeElements.length})</span>
-              <button className="btn-close" onClick={() => setShowTree(false)}>×</button>
-            </div>
-            <div className="tree-list">
-              {treeElements.map((el, i) => (
-                <div key={i} className={`tree-item ${selectedElement === el ? "selected" : ""}`}
-                  style={{ paddingLeft: `${8 + el.depth * 12}px` }}
-                  onClick={() => setSelectedElement(selectedElement === el ? null : el)}>
-                  <span className="tree-icon">{roleIcon(el.role)}</span>
-                  <span className="tree-role">{el.role.replace("AX", "")}</span>
-                  {el.display && el.display !== el.role && (
-                    <span className="tree-label">{el.display}</span>
-                  )}
-                  {el.frame && <span className="tree-frame">{el.frame}</span>}
-                  {selectedElement === el && (
-                    <div className="action-menu" onClick={(e) => e.stopPropagation()}>
-                      {ELEMENT_ACTIONS.map((action) => (
-                        <button key={action.label} className="action-btn"
-                          onClick={() => insertToEditor(action.cmd(el.display || el.role))}>
-                          <span>{action.icon}</span> {action.label}
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
-          </section>
+          <Inspector
+            elements={treeElements}
+            onInsert={insertToEditor}
+            onClose={() => setShowTree(false)}
+          />
         )}
 
         <section className="editor-panel">
