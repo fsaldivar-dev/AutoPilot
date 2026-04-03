@@ -127,7 +127,9 @@ En Rust, `auto_binary(platform)` busca el binario en varias ubicaciones: junto a
 
 ### Limitaciones actuales
 
-Con el agente nativo, el tree Android se obtiene en ~30ms (vs ~2s con el viejo `uiautomator dump`). Sin embargo, el inspector aún tiene latencia porque `screenshot` sigue usando `adb screencap + pull` (~1s). La solución correcta sería agregar screenshot al protocolo del agente y hacer las llamadas en paralelo.
+Con el agente nativo, el tree Android se obtiene en ~30ms. El inspector ejecuta screenshot y tree **en paralelo** (threads Rust) para minimizar la latencia total. El screenshot sigue usando `adb screencap + pull` (~400ms) pero no bloquea el tree.
+
+Un bug sutil nos costó tiempo: el callback `refreshTree` en React se creaba con `useCallback` pero sin `platform` en las dependencias. El closure capturaba el valor inicial (`"ios"`) y nunca se actualizaba al cambiar el toggle. Resultado: Inspect siempre ejecutaba `auto` (iOS) aunque el toggle mostraba Android. La solución fue agregar `platform` a las dependencias de `useCallback`.
 
 ### Setup
 

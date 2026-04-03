@@ -3,7 +3,6 @@ use std::path::PathBuf;
 use serde_json::Value;
 
 fn find_binary(name: &str) -> PathBuf {
-    // Look next to the editor binary
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
             let candidate = dir.join(name);
@@ -11,7 +10,6 @@ fn find_binary(name: &str) -> PathBuf {
         }
     }
 
-    // Look in current directory, parent, grandparent (project root)
     if let Ok(cwd) = std::env::current_dir() {
         for path in [
             cwd.join(name),
@@ -26,7 +24,6 @@ fn find_binary(name: &str) -> PathBuf {
         }
     }
 
-    // Fallback to PATH
     PathBuf::from(name)
 }
 
@@ -37,12 +34,10 @@ fn auto_binary(platform: &str) -> PathBuf {
     }
 }
 
-#[tauri::command]
-fn run_auto(args: Vec<String>, platform: Option<String>) -> Result<String, String> {
-    let plat = platform.as_deref().unwrap_or("ios");
-    let bin = auto_binary(plat);
-    let output = Command::new(&bin)
-        .args(&args)
+/// Run a CLI command and return stdout
+fn run_cli(bin: &PathBuf, args: &[&str]) -> Result<String, String> {
+    let output = Command::new(bin)
+        .args(args)
         .output()
         .map_err(|e| format!("Failed to run {}: {}", bin.display(), e))?;
 
@@ -57,16 +52,15 @@ fn run_auto(args: Vec<String>, platform: Option<String>) -> Result<String, Strin
 }
 
 #[tauri::command]
-fn get_ax_tree(platform: Option<String>) -> Result<Value, String> {
+fn run_auto(args: Vec<String>, platform: Option<String>) -> Result<String, String> {
     let plat = platform.as_deref().unwrap_or("ios");
     let bin = auto_binary(plat);
-    let output = Command::new(&bin)
-        .args(["tree"])
-        .output()
-        .map_err(|e| format!("Failed to get tree: {}", e))?;
+    let args_ref: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
+    run_cli(&bin, &args_ref)
+}
 
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-
+/// Parse tree output into structured elements (works for both iOS and Android)
+fn parse_tree_output(stdout: &str) -> (Vec<Value>, Vec<String>) {
     let mut elements: Vec<Value> = Vec::new();
     let mut labels: Vec<String> = Vec::new();
 
@@ -81,12 +75,10 @@ fn get_ax_tree(platform: Option<String>) -> Result<Value, String> {
         let mut value = String::new();
         let mut frame = String::new();
 
-        // Extract role — first word (AXButton for iOS, TextView for Android)
         if let Some(first_word) = trimmed.split_whitespace().next() {
             role = first_word.to_string();
         }
 
-        // Extract quoted strings after keywords
         if let Some(i) = trimmed.find("label=\"") {
             let start = i + 7;
             if let Some(end) = trimmed[start..].find('"') {
@@ -94,7 +86,6 @@ fn get_ax_tree(platform: Option<String>) -> Result<Value, String> {
             }
         }
         if label.is_empty() {
-            // Try title (quoted string right after role)
             if let Some(i) = trimmed.find("\"") {
                 let start = i + 1;
                 if let Some(end) = trimmed[start..].find('"') {
@@ -146,6 +137,15 @@ fn get_ax_tree(platform: Option<String>) -> Result<Value, String> {
 
     labels.sort();
     labels.dedup();
+    (elements, labels)
+}
+
+#[tauri::command]
+fn get_ax_tree(platform: Option<String>) -> Result<Value, String> {
+    let plat = platform.as_deref().unwrap_or("ios");
+    let bin = auto_binary(plat);
+    let stdout = run_cli(&bin, &["tree"])?;
+    let (elements, labels) = parse_tree_output(&stdout);
 
     Ok(serde_json::json!({
         "raw": stdout,
@@ -154,22 +154,15 @@ fn get_ax_tree(platform: Option<String>) -> Result<Value, String> {
     }))
 }
 
-/// Gets the element index ($N) for precise targeting (iOS only).
 #[tauri::command]
 fn get_element_index(platform: Option<String>) -> Result<Value, String> {
     let plat = platform.as_deref().unwrap_or("ios");
     if plat == "android" {
-        // Android doesn't have $N index — return empty
         return Ok(serde_json::json!({ "elements": [] }));
     }
 
     let bin = auto_binary(plat);
-    let output = Command::new(&bin)
-        .args(["index"])
-        .output()
-        .map_err(|e| format!("Failed to get index: {}", e))?;
-
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
+    let stdout = run_cli(&bin, &["index"]).unwrap_or_default();
     let mut elements: Vec<Value> = Vec::new();
 
     for line in stdout.lines() {
@@ -213,56 +206,80 @@ fn get_element_index(platform: Option<String>) -> Result<Value, String> {
     Ok(serde_json::json!({ "elements": elements }))
 }
 
-/// Captures screenshot + tree in one call. Returns base64 image + elements.
+/// Take screenshot and return base64
+fn take_screenshot(bin: &PathBuf) -> String {
+    let tmp = std::env::temp_dir().join("autopilot-inspect.png");
+    let tmp_str = tmp.to_string_lossy().to_string();
+
+    let _ = Command::new(bin)
+        .args(["screenshot", &tmp_str])
+        .output();
+
+    if tmp.exists() {
+        use std::io::Read;
+        if let Ok(mut file) = std::fs::File::open(&tmp) {
+            let mut bytes = Vec::new();
+            if file.read_to_end(&mut bytes).is_ok() && !bytes.is_empty() {
+                use std::fmt::Write;
+                let mut b64 = String::new();
+                for chunk in bytes.chunks(3) {
+                    let b = match chunk.len() {
+                        3 => [chunk[0], chunk[1], chunk[2], 0],
+                        2 => [chunk[0], chunk[1], 0, 0],
+                        1 => [chunk[0], 0, 0, 0],
+                        _ => [0, 0, 0, 0],
+                    };
+                    let n = ((b[0] as u32) << 16) | ((b[1] as u32) << 8) | (b[2] as u32);
+                    const T: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+                    let _ = write!(b64, "{}{}", T[(n >> 18 & 63) as usize] as char, T[(n >> 12 & 63) as usize] as char);
+                    if chunk.len() > 1 { let _ = write!(b64, "{}", T[(n >> 6 & 63) as usize] as char); } else { b64.push('='); }
+                    if chunk.len() > 2 { let _ = write!(b64, "{}", T[(n & 63) as usize] as char); } else { b64.push('='); }
+                }
+                let _ = std::fs::remove_file(&tmp);
+                return b64;
+            }
+        }
+    }
+    String::new()
+}
+
+/// Captures screenshot + tree in one call — screenshot and tree run in parallel.
 #[tauri::command]
 fn inspect(platform: Option<String>) -> Result<Value, String> {
     let plat = platform.as_deref().unwrap_or("ios");
     let bin = auto_binary(plat);
 
-    // 1. Screenshot to temp file
-    let tmp = std::env::temp_dir().join("autopilot-inspect.png");
-    let tmp_str = tmp.to_string_lossy().to_string();
-    let _ = Command::new(&bin)
-        .args(["screenshot", &tmp_str])
-        .output()
-        .map_err(|e| format!("Screenshot failed: {}", e))?;
+    // Run screenshot and tree in parallel
+    let bin_screenshot = bin.clone();
+    let screenshot_thread = std::thread::spawn(move || {
+        take_screenshot(&bin_screenshot)
+    });
 
-    // 2. Read image as base64
-    let image_b64 = if tmp.exists() {
-        use std::io::Read;
-        let mut file = std::fs::File::open(&tmp).map_err(|e| e.to_string())?;
-        let mut bytes = Vec::new();
-        file.read_to_end(&mut bytes).map_err(|e| e.to_string())?;
-        use std::fmt::Write;
-        let mut b64 = String::new();
-        for chunk in bytes.chunks(3) {
-            let b = match chunk.len() {
-                3 => [chunk[0], chunk[1], chunk[2], 0],
-                2 => [chunk[0], chunk[1], 0, 0],
-                1 => [chunk[0], 0, 0, 0],
-                _ => [0, 0, 0, 0],
-            };
-            let n = ((b[0] as u32) << 16) | ((b[1] as u32) << 8) | (b[2] as u32);
-            const T: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-            let _ = write!(b64, "{}{}", T[(n >> 18 & 63) as usize] as char, T[(n >> 12 & 63) as usize] as char);
-            if chunk.len() > 1 { let _ = write!(b64, "{}", T[(n >> 6 & 63) as usize] as char); } else { b64.push('='); }
-            if chunk.len() > 2 { let _ = write!(b64, "{}", T[(n & 63) as usize] as char); } else { b64.push('='); }
-        }
-        let _ = std::fs::remove_file(&tmp);
-        b64
+    let bin_tree = bin.clone();
+    let tree_thread = std::thread::spawn(move || -> Result<(Vec<Value>, Vec<String>), String> {
+        let stdout = run_cli(&bin_tree, &["tree"])?;
+        Ok(parse_tree_output(&stdout))
+    });
+
+    // Index (skip for Android)
+    let index_elements = if plat == "android" {
+        Vec::new()
     } else {
-        String::new()
+        let index_result = get_element_index(Some(plat.to_string()))?;
+        index_result["elements"].as_array().cloned().unwrap_or_default()
     };
 
-    // 3. Get tree + index
-    let tree_result = get_ax_tree(Some(plat.to_string()))?;
-    let index_result = get_element_index(Some(plat.to_string()))?;
+    // Collect results
+    let image_b64 = screenshot_thread.join().unwrap_or_default();
+    let (elements, labels) = tree_thread.join()
+        .map_err(|_| "Tree thread panicked".to_string())?
+        .map_err(|e| format!("Tree failed: {}", e))?;
 
     Ok(serde_json::json!({
         "screenshot": format!("data:image/png;base64,{}", image_b64),
-        "elements": tree_result["elements"],
-        "labels": tree_result["labels"],
-        "indexed": index_result["elements"],
+        "elements": elements,
+        "labels": labels,
+        "indexed": index_elements,
     }))
 }
 
