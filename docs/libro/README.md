@@ -28,13 +28,15 @@ Documentamos todo el proceso — los errores, los callejones sin salida, las dec
 7. **[Decisiones](07-decisiones.md)** — ADRs 1-8: Swift puro, AX públicas, no YAML, dos binarios + DeviceBridge
 8. **[Por qué es libre](08-por-que-es-libre.md)** — La deuda con el open source, el problema de la IA privatizada, y por qué documentamos los fracasos
 9. **[El agente Android](09-el-agente-android.md)** — De 2100ms a 75ms: un APK de instrumentación que habla directo con UiAutomation
+10. **Paridad Android** *(pendiente)* — Se escribira despues de implementar paridad completa iOS/Android
 
 ### Apendices
 
-- **[Referencia de comandos](apendices/comandos.md)** — Los ~30 comandos del CLI
-- **[Variables de entorno](apendices/variables-entorno.md)** — Inyección de datos para CI/CD
-- **[CI/CD](apendices/ci-cd.md)** — GitHub Actions, permisos TCC, configuración de runners
-- **[Troubleshooting](apendices/troubleshooting.md)** — Errores comúnes y como resolverlos
+- **[Referencia de comandos](apendices/comandos.md)** — Los ~30 comandos del CLI, agrupados por categoria
+- **[Guia de scripts .auto](apendices/scripts.md)** — Sintaxis, patrones, buenas practicas y errores comunes
+- **[Variables de entorno](apendices/variables-entorno.md)** — Inyeccion de datos para CI/CD
+- **[CI/CD](apendices/ci-cd.md)** — GitHub Actions, permisos TCC, configuracion de runners
+- **[Troubleshooting](apendices/troubleshooting.md)** — Errores comunes y como resolverlos
 
 ### Referencia
 
