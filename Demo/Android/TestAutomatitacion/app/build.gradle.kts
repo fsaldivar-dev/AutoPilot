@@ -5,11 +5,11 @@ plugins {
 }
 
 android {
-    namespace = "shajaru.Test_Automatitacion"
+    namespace = "dev.autopilot.test.Explorea"
     compileSdk = 35
 
     defaultConfig {
-        applicationId = "shajaru.Test_Automatitacion"
+        applicationId = "dev.autopilot.test.Explorea"
         minSdk = 26
         targetSdk = 35
         versionCode = 1
