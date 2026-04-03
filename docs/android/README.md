@@ -10,33 +10,39 @@
 graph TB
     subgraph CLI["auto-android"]
         CMD[CommandDispatcher<br/>compartido con iOS]
-        BRIDGE[AdbBridge<br/>DeviceBridge protocol]
-        PARSER[UIAutomatorParser<br/>XML → tree]
+        AGENT_B[AgentBridge<br/>default — socket TCP]
+        LEGACY_B[AdbLegacyBridge<br/>--legacy — benchmarks]
     end
 
-    subgraph ADB["ADB Tools"]
-        INPUT["adb shell input<br/>tap, type, swipe"]
-        UIA["uiautomator dump<br/>Inspeccion de UI"]
-        AM["adb shell am<br/>Activity Manager"]
-        PM["adb shell pm<br/>Package Manager"]
-        SCREEN["screencap + pull<br/>Screenshots"]
+    subgraph Agent["Agente nativo (APK)"]
+        SOCKET[LocalServerSocket<br/>autopilot]
+        UIA_DIRECT[UiAutomation<br/>directa — 3-6ms tree]
+        INJECT[InputInjector<br/>injectInputEvent — 1-3ms]
+    end
+
+    subgraph ADB["ADB (fallback)"]
+        AM["adb shell am<br/>launch / terminate"]
+        SCREEN["screencap + pull<br/>screenshots"]
+        PM["adb shell pm<br/>install"]
     end
 
     subgraph Device["Emulador / Dispositivo"]
         APP["App Android"]
     end
 
-    CMD --> BRIDGE
-    BRIDGE --> INPUT
-    BRIDGE --> UIA
-    BRIDGE --> AM
-    BRIDGE --> PM
-    BRIDGE --> SCREEN
-    UIA --> PARSER
-    INPUT --> APP
+    CMD --> AGENT_B
+    CMD -.->|--legacy| LEGACY_B
+    AGENT_B --> SOCKET
+    SOCKET --> UIA_DIRECT
+    SOCKET --> INJECT
+    AGENT_B --> AM
+    AGENT_B --> SCREEN
+    AGENT_B --> PM
+    INJECT --> APP
     AM --> APP
 
     style CLI fill:#00D4FF,color:#000
+    style Agent fill:#FF6B6B,color:#fff
     style ADB fill:#3DDC84,color:#000
     style Device fill:#333,color:#fff
 ```
