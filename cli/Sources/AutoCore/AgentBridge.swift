@@ -256,9 +256,7 @@ public final class AgentBridge: DeviceBridge {
     }
 
     public func biometricIsEnrolled() throws -> Bool {
-        // No reliable ADB API to check fingerprint enrollment
-        // Return true if device has lock screen set (heuristic)
-        return true
+        try legacy.biometricIsEnrolled()
     }
 
     // MARK: - Helpers
