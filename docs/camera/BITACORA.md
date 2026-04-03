@@ -546,3 +546,25 @@ agent/
 ```
 
 APK debug: ~200KB. Compila en 1 segundo (incremental).
+
+### Integración AgentBridge en el CLI
+
+Después de validar el agente, conectamos el CLI `auto-android` al socket:
+
+**Cambios:**
+- `AdbBridge` renombrado a `AdbLegacyBridge` (archivado, no eliminado)
+- Nuevo `AgentBridge`: habla con el agente via TCP socket localhost:9008
+- CLI usa `AgentBridge` por defecto, `--legacy` para el bridge viejo
+- Los comandos de UI (tree, tap, type, swipe) pasan por socket
+- Los comandos de control (launch, terminate, install, screenshot) siguen por adb
+
+**Benchmarks end-to-end (CLI completo, no solo agente):**
+
+| Operacion | Legacy | AgentBridge | Mejora |
+|---|---|---|---|
+| Tree | 2397ms | 29ms | 82x |
+| Tap | ~2100ms | 123-286ms | 8-17x |
+| waitFor | ~2000ms | 300ms | 7x |
+| exists | ~2000ms | 306ms | 7x |
+
+**Tropiezo:** El socket Swift inicialmente hacia `shutdown(SHUT_WR)` después de enviar el comando, lo que cerraba la conexión antes de recibir respuestas grandes (como tree). Solución: leer hasta `\n` sin cerrar el write side.

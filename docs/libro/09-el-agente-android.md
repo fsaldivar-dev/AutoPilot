@@ -223,9 +223,50 @@ echo '{"method":"tap","params":{"target":"Login"}}' | nc localhost 9008
 
 ---
 
+## Integración con el CLI
+
+Con el agente funcionando, el siguiente paso fue conectarlo al CLI `auto-android`. Creamos `AgentBridge` — un nuevo `DeviceBridge` que habla con el agente via TCP socket en lugar de forkear `adb` por cada comando.
+
+El viejo `AdbBridge` se renombró a `AdbLegacyBridge` y se archivó (no eliminó) para poder medir la diferencia. El CLI ahora acepta `--legacy` para usar el bridge viejo:
+
+```bash
+# Default: agente nativo (rápido)
+auto-android tap "Login"              # ~150ms
+
+# Legacy: fork adb por cada comando (lento, para benchmarks)
+auto-android --legacy tap "Login"     # ~2100ms
+```
+
+### Benchmarks finales end-to-end
+
+| Operación | Legacy (`--legacy`) | AgentBridge (default) | Mejora |
+|---|---|---|---|
+| **Tree** | 2397ms | **29ms** | **82x** |
+| **Tap por label** | ~2100ms | **123-286ms** | **8-17x** |
+| **waitFor** | ~2000ms | **300ms** | **7x** |
+| **exists** | ~2000ms | **306ms** | **7x** |
+
+La arquitectura final del CLI Android:
+
+```
+auto-android tap "Login"
+    │
+    ├─ AgentBridge (default)
+    │   └─ TCP socket → localhost:9008 → agente → UiAutomation
+    │       find: 10-50ms, inject: 1-3ms, total: ~150ms
+    │
+    └─ AdbLegacyBridge (--legacy)
+        └─ fork adb → uiautomator dump → parse XML → fork adb input tap
+            dump: 2000ms, parse: 5ms, input: 100ms, total: ~2100ms
+```
+
+### Qué delega AgentBridge a adb
+
+No todo pasa por el agente. Los comandos de control de dispositivo (`launch`, `terminate`, `install`, `screenshot`, `list`) siguen usando `adb` directamente porque no requieren acceso a `UiAutomation` — son operaciones de shell. Solo los comandos de UI (tree, tap, type, swipe) pasan por el socket.
+
 ## Siguiente paso
 
-El agente hoy soporta: `ping`, `tree`, `tap`, `tapAt`, `longPress`, `doubleTap`, `type`, `swipe`, `keyevent`, `clear`. Falta integrar el agente con el CLI `auto-android` — que actualmente usa `AdbBridge` (el viejo approach con forks). El plan es crear un `SocketBridge` que hable con el agente via socket en lugar de forkear `adb` por cada comando.
+El agente cubre las operaciones de UI. Falta agregar `screenshot` y `launch` al protocolo del agente para eliminar completamente la dependencia de `adb shell` para operaciones frecuentes. También falta el auto-setup: que `AgentBridge` detecte si el agente está corriendo y lo levante automáticamente si no.
 
 ---
 
