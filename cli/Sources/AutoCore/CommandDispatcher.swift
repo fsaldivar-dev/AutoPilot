@@ -285,6 +285,12 @@ public func executeSharedCommand(_ args: [String], bridge: any DeviceBridge) thr
         AutoPilotConfig.set(key, value: value)
         print("Set \(key) = \(value)")
 
+    case "wait", "sleep":
+        let seconds = args.count >= 2 ? Double(args[1]) ?? 1.0 : 1.0
+        usleep(UInt32(seconds * 1_000_000))
+        let ms = elapsedMs(start)
+        print("Waited \(seconds)s (\(ms)ms)")
+
     case "biometric", "faceid":
         guard args.count >= 2 else {
             print("Usage: auto biometric <enroll|unenroll|match|fail|status>")
