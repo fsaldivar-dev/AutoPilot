@@ -1,4 +1,4 @@
 project=Demo/CameraTestApp/CameraTestApp.xcodeproj
 scheme=CameraTestApp
 bundle=dev.autopilot.test.CameraTestApp
-image=/Users/franciscojaviersaldivarrubio/Documents/AutomationApp/temp/test-image.jpg
+image=scripts/demo-images/foto-1.jpg
