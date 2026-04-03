@@ -2,34 +2,34 @@
 
 ## Modulo 1: Autenticacion
 
-### CP-001: Desbloqueo exitoso con Face ID
+### CP-001: Desbloqueo exitoso con biometría
 **Precondicion:** App cerrada, usuario no autenticado
 **Pasos:**
 1. Abrir la aplicacion Explorea
 2. Verificar que se muestra la pantalla de bienvenida con el logo y el nombre "Explorea"
-3. Tocar el boton "Desbloquear con Face ID"
-4. Autenticarse exitosamente con Face ID
+3. Tocar el boton "Desbloquear con biometría"
+4. Autenticarse exitosamente con biometría
 
 **Resultado esperado:** La pantalla transiciona con animacion hacia la pantalla principal mostrando el tab "Inicio" con las entradas del diario de viajes.
 
 ---
 
-### CP-002: Face ID fallido muestra error
+### CP-002: biometría fallido muestra error
 **Precondicion:** App en pantalla de login
 **Pasos:**
-1. Tocar "Desbloquear con Face ID"
+1. Tocar "Desbloquear con biometría"
 2. Fallar la autenticacion biometrica (cara no reconocida)
 
-**Resultado esperado:** Se muestra un mensaje de error debajo del boton y aparece la opcion de "Usar PIN" como alternativa.
+**Resultado esperado:** Se muestra un mensaje de error debajo del boton y aparece la opcion de "Usar código" como alternativa.
 
 ---
 
 ### CP-003: Desbloqueo con PIN correcto
 **Precondicion:** App en pantalla de login
 **Pasos:**
-1. Tocar "Usar PIN"
+1. Tocar "Usar código"
 2. Verificar que aparece el teclado numerico con 4 circulos indicadores
-3. Ingresar el PIN "1234" tocando los digitos uno por uno
+3. Ingresar el código "1234" tocando los digitos uno por uno
 4. Verificar que los circulos se llenan conforme se ingresan digitos
 5. Tocar "Confirmar"
 
@@ -37,13 +37,13 @@
 
 ---
 
-### CP-004: PIN incorrecto muestra error
+### CP-004: Código incorrecto muestra error
 **Precondicion:** Pantalla de PIN visible
 **Pasos:**
 1. Ingresar el PIN "0000"
 2. Tocar "Confirmar"
 
-**Resultado esperado:** Se muestra el mensaje "PIN incorrecto", los circulos se vacian y el campo de PIN se limpia para reintentar.
+**Resultado esperado:** Se muestra el mensaje "Código incorrecto", los circulos se vacian y el campo de código se limpia para reintentar.
 
 ---
 
@@ -60,11 +60,11 @@
 
 ---
 
-### CP-006: Alternar entre Face ID y PIN
+### CP-006: Alternar entre biometría y PIN
 **Precondicion:** Pantalla de login
 **Pasos:**
-1. Tocar "Usar PIN" - verificar que aparece el teclado numerico
-2. Tocar "Usar Face ID" - verificar que vuelve al boton de Face ID
+1. Tocar "Usar código" - verificar que aparece el teclado numerico
+2. Tocar "Usar biometría" - verificar que vuelve al boton de biometría
 3. Repetir el cambio 2 veces mas
 
 **Resultado esperado:** La interfaz cambia suavemente entre ambos modos de autenticacion sin perder estado visual.
@@ -608,7 +608,7 @@
 4. Tocar "Cerrar sesion" de nuevo
 5. Confirmar la accion
 
-**Resultado esperado:** Al confirmar, la app regresa a la pantalla de login con Face ID / PIN. Los datos se mantienen para cuando vuelva a autenticarse.
+**Resultado esperado:** Al confirmar, la app regresa a la pantalla de login con biometría / PIN. Los datos se mantienen para cuando vuelva a autenticarse.
 
 ---
 
@@ -658,7 +658,7 @@
 ### CP-055: Flujo completo: login -> crear -> favorito -> buscar -> eliminar -> logout
 **Precondicion:** App cerrada
 **Pasos:**
-1. Abrir app, autenticarse con PIN "1234"
+1. Abrir app, autenticarse con código "1234"
 2. Crear nueva entrada con titulo "Prueba E2E"
 3. Ir a la entrada y marcarla como favorito
 4. Buscar "Prueba E2E" en la barra de busqueda

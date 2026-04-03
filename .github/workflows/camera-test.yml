@@ -85,7 +85,7 @@ jobs:
       - name: Build CameraTestApp with camera mock
         run: |
           ./auto build \
-            -project Demo/CameraTestApp/CameraTestApp.xcodeproj \
+            -project Demo/iOS/CameraTestApp/CameraTestApp.xcodeproj \
             -scheme CameraTestApp \
             -sdk iphonesimulator \
             -destination "id=$DEVICE_UDID"
