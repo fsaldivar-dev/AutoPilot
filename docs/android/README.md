@@ -127,7 +127,7 @@ El mismo script funciona en ambas plataformas cambiando solo el binario:
 
 Ejemplo de `android-login.auto`:
 ```
-launch shajaru.Test_Automatitacion
+launch dev.autopilot.test.Explorea
 waitFor "Explorea" 10
 tap "Desbloquear con PIN"
 waitFor "Ingresa tu PIN" 5

@@ -9,11 +9,11 @@ ping
 paste "AutoPilot CI Test"
 screenshot screenshots/hw-pasteboard.png
 
-# 3. Face ID — enroll, match, status
-faceid enroll
-faceid status
-faceid match
-screenshot screenshots/hw-faceid.png
+# 3. Biometric — enroll, match, status
+biometric enroll
+biometric status
+biometric match
+screenshot screenshots/hw-biometric.png
 
 # 4. Camera mock — ya validado por camera-test.auto
 # (no duplicar, solo referencia)
