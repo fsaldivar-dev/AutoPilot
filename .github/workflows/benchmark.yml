@@ -59,7 +59,7 @@ jobs:
           best = None
           best_ver = (0, 0)
           for runtime, devices in data['devices'].items():
-            m = re.search(r'iOS[- ](\d+)\.(\d+)', runtime)
+            m = re.search(r'iOS[- ](\d+)[.\-](\d+)', runtime)
             if not m:
               continue
             ver = (int(m.group(1)), int(m.group(2)))
