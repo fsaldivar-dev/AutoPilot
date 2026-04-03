@@ -15,7 +15,7 @@ El backend iOS se construye sobre 4 APIs de macOS. Cada una resuelve un problema
 | **Lectura** | AXUIElement | Ver la UI de la app | `auto tree`, `auto exists "Login"` |
 | **Entrada** | CGEvent | Simular interacción humana | `auto type "Hola"`, `auto swipe up` |
 | **Control** | xcrun simctl | Gestionar el Simulador | `auto launch`, `auto screenshot` |
-| **Menus** | AppleScript | Acceder a menus nativos | `auto faceid match` |
+| **Menus** | AppleScript | Acceder a menus nativos | `auto biometric match` |
 
 Ninguna de estas APIs es nueva o experimental. AXUIElement existe desde macOS 10.2 (2002). CGEvent desde 10.4 (2005). `simctl` desde Xcode 6 (2014). AppleScript desde System 7 (1993). Lo que es nuevo es usarlas *juntas* para controlar un Simulador iOS sin XCUITest.
 
@@ -128,7 +128,7 @@ Lo que agrega AutoPilot sobre simctl puro:
 
 ## Capa 4: AppleScript — El ultimo recurso
 
-Face ID no tiene API, ni en simctl ni en accesibilidad. Vive en el menu `Features > Face ID` del Simulador. La única forma de acceder es automatizar el menu con AppleScript.
+Face ID no tiene API, ni en simctl ni en accesibilidad. Vive en el menu `Features > Face ID` del Simulador. La única forma de acceder es automatizar el menu con AppleScript. El comando `biometric` (antes `faceid`) abstrae esto para ambas plataformas — en Android usa `adb emu finger touch` + `locksettings`.
 
 ```applescript
 tell application "System Events" to tell process "Simulator"
@@ -160,9 +160,10 @@ Terminal
     |
     ├─ Capa 3 (simctl): xcrun simctl io <device> screenshot resultado.png
     |
-    auto faceid match
+    auto biometric match
     |
-    └─ Capa 4 (AppleScript): click menu item "Matching Face" of menu "Face ID"...
+    └─ iOS: Capa 4 (AppleScript): click menu item "Matching Face" of menu "Face ID"...
+    └─ Android: adb -e emu finger touch 1
 ```
 
 La documentación técnica completa con diagramas Mermaid de cada flujo está en [docs/ios/ARQUITECTURA.md](../ios/ARQUITECTURA.md).
