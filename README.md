@@ -3,7 +3,7 @@
 </p>
 
 <p align="center">
-  <strong>Automatización iOS desde macOS. Sin XCUITest. Sin servidor. Sin dependencias.</strong>
+  <strong>Automatización iOS y Android desde macOS. Sin XCUITest. Sin servidor. Sin dependencias.</strong>
 </p>
 
 <p align="center">
@@ -21,13 +21,22 @@ Todas las herramientas de automatización iOS — Appium, Maestro, Detox — dep
 
 Descubrimos que el Simulador iOS es una app de macOS que expone la UI de las apps iOS como elementos nativos de accesibilidad. Un `UIButton` con label "Login" aparece como `AXButton` con `kAXTitleAttribute = "Login"` en el árbol AX del Simulador.
 
-No necesitas XCUITest. Solo un binario Swift de 311KB que hable con las APIs de accesibilidad de macOS.
+No necesitas XCUITest. Solo un binario Swift que hable con las APIs de accesibilidad de macOS.
+
+Y para Android, la misma idea: un binario que hable con `adb` y `uiautomator`. El mismo script `.auto` funciona en ambas plataformas.
 
 ```bash
+# iOS
 auto launch com.example.app
 auto tap "Iniciar Sesion"
 auto type "Usuario" "correo@test.com"
 auto screenshot resultado.png
+
+# Android — mismos comandos, diferente binario
+auto-android launch com.example.app
+auto-android tap "Iniciar Sesion"
+auto-android type "Usuario" "correo@test.com"
+auto-android screenshot resultado.png
 ```
 
 ## Qué descubrimos
@@ -61,17 +70,26 @@ Documentamos todo el proceso — los errores, los callejones sin salida, las dec
 <h2 id="inicio-rápido">Inicio rápido</h2>
 
 ```bash
-# Compilar
+# Compilar (genera ambos binarios)
 cd cli && swift build -c release
 cp .build/release/auto /usr/local/bin/auto
+cp .build/release/auto-android /usr/local/bin/auto-android
+```
 
-# Abrir Simulador + dar permisos de Accesibilidad
-open -a Simulator
-
-# Verificar
+### iOS
+```bash
+open -a Simulator    # Abrir Simulador + dar permisos de Accesibilidad
 auto ping
 auto tree
 auto tap "General"
+```
+
+### Android
+```bash
+adb devices          # Verificar emulador/dispositivo conectado
+auto-android ping
+auto-android tree
+auto-android tap "Login"
 ```
 
 ### Cámara virtual (sin recompilar)
@@ -113,7 +131,7 @@ Si tu caso de uso es diferente, estas herramientas pueden ser mejor opción:
 
 | Caso | Herramienta | Por qué |
 |---|---|---|
-| Multi-plataforma (iOS + Android) | [Maestro](https://maestro.dev) | YAML, setup rápido, CLI elegante |
+| Multi-plataforma con YAML | [Maestro](https://maestro.dev) | YAML, setup rápido, CLI elegante |
 | Enterprise / equipo grande | [Appium](https://appium.io) | Estándar de industria, multi-lenguaje |
 | React Native | [Detox](https://wix.github.io/Detox/) | Sincronización con JS event loop |
 | Solo iOS, sin dependencias | [AXe](https://github.com/cameroncooke/AXe) | Similar a AutoPilot, usa APIs privadas |
