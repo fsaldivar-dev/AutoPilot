@@ -40,7 +40,7 @@ Documentamos todo el proceso — los errores, los callejones sin salida, las dec
 
 - **[Roadmap](../../ROADMAP.md)** — Fases futuras (Android, web, recorder)
 - **[Bitacora](../camera/BITACORA.md)** — Diario de laboratorio crudo (cada sesion, cada intento)
-- **[Android backend](../android/README.md)** — AdbBridge, UIAutomatorParser, comandos implementados
+- **[Android backend](../android/README.md)** — AgentBridge, agente nativo, comandos implementados
 
 ---
 

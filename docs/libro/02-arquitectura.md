@@ -187,7 +187,7 @@ public protocol DeviceBridge {
 }
 ```
 
-`SimulatorBridge` implementa este protocolo usando las 4 capas de macOS. `AdbBridge` lo implementa usando `adb shell` commands. El `CommandDispatcher` compartido no sabe — ni le importa — qué plataforma hay debajo.
+`SimulatorBridge` implementa este protocolo usando las 4 capas de macOS. `AgentBridge` lo implementa hablando via socket con un agente nativo en el dispositivo Android (ver [Capítulo 9](09-el-agente-android.md)). El `CommandDispatcher` compartido no sabe — ni le importa — qué plataforma hay debajo.
 
 ```mermaid
 graph TB
@@ -202,8 +202,7 @@ graph TB
     end
 
     subgraph Android["AutoCore"]
-        ADB_B[AdbBridge<br/>adb shell + uiautomator]
-        UIA[UIAutomatorParser<br/>XML → tree]
+        ADB_B[AgentBridge<br/>socket → agente nativo]
     end
 
     subgraph Binarios["Binarios"]
@@ -213,7 +212,6 @@ graph TB
 
     SIM -->|implementa| PROTO
     ADB_B -->|implementa| PROTO
-    ADB_B --> UIA
     DISP --> PROTO
     AUTO --> DISP
     AUTO --> SIM

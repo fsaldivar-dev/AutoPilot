@@ -292,13 +292,13 @@ Lo que perdemos:
 
 ```
 cli/Sources/
-├── AutoCore/       ← DeviceBridge, AdbBridge, CommandDispatcher, ScriptParser
+├── AutoCore/       ← DeviceBridge, AgentBridge, AdbLegacyBridge, CommandDispatcher
 ├── AutoLibiOS/     ← SimulatorBridge, ElementIndex, TargetResolver, AXDebug
 ├── CLI/            ← binario `auto` (importa AutoCore + AutoLibiOS)
 └── CLIAndroid/     ← binario `auto-android` (importa solo AutoCore)
 ```
 
-La clave fue que `AdbBridge` no necesita ningún framework de macOS — solo `Foundation` + `Process()` para ejecutar `adb`. Vive en `AutoCore` junto con el protocolo, el parser de scripts, el config, y el `CommandDispatcher` que maneja los ~20 comandos genéricos (tap, tree, swipe, screenshot, etc.).
+La clave fue que el bridge Android no necesita ningún framework de macOS — solo `Foundation` + sockets TCP. `AgentBridge` habla con un agente nativo en el dispositivo via `LocalServerSocket`. El viejo `AdbLegacyBridge` (que forkeaba `adb` por cada comando) se archivó para benchmarks. Ambos viven en `AutoCore`.
 
 Cada `main.swift` maneja sus comandos específicos de plataforma (iOS: ping, faceid, camera, build, inject, inspect; Android: ping con info de device) y delega el resto al dispatcher compartido.
 
@@ -313,7 +313,7 @@ Lo que ganamos:
 Lo que perdemos:
 - Dos binarios significan dos instalaciones. El usuario necesita saber cuál usar. No hay auto-detección.
 - Algunos comandos iOS (tap con `$N` index, tap con `[N]` occurrence) no están en el protocolo — son extensiones que usan `AXUIElement` directamente. Android no tiene equivalente todavía.
-- `uiautomator dump` es lento (~2s). Cada `tap(target:)` en Android requiere un dump completo del árbol. iOS hace búsqueda en tiempo real via `AXUIElement`. La diferencia de latencia es notable: ~90ms iOS vs ~2100ms Android.
+- La primera implementación Android usaba `uiautomator dump` (~2s por tap). Esto se resolvió con el agente nativo (ver [Capítulo 9](09-el-agente-android.md)) — ahora un tap toma ~150ms, comparable con iOS (~90ms).
 
 ---
 
