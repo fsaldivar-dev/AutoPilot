@@ -1,0 +1,18 @@
+# Benchmark: Biometric flow
+# AutoPilot tiene comandos nativos para biometric
+# Maestro necesita shell out a xcrun simctl
+
+ping
+biometric unenroll
+wait 1
+biometric enroll
+wait 1
+terminate dev.autopilot.test.Explorea
+wait 1
+launch dev.autopilot.test.Explorea
+wait 1
+waitFor "Desbloquear con biometría" 10
+wait 3
+tap "Desbloquear con biometría"
+wait 1
+biometric match

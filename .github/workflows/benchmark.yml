@@ -1,0 +1,137 @@
+name: Benchmark
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  benchmark:
+    runs-on: macos-15
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      # ── Cache: Swift build ───────────────────────────
+      - name: Cache Swift build
+        uses: actions/cache@v4
+        with:
+          path: cli/.build
+          key: swift-${{ hashFiles('cli/Sources/**/*.swift', 'cli/Package.swift') }}
+          restore-keys: swift-
+
+      # ── Cache: Maestro ───────────────────────────────
+      - name: Cache Maestro
+        uses: actions/cache@v4
+        id: maestro-cache
+        with:
+          path: ~/.maestro
+          key: maestro-v1
+
+      # ── Java 17 (Maestro necesita JVM) ───────────────
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      # ── Install Maestro ──────────────────────────────
+      - name: Install Maestro
+        if: steps.maestro-cache.outputs.cache-hit != 'true'
+        run: curl -Ls "https://get.maestro.mobile.dev" | bash
+
+      - name: Verify Maestro
+        run: |
+          export PATH="$HOME/.maestro/bin:$PATH"
+          maestro --version
+
+      # ── Build CLI + Boot Simulator (paralelo) ────────
+      - name: Build CLI + Boot Simulator
+        run: |
+          # Build en background
+          (cd cli && swift build -c release && cp .build/release/auto ../auto) &
+          BUILD_PID=$!
+
+          # Boot simulator mientras compila
+          DEVICE_UDID=$(xcrun simctl list devices available -j | python3 -c "
+          import json, sys
+          data = json.loads(sys.stdin.read())
+          for runtime, devices in data['devices'].items():
+            if 'iOS' in runtime:
+              for d in devices:
+                if d['isAvailable'] and 'iPhone' in d['name']:
+                  print(d['udid'])
+                  sys.exit(0)
+          sys.exit(1)
+          ")
+          xcrun simctl boot "$DEVICE_UDID" 2>/dev/null || true
+          echo "DEVICE_UDID=$DEVICE_UDID" >> $GITHUB_ENV
+          open -a Simulator &
+
+          # Esperar ambos
+          wait $BUILD_PID
+          xcrun simctl bootstatus "$DEVICE_UDID"
+          ./auto ping
+
+      # ── Build + Install test app ─────────────────────
+      - name: Cache Test App
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Developer/Xcode/DerivedData/Test_Automatitacion*
+          key: test-app-${{ hashFiles('Demo/iOS/Test Automatitacion/**') }}
+          restore-keys: test-app-
+
+      - name: Build Test Automatitacion
+        run: |
+          ./auto build \
+            -project "Demo/iOS/Test Automatitacion/Test Automatitacion.xcodeproj" \
+            -scheme "Test Automatitacion" \
+            -sdk iphonesimulator \
+            -destination "id=$DEVICE_UDID"
+
+      - name: Install Test App
+        run: |
+          APP=$(find ~/Library/Developer/Xcode/DerivedData \
+            -path '*/Test_Automatitacion*/Build/Products/Debug-iphonesimulator/*.app' \
+            -maxdepth 5 | head -1)
+          if [ -z "$APP" ]; then
+            echo "ERROR: App not found in DerivedData"
+            exit 1
+          fi
+          xcrun simctl install booted "$APP"
+
+      # ── Run benchmarks ───────────────────────────────
+      - name: Run benchmarks
+        run: |
+          export PATH="$HOME/.maestro/bin:$PATH"
+          scripts/benchmarks/run-benchmark.sh
+        env:
+          AUTOPILOT_BIN: ./auto
+          MAESTRO_BIN: maestro
+          RESULTS_DIR: benchmark-results
+
+      # ── Generate report ──────────────────────────────
+      - name: Generate report
+        if: always()
+        run: scripts/benchmarks/generate-report.sh
+        env:
+          RESULTS_DIR: benchmark-results
+
+      # ── Post to job summary ──────────────────────────
+      - name: Post summary
+        if: always()
+        run: |
+          if [ -f benchmark-results/benchmark-report.md ]; then
+            cat benchmark-results/benchmark-report.md >> $GITHUB_STEP_SUMMARY
+          fi
+
+      # ── Upload artifacts ─────────────────────────────
+      - name: Upload benchmark results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: benchmark-results
+          path: |
+            benchmark-results/all-results.jsonl
+            benchmark-results/benchmark-report.md
+            benchmark-results/summary.json

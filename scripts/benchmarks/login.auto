@@ -1,0 +1,14 @@
+# Benchmark: Login + navegacion
+# Interaccion UI pura — terreno natural de Maestro
+
+launch dev.autopilot.test.Explorea
+waitFor "Explorea" 10
+tap "Desbloquear con código"
+waitFor "Ingresa tu código" 5
+tap "1"
+tap "2"
+tap "3"
+tap "4"
+waitFor "Inicio" 5
+tap "Aventura"
+swipe up
