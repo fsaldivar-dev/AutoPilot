@@ -82,30 +82,74 @@ Si una pantalla tiene dos elementos "Camera", `auto tap "Camera"` tapea el prime
 
 ```
 editor/
+├── setup.sh                # Instala dependencias + compila CLI
 ├── src/                    # Frontend React
-│   ├── App.tsx             # Layout principal
-│   ├── Inspector.tsx       # Preview + Tree
-│   ├── Terminal.tsx         # Output + controles
-│   └── theme.ts            # Tema AutoPilot (Tokyo Night)
+│   ├── App.tsx             # Layout + toggle plataforma + Play/Stop
+│   ├── App.css             # Tema AutoPilot (Tokyo Night)
+│   └── Inspector.tsx       # Preview + Tree
 ├── src-tauri/              # Backend Rust
 │   └── src/
-│       └── main.rs         # Comandos invoke()
-│           ├── run_auto    # Ejecuta CLI, streaming de output
-│           ├── get_ax_tree # Arbol de accesibilidad en JSON
-│           └── inspect     # Atributos de un elemento
+│       └── lib.rs          # Comandos invoke()
+│           ├── run_auto(args, platform)    # Ejecuta auto o auto-android
+│           ├── get_ax_tree(platform)       # Arbol de accesibilidad
+│           ├── get_element_index(platform) # Indices $N (iOS only)
+│           ├── inspect(platform)           # Screenshot + tree + index
+│           └── open_screenshots            # Abrir carpeta de capturas
 ```
 
-El frontend usa `invoke()` de Tauri para llamar al backend Rust. El backend ejecuta el binario `auto` como subproceso y parsea su output. No hay servidor HTTP ni WebSocket — la comúnicación es via IPC de Tauri.
+El frontend usa `invoke()` de Tauri para llamar al backend Rust, pasando `platform` ("ios" o "android") en cada llamada. El backend elige el binario correcto (`auto` o `auto-android`), lo ejecuta como subproceso, y parsea su output. No hay servidor HTTP ni WebSocket — la comunicación es via IPC de Tauri.
+
+## Soporte Android
+
+Cuando agregamos el backend Android (`AdbBridge`), el editor necesitaba hablar con dos binarios distintos: `auto` para iOS y `auto-android` para Android. La solución fue un toggle de plataforma en el toolbar.
+
+### Toggle iOS / Android
+
+Un par de botones en la barra superior permite cambiar entre plataformas. El estado `platform` se propaga a todas las llamadas `invoke()` — el backend Rust recibe `"ios"` o `"android"` y elige el binario correcto.
+
+```
+┌──────────────────────────────────────────────────────────────┐
+│  AutoPilot  │ script.auto          [iOS] [Android]  Inspect  Play │
+└──────────────────────────────────────────────────────────────┘
+```
+
+En Rust, `auto_binary(platform)` busca el binario en varias ubicaciones: junto al editor, en la raíz del proyecto, en `cli/.build/debug/`, o en el PATH. Esto resuelve un problema real: el editor corre desde `editor/src-tauri/` pero los binarios viven en la raíz del proyecto.
+
+### Diferencias entre plataformas en el editor
+
+| Aspecto | iOS | Android |
+|---|---|---|
+| Binario | `auto` | `auto-android` |
+| Play/tap/tree | Funciona | Funciona |
+| Inspector screenshot | Funciona | Funciona (lento, ~2s por dump) |
+| Element index ($N) | Funciona | No disponible (devuelve vacío) |
+| Auto-wait (AXObserver) | Funciona | No disponible |
+
+### Limitaciones actuales
+
+El inspector en Android es notablemente más lento que en iOS. Cada `uiautomator dump` toma ~2 segundos, y el inspector hace tres llamadas secuenciales (screenshot + tree + index). En total son ~6 segundos que bloquean la UI. La solución correcta seria hacer las llamadas en paralelo y agregar un indicador de carga, pero eso es trabajo pendiente.
+
+### Setup
+
+El editor necesita Rust, Node, y los binarios compilados. Para evitar que cada desarrollador tenga que resolver dependencias manualmente, creamos `editor/setup.sh`:
+
+```bash
+cd editor && ./setup.sh
+```
+
+El script detecta qué falta (Node, Rust, Swift, ADB), instala lo necesario (Rust via `rustup` automaticamente), instala dependencias npm, y compila ambos binarios CLI. Después de correrlo, `npm run tauri dev` funciona sin configuración adicional.
 
 ## Qué aprendimos
 
-1. **Monaco es absurdamente bueno.** Syntax highlighting, autocomplete con snippets, themes, multi-cursor — todo funcióna out of the box. Implementar algo comparable en SwiftUI habria tomado meses.
+1. **Monaco es absurdamente bueno.** Syntax highlighting, autocomplete con snippets, themes, multi-cursor — todo funciona out of the box. Implementar algo comparable en SwiftUI habría tomado meses.
 
 2. **AXObserver es la clave del auto-wait.** Registrar un observer en el Simulador y esperar a que deje de emitir eventos es mucho más robusto que `sleep` o polling con `waitFor`.
 
 3. **El inspector cambia la forma de escribir scripts.** Ver los elementos en tiempo real con sus labels y coordenadas elimina el ciclo de prueba-y-error que teníamos con el CLI puro.
 
-4. **Tauri + React es un sweet spot.** El bundle es chico, el hot reload funcióna, y el backend en Rust tiene performance nativo sin la complejidad de una app SwiftUI completa.
+4. **Tauri + React es un sweet spot.** El bundle es chico, el hot reload funciona, y el backend en Rust tiene performance nativo sin la complejidad de una app SwiftUI completa.
+
+5. **El path del binario es más complejo de lo que parece.** En dev el editor corre desde `editor/src-tauri/`, en release desde el `.app` bundle. El binario puede estar en la raíz del proyecto, en `.build/debug/`, o en `/usr/local/bin/`. Tuvimos que buscar en 7 ubicaciones diferentes para cubrir todos los casos.
 
 ---
 
