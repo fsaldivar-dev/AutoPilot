@@ -99,6 +99,7 @@ Esto permite que `TreePrinter.printAX()` y `CommandDispatcher` funcionen identic
 | Entrada | CGEvent (kernel, ~50ms) | injectInputEvent (~1-3ms) |
 | Latencia total de tap | ~90ms | ~150ms (find + inject via socket) |
 | Permisos | TCC Accesibilidad | USB debugging habilitado |
+| Element index ($N) | `auto index` (CLI nativo) | `index_from_tree()` en Rust del editor ([ver cap. 5](../libro/05-el-editor.md#element-index-en-android)) |
 | Camera mock | DYLD_INSERT_LIBRARIES | No implementado aun |
 | Clipboard read | `simctl pbpaste` | No soportado via ADB |
 | Biometrico | AppleScript menus Face ID | `adb -e emu finger touch` (pendiente) |
