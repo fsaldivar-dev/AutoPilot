@@ -189,7 +189,7 @@ auto launch app --env AUTOPILOT_CAMERA_IMAGE=/path/to/image.jpg
 - `cli/Sources/AutoLib/BuildInterceptor.swift` — orquestador: compila .m, wrapea xcodebuild
 - `cli/Sources/CLI/main.swift` — case "build" agregado
 - `cli/Sources/AutoLib/SimulatorBridge.swift` — metodo buildWithCameraMock
-- `Demo/CameraTestApp/` — app tercera de prueba (AVFoundation puro)
+- `Demo/iOS/CameraTestApp/` — app tercera de prueba (AVFoundation puro)
 
 ### Resumen de archivos
 
@@ -197,7 +197,7 @@ auto launch app --env AUTOPILOT_CAMERA_IMAGE=/path/to/image.jpg
 |---|---|---|
 | `cli/Sources/AutoLib/MockHeaders.swift` | Swizzle ObjC embebido (~25 metodos) | **Funcional** |
 | `cli/Sources/AutoLib/BuildInterceptor.swift` | Compila .m, wrapea xcodebuild | **Funcional** |
-| `Demo/CameraTestApp/` | App tercera para validar mock | **Probada** |
+| `Demo/iOS/CameraTestApp/` | App tercera para validar mock | **Probada** |
 | `camera/CameraExtension/` | CMIOExtension Swift | Bloqueado por entitlement |
 | `camera/CameraInject/AutoPilotCamera.m` | Dylib ObjC swizzle | Parcial (descartado) |
 | `packages/AutoPilotAVFoundation/` | Package swizzle (requiere 1 linea en app) | Funcional, superado por auto build |
