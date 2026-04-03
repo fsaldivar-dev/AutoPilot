@@ -17,13 +17,11 @@
 
 ## Por qué existe
 
-Todas las herramientas de automatización iOS — Appium, Maestro, Detox — dependen de XCUITest por debajo. XCUITest requiere compilar un test target dentro de Xcode. Para hacer tap en un botón desde la terminal, necesitas un proyecto, un scheme, un build y un runner.
+Controlar un dispositivo iOS o Android desde la terminal no debería requerir servidores, test runners, ni dependencias pesadas. Pero las herramientas existentes — Appium, Maestro, Detox — agregan capas de complejidad entre tu comando y el dispositivo.
 
-Descubrimos que el Simulador iOS es una app de macOS que expone la UI de las apps iOS como elementos nativos de accesibilidad. Un `UIButton` con label "Login" aparece como `AXButton` con `kAXTitleAttribute = "Login"` en el árbol AX del Simulador.
+AutoPilot es un CLI que controla dispositivos y obtiene datos de la UI. Sin opinión sobre testing, assertions, o reportes — solo control directo.
 
-No necesitas XCUITest. Solo un binario Swift que hable con las APIs de accesibilidad de macOS.
-
-Y para Android, la misma idea: un binario que hable con `adb` y `uiautomator`. El mismo script `.auto` funciona en ambas plataformas.
+En iOS, habla con las APIs de accesibilidad de macOS. En Android, un agente nativo se comunica via socket con `UiAutomation` directa. El mismo script `.auto` funciona en ambas plataformas.
 
 ```bash
 # iOS
