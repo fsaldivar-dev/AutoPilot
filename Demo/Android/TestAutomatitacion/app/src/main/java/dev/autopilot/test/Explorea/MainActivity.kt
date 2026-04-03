@@ -7,7 +7,6 @@ import android.content.Context
 import android.content.pm.PackageManager
 import android.os.Bundle
 import android.widget.Toast
-import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
@@ -33,6 +32,9 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
@@ -239,8 +241,31 @@ fun formatDate(date: Date): String {
 // MainActivity
 // ─────────────────────────────────────────────────────
 class MainActivity : FragmentActivity() {
+    companion object {
+        private const val RC_CAMERA = 1001
+    }
+
+    var hasCameraPermission by mutableStateOf(false)
+        private set
+
+    fun requestCameraPermission() {
+        androidx.core.app.ActivityCompat.requestPermissions(
+            this, arrayOf(Manifest.permission.CAMERA), RC_CAMERA
+        )
+    }
+
+    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<out String>, grantResults: IntArray) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == RC_CAMERA && grantResults.isNotEmpty()) {
+            hasCameraPermission = grantResults[0] == PackageManager.PERMISSION_GRANTED
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        hasCameraPermission = ContextCompat.checkSelfPermission(
+            this, Manifest.permission.CAMERA
+        ) == PackageManager.PERMISSION_GRANTED
         enableEdgeToEdge()
         setContent {
             ExploreaApp()
@@ -530,6 +555,7 @@ fun MainScreen(appState: AppState) {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentRoute = navBackStackEntry?.destination?.route
+    val activity = LocalContext.current as MainActivity
 
     val tabs = listOf(Screen.Home, Screen.Capture, Screen.Map, Screen.Profile)
     val showBottomBar = currentRoute in tabs.map { it.route }
@@ -563,7 +589,11 @@ fun MainScreen(appState: AppState) {
             modifier = Modifier.padding(innerPadding)
         ) {
             composable("home") { HomeView(appState, navController) }
-            composable("capture") { CaptureView(appState) }
+            composable("capture") {
+                CaptureView(appState, activity.hasCameraPermission) {
+                    activity.requestCameraPermission()
+                }
+            }
             composable("map") { MapExploreView(appState) }
             composable("profile") {
                 ProfileView(appState) { appState.isAuthenticated = false }
@@ -1041,24 +1071,12 @@ fun CompactEntryCard(entry: JournalEntry, onTap: () -> Unit, onFavorite: () -> U
 // CaptureView
 // ─────────────────────────────────────────────────────
 @Composable
-fun CaptureView(appState: AppState) {
+fun CaptureView(appState: AppState, hasCameraPermission: Boolean, requestCameraPermission: () -> Unit) {
     var selectedTab by remember { mutableIntStateOf(0) }
-    val context = LocalContext.current
-    var hasCameraPermission by remember {
-        mutableStateOf(
-            ContextCompat.checkSelfPermission(
-                context,
-                Manifest.permission.CAMERA
-            ) == PackageManager.PERMISSION_GRANTED
-        )
-    }
-    val permissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { granted -> hasCameraPermission = granted }
 
     LaunchedEffect(Unit) {
         if (!hasCameraPermission) {
-            permissionLauncher.launch(Manifest.permission.CAMERA)
+            requestCameraPermission()
         }
         val mockQR = System.getProperty("AUTOPILOT_QR_CODE")
         if (!mockQR.isNullOrBlank()) {
@@ -1120,11 +1138,17 @@ fun CaptureView(appState: AppState) {
 @Composable
 fun PhotoCaptureView(hasCameraPermission: Boolean) {
     var flashOn by remember { mutableStateOf(false) }
+    var imageCapture by remember { mutableStateOf<androidx.camera.core.ImageCapture?>(null) }
+    val capturedPhotos = remember { mutableStateListOf<android.graphics.Bitmap>() }
+    val context = LocalContext.current
 
     Column(
-        modifier = Modifier.fillMaxSize(),
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState()),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
+        // Camera preview
         Box(
             modifier = Modifier
                 .fillMaxWidth()
@@ -1135,7 +1159,7 @@ fun PhotoCaptureView(hasCameraPermission: Boolean) {
             contentAlignment = Alignment.Center
         ) {
             if (hasCameraPermission) {
-                CameraPreview()
+                CameraPreview { imageCapture = it }
             } else {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     Icon(
@@ -1146,9 +1170,14 @@ fun PhotoCaptureView(hasCameraPermission: Boolean) {
                     )
                     Spacer(Modifier.height(8.dp))
                     Text(
-                        "Permiso de camara requerido",
+                        "Camara no disponible",
                         color = Color.White.copy(alpha = 0.5f),
                         fontSize = 14.sp
+                    )
+                    Text(
+                        "Otorga permiso en Ajustes",
+                        color = Color.White.copy(alpha = 0.3f),
+                        fontSize = 12.sp
                     )
                 }
             }
@@ -1156,59 +1185,92 @@ fun PhotoCaptureView(hasCameraPermission: Boolean) {
 
         Spacer(Modifier.height(24.dp))
 
+        // Camera controls with labels
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically
         ) {
-            IconButton(
-                onClick = { flashOn = !flashOn },
-                modifier = Modifier
-                    .size(48.dp)
-                    .clip(CircleShape)
-                    .background(Color(0xFFF0F0F0))
-            ) {
-                Icon(
-                    if (flashOn) Icons.Default.FlashOn else Icons.Default.FlashOff,
-                    contentDescription = "Flash",
-                    tint = if (flashOn) AppColors.Accent else AppColors.LightText
-                )
+            // Flash
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                IconButton(
+                    onClick = { flashOn = !flashOn },
+                    modifier = Modifier
+                        .size(52.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFFF0F0F0))
+                ) {
+                    Icon(
+                        if (flashOn) Icons.Default.FlashOn else Icons.Default.FlashOff,
+                        contentDescription = "Flash",
+                        tint = if (flashOn) AppColors.Accent else AppColors.LightText
+                    )
+                }
+                Spacer(Modifier.height(4.dp))
+                Text("Flash", fontSize = 11.sp, color = AppColors.LightText)
             }
 
-            Box(
-                modifier = Modifier
-                    .size(72.dp)
-                    .clip(CircleShape)
-                    .background(Brush.linearGradient(AppColors.HeaderGradient))
-                    .clickable { }
-                    .padding(4.dp),
-                contentAlignment = Alignment.Center
-            ) {
+            // Capture button
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
                 Box(
                     modifier = Modifier
-                        .fillMaxSize()
+                        .size(72.dp)
                         .clip(CircleShape)
-                        .border(3.dp, Color.White, CircleShape)
-                )
+                        .background(Brush.linearGradient(AppColors.HeaderGradient))
+                        .semantics { contentDescription = "Tomar foto" }
+                        .clickable {
+                            imageCapture?.takePicture(
+                                ContextCompat.getMainExecutor(context),
+                                object : androidx.camera.core.ImageCapture.OnImageCapturedCallback() {
+                                    override fun onCaptureSuccess(image: androidx.camera.core.ImageProxy) {
+                                        val buffer = image.planes[0].buffer
+                                        val bytes = ByteArray(buffer.remaining())
+                                        buffer.get(bytes)
+                                        val bmp = android.graphics.BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+                                        if (bmp != null) capturedPhotos.add(0, bmp)
+                                        image.close()
+                                    }
+                                    override fun onError(exception: androidx.camera.core.ImageCaptureException) {
+                                        android.util.Log.e("Explorea", "Capture failed", exception)
+                                    }
+                                }
+                            )
+                        }
+                        .padding(4.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        Icons.Default.CameraAlt,
+                        contentDescription = null,
+                        tint = Color.White,
+                        modifier = Modifier.size(28.dp)
+                    )
+                }
             }
 
-            IconButton(
-                onClick = { },
-                modifier = Modifier
-                    .size(48.dp)
-                    .clip(CircleShape)
-                    .background(Color(0xFFF0F0F0))
-            ) {
-                Icon(
-                    Icons.Default.FlipCameraAndroid,
-                    contentDescription = "Cambiar camara",
-                    tint = AppColors.DarkText
-                )
+            // Flip camera
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                IconButton(
+                    onClick = { },
+                    modifier = Modifier
+                        .size(52.dp)
+                        .clip(CircleShape)
+                        .background(Color(0xFFF0F0F0))
+                ) {
+                    Icon(
+                        Icons.Default.FlipCameraAndroid,
+                        contentDescription = "Voltear",
+                        tint = AppColors.DarkText
+                    )
+                }
+                Spacer(Modifier.height(4.dp))
+                Text("Voltear", fontSize = 11.sp, color = AppColors.LightText)
             }
         }
 
         Spacer(Modifier.height(16.dp))
 
+        // Gallery button
         OutlinedButton(
             onClick = { },
             shape = RoundedCornerShape(12.dp),
@@ -1216,14 +1278,58 @@ fun PhotoCaptureView(hasCameraPermission: Boolean) {
         ) {
             Icon(Icons.Default.PhotoLibrary, contentDescription = null, tint = AppColors.Primary)
             Spacer(Modifier.width(8.dp))
-            Text("Galeria", color = AppColors.Primary)
+            Text("Seleccionar de galeria", color = AppColors.Primary)
+        }
+
+        // Captured photos section
+        if (capturedPhotos.isNotEmpty()) {
+            Spacer(Modifier.height(20.dp))
+
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    "Fotos capturadas",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = AppColors.DarkText
+                )
+                Text(
+                    "${capturedPhotos.size} fotos",
+                    fontSize = 14.sp,
+                    color = AppColors.LightText
+                )
+            }
+
+            Spacer(Modifier.height(12.dp))
+
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = 16.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(capturedPhotos.size) { index ->
+                    androidx.compose.foundation.Image(
+                        bitmap = capturedPhotos[index].asImageBitmap(),
+                        contentDescription = "Foto ${index + 1}",
+                        modifier = Modifier
+                            .size(100.dp)
+                            .clip(RoundedCornerShape(12.dp)),
+                        contentScale = androidx.compose.ui.layout.ContentScale.Crop
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(16.dp))
         }
     }
 }
 
 @Composable
-fun CameraPreview() {
-    val context = LocalContext.current
+fun CameraPreview(onImageCaptureReady: (androidx.camera.core.ImageCapture) -> Unit) {
     val lifecycleOwner = LocalLifecycleOwner.current
 
     AndroidView(
@@ -1237,6 +1343,9 @@ fun CameraPreview() {
                     val preview = androidx.camera.core.Preview.Builder().build().also {
                         it.surfaceProvider = previewView.surfaceProvider
                     }
+                    val capture = androidx.camera.core.ImageCapture.Builder()
+                        .setCaptureMode(androidx.camera.core.ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+                        .build()
                     val cameraSelector =
                         androidx.camera.core.CameraSelector.DEFAULT_BACK_CAMERA
                     try {
@@ -1244,8 +1353,10 @@ fun CameraPreview() {
                         cameraProvider.bindToLifecycle(
                             lifecycleOwner,
                             cameraSelector,
-                            preview
+                            preview,
+                            capture
                         )
+                        onImageCaptureReady(capture)
                     } catch (_: Exception) {
                     }
                 }, ContextCompat.getMainExecutor(ctx))
