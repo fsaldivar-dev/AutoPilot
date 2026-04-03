@@ -1,10 +1,11 @@
 import Foundation
 import AutoCore
 
-let bridge = AdbBridge()
+let useLegacy = CommandLine.arguments.contains("--legacy")
+let bridge: any DeviceBridge = useLegacy ? AdbLegacyBridge() : AgentBridge()
 
 func run() throws {
-    let args = Array(CommandLine.arguments.dropFirst())
+    let args = Array(CommandLine.arguments.dropFirst().filter { $0 != "--legacy" })
 
     guard let cmd = args.first else {
         printUsage()
@@ -91,9 +92,10 @@ func executeCommand(_ args: [String]) throws {
 
 func printUsage() {
     print("""
-    AutoPilot Android — Android device automation via ADB
+    AutoPilot Android — Android device automation via native agent
 
     Usage: auto-android <command> [arguments]
+           auto-android --legacy <command>   (use slow adb bridge for benchmarks)
 
     Commands:
       ping                              Check ADB connection
@@ -131,9 +133,15 @@ func printUsage() {
       auto-android swipe down
       auto-android run test-flow.auto
 
+    Flags:
+      --legacy                          Use slow adb bridge (for benchmarks)
+
     Requirements:
       - ADB installed (ANDROID_HOME or in PATH)
       - Device/emulator connected (adb devices)
+      - AutoPilot agent installed (adb install agent.apk)
+      - Agent running (adb shell am instrument -w dev.autopilot.agent/.AgentInstrumentation)
+      - Socket forwarded (adb forward tcp:9008 localabstract:autopilot)
     """)
 }
 
