@@ -466,4 +466,22 @@ public final class AdbLegacyBridge: DeviceBridge {
     public func getPasteboard() throws -> String {
         throw BridgeError.adbFailed("Clipboard read not supported via ADB")
     }
+
+    // MARK: - DeviceBridge: Biometric (via adb emu)
+
+    public func biometricEnroll() throws {
+        throw BridgeError.adbFailed("Biometric enrollment requires Settings UI. Enroll manually:\n  adb shell am start -a android.settings.BIOMETRIC_ENROLL\n  adb -e emu finger touch 1  (repeat 10-15 times)")
+    }
+
+    public func biometricMatch() throws {
+        try runAdb(["-e", "emu", "finger", "touch", "1"])
+    }
+
+    public func biometricFail() throws {
+        try runAdb(["-e", "emu", "finger", "touch", "0"])
+    }
+
+    public func biometricIsEnrolled() throws -> Bool {
+        return true
+    }
 }

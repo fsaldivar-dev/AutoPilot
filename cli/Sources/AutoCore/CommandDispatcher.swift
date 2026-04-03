@@ -285,6 +285,33 @@ public func executeSharedCommand(_ args: [String], bridge: any DeviceBridge) thr
         AutoPilotConfig.set(key, value: value)
         print("Set \(key) = \(value)")
 
+    case "biometric", "faceid":
+        guard args.count >= 2 else {
+            print("Usage: auto biometric <enroll|match|fail|status>")
+            return true
+        }
+        let ms: Int
+        switch args[1] {
+        case "enroll":
+            try bridge.biometricEnroll()
+            ms = elapsedMs(start)
+            print("Biometric enrollment toggled (\(ms)ms)")
+        case "match":
+            try bridge.biometricMatch()
+            ms = elapsedMs(start)
+            print("Biometric match sent (\(ms)ms)")
+        case "fail":
+            try bridge.biometricFail()
+            ms = elapsedMs(start)
+            print("Biometric non-match sent (\(ms)ms)")
+        case "status":
+            let enrolled = try bridge.biometricIsEnrolled()
+            ms = elapsedMs(start)
+            print("Enrolled: \(enrolled ? "YES" : "NO") (\(ms)ms)")
+        default:
+            print("Unknown: \(args[1]). Use enroll/match/fail/status")
+        }
+
     default:
         return false
     }

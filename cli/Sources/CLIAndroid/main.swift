@@ -114,6 +114,7 @@ func printUsage() {
       install <path/to/app.apk>        Install APK
       elementAt <x> <y>                 Element at coordinate
       screenshot [filename.png]         Screenshot
+      biometric <enroll|match|fail|status> Biometric control
       terminate <package>               Kill app
       config                            Show all config
       config <key> <value>              Set config value
@@ -123,7 +124,7 @@ func printUsage() {
       # Comments start with #
       launch shajaru.Test_Automatitacion
       waitFor "Explorea"
-      tap "Desbloquear con biometrico"
+      tap "Desbloquear con biometría"
       screenshot result.png
 
     Examples:

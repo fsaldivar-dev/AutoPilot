@@ -41,4 +41,11 @@ public protocol DeviceBridge {
     func openURL(_ url: String) throws
     func setPasteboard(text: String) throws
     func getPasteboard() throws -> String
+
+    // MARK: - Biometric
+
+    func biometricEnroll() throws
+    func biometricMatch() throws
+    func biometricFail() throws
+    func biometricIsEnrolled() throws -> Bool
 }
