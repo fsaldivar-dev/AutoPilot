@@ -48,8 +48,8 @@ jobs:
       # ── Build CLI + Boot Simulator (paralelo) ────────
       - name: Build CLI + Boot Simulator
         run: |
-          # Build en background
-          (cd cli && swift build -c release && cp .build/release/auto ../auto) &
+          # Build en background — guardar output para debugging
+          (cd cli && swift build -c release && cp .build/release/auto ../auto) > /tmp/swift-build.log 2>&1 &
           BUILD_PID=$!
 
           # Boot simulator — necesita iOS 26+ (deployment target de Test Automatitacion)
@@ -73,6 +73,9 @@ jobs:
           if best:
             print(best)
           else:
+            print('ERROR: No iOS 26+ simulator found. Available:', file=sys.stderr)
+            for runtime in data['devices']:
+              print(f'  {runtime}: {len(data[\"devices\"][runtime])} devices', file=sys.stderr)
             sys.exit(1)
           ")
           xcrun simctl boot "$DEVICE_UDID" 2>/dev/null || true
@@ -81,6 +84,12 @@ jobs:
 
           # Esperar ambos
           wait $BUILD_PID
+          BUILD_EXIT=$?
+          if [ $BUILD_EXIT -ne 0 ]; then
+            echo "Swift build failed (exit $BUILD_EXIT):"
+            cat /tmp/swift-build.log
+            exit $BUILD_EXIT
+          fi
           xcrun simctl bootstatus "$DEVICE_UDID"
           ./auto ping
 
@@ -124,7 +133,12 @@ jobs:
       # ── Generate report ──────────────────────────────
       - name: Generate report
         if: always()
-        run: scripts/benchmarks/generate-report.sh
+        run: |
+          if [ -d "$RESULTS_DIR" ]; then
+            scripts/benchmarks/generate-report.sh
+          else
+            echo "No benchmark results found (build may have failed)"
+          fi
         env:
           RESULTS_DIR: benchmark-results
 
