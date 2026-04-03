@@ -161,7 +161,69 @@ Terminal
     └─ Capa 4 (AppleScript): click menu item "Matching Face" of menu "Face ID"...
 ```
 
-La documentación técnica completa con diagramas Mermaid de cada flujo esta en [docs/ios/ARQUITECTURA.md](../ios/ARQUITECTURA.md).
+La documentación técnica completa con diagramas Mermaid de cada flujo está en [docs/ios/ARQUITECTURA.md](../ios/ARQUITECTURA.md).
+
+---
+
+## Más allá de iOS: DeviceBridge
+
+Todo lo descrito hasta aquí es específico de iOS — AXUIElement, CGEvent, simctl, AppleScript. Pero la *interfaz* de automatización es genérica: necesitas leer la UI, hacer tap, escribir texto, tomar screenshots, lanzar apps. Cualquier plataforma tiene esas operaciones, solo que con APIs diferentes.
+
+En abril 2026 extrajimos esa interfaz en un protocolo Swift llamado `DeviceBridge`:
+
+```swift
+public protocol DeviceBridge {
+    func tree() throws -> [[String: Any]]
+    func tap(target: String) throws
+    func typeText(_ text: String) throws
+    func swipe(direction: String) throws
+    func screenshot(path: String) throws
+    func launchApp(bundleId: String, envVars: [String: String]) throws
+    // ... 22 métodos en total
+}
+```
+
+`SimulatorBridge` implementa este protocolo usando las 4 capas de macOS. `AdbBridge` lo implementa usando `adb shell` commands. El `CommandDispatcher` compartido no sabe — ni le importa — qué plataforma hay debajo.
+
+```mermaid
+graph TB
+    subgraph Shared["AutoCore (compartido)"]
+        PROTO[DeviceBridge<br/>protocolo 22 métodos]
+        DISP[CommandDispatcher<br/>tap, tree, swipe, etc.]
+        PARSER_SCRIPT[ScriptParser<br/>archivos .auto]
+    end
+
+    subgraph iOS["AutoLibiOS"]
+        SIM[SimulatorBridge<br/>AXUIElement + CGEvent + simctl]
+    end
+
+    subgraph Android["AutoCore"]
+        ADB_B[AdbBridge<br/>adb shell + uiautomator]
+        UIA[UIAutomatorParser<br/>XML → tree]
+    end
+
+    subgraph Binarios["Binarios"]
+        AUTO["auto (iOS)"]
+        AUTO_A["auto-android"]
+    end
+
+    SIM -->|implementa| PROTO
+    ADB_B -->|implementa| PROTO
+    ADB_B --> UIA
+    DISP --> PROTO
+    AUTO --> DISP
+    AUTO --> SIM
+    AUTO_A --> DISP
+    AUTO_A --> ADB_B
+    PARSER_SCRIPT --> DISP
+
+    style Shared fill:#4ECDC4,color:#000
+    style iOS fill:#007AFF,color:#fff
+    style Android fill:#3DDC84,color:#000
+    style Binarios fill:#333,color:#fff
+```
+
+La decisión de dos binarios separados (en lugar de un flag `--platform`) se documenta en [ADR 8](07-decisiones.md#adr-8-dos-binarios--protocolo-devicebridge). La arquitectura Android se detalla en [docs/android/README.md](../android/README.md).
 
 ---
 
