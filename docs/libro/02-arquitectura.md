@@ -1,10 +1,14 @@
 # Capítulo 2 — Arquitectura
 
-## Cuatro capas, cero dependencias
+## Arquitectura agnóstica, backends específicos
+
+AutoPilot controla dispositivos iOS y Android con la misma interfaz (`DeviceBridge`, 22 métodos). Cada plataforma tiene su propio backend — iOS usa APIs de macOS, Android usa un agente nativo con UiAutomation directa (ver [Capítulo 9](09-el-agente-android.md)). Lo que sigue es el detalle del backend iOS.
+
+## iOS: Cuatro capas, cero dependencias
 
 Una vez que entiendes que el Simulador iOS es una app de macOS con accesibilidad expuesta, la arquitectura se vuelve obvia. No necesitas inventar nada — solo necesitas hablar con macOS en su propio idioma.
 
-AutoPilot se construye sobre 4 APIs de macOS. Cada una resuelve un problema distinto:
+El backend iOS se construye sobre 4 APIs de macOS. Cada una resuelve un problema distinto:
 
 | Capa | API | Qué resuelve | Ejemplo |
 |---|---|---|---|
