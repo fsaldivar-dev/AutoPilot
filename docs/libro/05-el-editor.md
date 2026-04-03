@@ -92,7 +92,7 @@ editor/
 │       └── lib.rs          # Comandos invoke()
 │           ├── run_auto(args, platform)    # Ejecuta auto o auto-android
 │           ├── get_ax_tree(platform)       # Arbol de accesibilidad
-│           ├── get_element_index(platform) # Indices $N (iOS only)
+│           ├── get_element_index(platform) # Indices $N (iOS y Android)
 │           ├── inspect(platform)           # Screenshot + tree + index
 │           └── open_screenshots            # Abrir carpeta de capturas
 ```
@@ -122,8 +122,12 @@ En Rust, `auto_binary(platform)` busca el binario en varias ubicaciones: junto a
 | Binario | `auto` | `auto-android` |
 | Play/tap/tree | Funciona | Funciona |
 | Inspector screenshot | Funciona | Funciona (via adb screencap) |
-| Element index ($N) | Funciona | No disponible (devuelve vacío) |
+| Element index ($N) | Funciona | Funciona (via `index_from_tree` en Rust) |
 | Auto-wait (AXObserver) | Funciona | No disponible |
+
+### Element index en Android
+
+En iOS, el element index (`$N`) se genera desde `auto index` en el CLI. En Android no existia un equivalente — `get_element_index` devolvia `[]`. La solucion fue `index_from_tree()` en el backend Rust del editor: genera los indices `$N` directamente desde el arbol de accesibilidad. Resuelve nodos genericos ("View" en Compose) usando el texto de sus hijos, y omite contenedores puros (FrameLayout, LinearLayout en profundidad 0-1) que no aportan informacion util. Tanto `get_element_index` como `inspect` ahora generan el indice para Android.
 
 ### Limitaciones actuales
 

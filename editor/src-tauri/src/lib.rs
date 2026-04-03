@@ -140,6 +140,48 @@ fn parse_tree_output(stdout: &str) -> (Vec<Value>, Vec<String>) {
     (elements, labels)
 }
 
+/// Build indexed element list from parsed tree elements.
+/// For Android: resolves generic "View" nodes by looking at their child text.
+fn index_from_tree(elements: &[Value]) -> Vec<Value> {
+    let mut indexed: Vec<Value> = Vec::new();
+    let mut idx: i64 = 0;
+
+    for el in elements {
+        let role = el["role"].as_str().unwrap_or("");
+        let label = el["label"].as_str().unwrap_or("");
+        let frame = el["frame"].as_str().unwrap_or("");
+        let depth = el["depth"].as_i64().unwrap_or(0);
+
+        // Skip pure containers with no useful info at depth 0-1
+        if depth <= 1 && label.is_empty() && matches!(role, "FrameLayout" | "LinearLayout") {
+            continue;
+        }
+
+        // For "View" or "Button" without a label, look at sibling/neighbor context
+        // The display field already has the best label from parse_tree_output
+        let display = el["display"].as_str().unwrap_or("");
+
+        let effective_label = if !label.is_empty() {
+            label.to_string()
+        } else if !display.is_empty() && display != role {
+            display.to_string()
+        } else {
+            // Skip elements with no useful identifier
+            continue;
+        };
+
+        indexed.push(serde_json::json!({
+            "index": idx,
+            "role": role,
+            "label": effective_label,
+            "frame": frame,
+        }));
+        idx += 1;
+    }
+
+    indexed
+}
+
 #[tauri::command]
 fn get_ax_tree(platform: Option<String>) -> Result<Value, String> {
     let plat = platform.as_deref().unwrap_or("ios");
@@ -157,8 +199,13 @@ fn get_ax_tree(platform: Option<String>) -> Result<Value, String> {
 #[tauri::command]
 fn get_element_index(platform: Option<String>) -> Result<Value, String> {
     let plat = platform.as_deref().unwrap_or("ios");
+
     if plat == "android" {
-        return Ok(serde_json::json!({ "elements": [] }));
+        // Generate index from tree — flatten elements and resolve generic Views
+        let bin = auto_binary(plat);
+        let stdout = run_cli(&bin, &["tree"]).unwrap_or_default();
+        let (elements, _) = parse_tree_output(&stdout);
+        return Ok(serde_json::json!({ "elements": index_from_tree(&elements) }));
     }
 
     let bin = auto_binary(plat);
@@ -261,19 +308,19 @@ fn inspect(platform: Option<String>) -> Result<Value, String> {
         Ok(parse_tree_output(&stdout))
     });
 
-    // Index (skip for Android)
-    let index_elements = if plat == "android" {
-        Vec::new()
-    } else {
-        let index_result = get_element_index(Some(plat.to_string()))?;
-        index_result["elements"].as_array().cloned().unwrap_or_default()
-    };
-
     // Collect results
     let image_b64 = screenshot_thread.join().unwrap_or_default();
     let (elements, labels) = tree_thread.join()
         .map_err(|_| "Tree thread panicked".to_string())?
         .map_err(|e| format!("Tree failed: {}", e))?;
+
+    // Index: for Android, generate from tree; for iOS, call `auto index`
+    let index_elements = if plat == "android" {
+        index_from_tree(&elements)
+    } else {
+        let index_result = get_element_index(Some(plat.to_string()))?;
+        index_result["elements"].as_array().cloned().unwrap_or_default()
+    };
 
     Ok(serde_json::json!({
         "screenshot": format!("data:image/png;base64,{}", image_b64),
