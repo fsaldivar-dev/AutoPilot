@@ -1,6 +1,8 @@
-# Android — Backend via ADB
+# Android — Backend via ADB + Agente nativo
 
-> Implementado en abril 2026. El binario `auto-android` controla dispositivos Android via ADB con el mismo protocolo `DeviceBridge` que iOS.
+> Implementado en abril 2026. El binario `auto-android` controla dispositivos Android. La v1 usaba `adb shell` commands (lento, ~2s por tap). La v2 usa un **agente nativo** — un APK de instrumentación con `LocalServerSocket` + `UiAutomation` directa (~75-171ms por tap).
+>
+> Ver [Capítulo 9 — El agente Android](../libro/09-el-agente-android.md) para la investigación completa.
 
 ## Arquitectura
 

@@ -1,8 +1,8 @@
 # Capítulo 1 — El problema
 
-## La automatización iOS está rota
+## Controlar un dispositivo desde la terminal no debería ser tan difícil
 
-Hay una pregunta que parece simple: ¿cómo hago tap en un botón del Simulador iOS desde la terminal?
+Hay una pregunta que parece simple: ¿cómo hago tap en un botón de un dispositivo iOS o Android desde la terminal?
 
 La respuesta oficial de Apple es XCUITest. Escribes un test target en Swift, lo compilas junto con tu app, Xcode lanza el runner, el runner se conecta al Simulador, y ahí sí — puedes hacer tap. Para una acción de 89 milisegundos, necesitas un proyecto de Xcode, un scheme de test, un build completo y un runner que compile cada vez que quieras ejecutar.
 
@@ -56,9 +56,9 @@ Un binario Swift de 311KB.
 
 ## Lo que decidimos construir
 
-No una herramienta de testing. No un framework. No un producto.
+No un framework de testing. No un producto. No una herramienta con opinión sobre assertions o reportes.
 
-Un experimento: ¿hasta donde puedes llegar controlando el Simulador iOS *exclusivamente* desde macOS, sin tocar nada dentro del Simulador?
+Un CLI de control de dispositivos: controlar la UI, obtener datos, tiempos cortos, capacidad de integración. Empezamos con iOS porque era el más difícil. Android siguió con el mismo diseño.
 
 La respuesta nos sorprendió. Pudimos:
 - Leer el árbol completo de UI de cualquier app
@@ -69,7 +69,7 @@ La respuesta nos sorprendió. Pudimos:
 - Manipular el portapapeles
 - Y lo más inesperado: **inyectar un mock de cámara en cualquier app sin recompilar**, algo que ningúna otra herramienta del mercado ofrece
 
-Cada una de estas capacidades trajo descubrimientos, tropiezos y decisiones de diseño que documentamos en detalle. La cámara virtual en particular requirió **10 intentos** antes de encontrar un enfoque que funciónara — desde CMIOExtension (bloqueado por Apple) hasta dylib injection via `DYLD_INSERT_LIBRARIES` (que nadie usa en herramientas de testing).
+Cada una de estas capacidades trajo descubrimientos, tropiezos y decisiones de diseño que documentamos en detalle. La cámara virtual en particular requirió **10 intentos** antes de encontrar un enfoque que funciónara — desde CMIOExtension (bloqueado por Apple) hasta dylib injection via `DYLD_INSERT_LIBRARIES` (que nadie usa en automatización).
 
 Este libro documenta todo el proceso: los errores, los callejones sin salida, las decisiones y sus razones. No para vender AutoPilot — para que cualquier ingeniero que se enfrente a problemas similares tenga un punto de partida.
 
@@ -79,7 +79,7 @@ Este libro documenta todo el proceso: los errores, los callejones sin salida, la
 |---|---|
 | [02 — Arquitectura](02-arquitectura.md) | Las 4 capas técnicas: AXUIElement, CGEvent, simctl, AppleScript |
 | [03 — La cámara virtual](03-la-camara-virtual.md) | 10 intentos, 9 fracasos, y lo que aprendimos de cada uno |
-| [04 — Inyección sin recompilar](04-inyeccion-sin-recompilar.md) | DYLD_INSERT_LIBRARIES en testing — un enfoque que nadie más usa |
+| [04 — Inyección sin recompilar](04-inyeccion-sin-recompilar.md) | DYLD_INSERT_LIBRARIES como inyección de código — un enfoque que nadie más usa |
 | [05 — El editor](05-el-editor.md) | De CLI a IDE visual con Tauri + Monaco |
 | [06 — Alternativas](06-alternativas.md) | Maestro, Appium, AXe, XCUITest, idb — que hacen bien y por qué elegimos otro camino |
 | [07 — Decisiones](07-decisiones.md) | Por qué Swift puro, por qué AX públicas, por qué no YAML |
