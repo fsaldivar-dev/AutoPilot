@@ -69,6 +69,7 @@ function App() {
   const [indexed, setIndexed] = useState<any[]>([]);
   const [screenshot, setScreenshot] = useState("");
   const [showTree, setShowTree] = useState(false);
+  const [platform, setPlatform] = useState<"ios" | "android">("ios");
   const editorRef = useRef<any>(null);
   const abortRef = useRef(false);
   const indexedRef = useRef<any[]>([]);
@@ -80,7 +81,6 @@ function App() {
 
   const insertToEditor = useCallback((text: string) => {
     setScript((prev) => prev.trimEnd() + "\n" + text + "\n");
-    setSelectedElement(null);
   }, []);
 
   const runScript = useCallback(async () => {
@@ -98,7 +98,7 @@ function App() {
       appendOutput(`[${stepNum}] ${trimmed}`);
       try {
         const args = parseCommand(trimmed);
-        const result = await invoke<string>("run_auto", { args });
+        const result = await invoke<string>("run_auto", { args, platform });
         if (result.trim()) appendOutput(result.trim());
       } catch (err: any) {
         appendOutput(`ERROR: ${err}`);
@@ -115,7 +115,7 @@ function App() {
   const refreshTree = useCallback(async () => {
     try {
       appendOutput("--- Capturing screenshot + tree + index... ---");
-      const result = await invoke<{ screenshot: string; elements: AXElement[]; labels: string[]; indexed: any[] }>("inspect");
+      const result = await invoke<{ screenshot: string; elements: AXElement[]; labels: string[]; indexed: any[] }>("inspect", { platform });
       setTreeElements(result.elements);
       setLabels(result.labels);
       setIndexed(result.indexed || []);
@@ -228,6 +228,18 @@ function App() {
           <span className="filename">script.auto</span>
         </div>
         <div className="toolbar-right">
+          <div className="platform-toggle">
+            <button
+              className={`platform-btn ${platform === "ios" ? "active" : ""}`}
+              onClick={() => setPlatform("ios")}
+              disabled={running}
+            >iOS</button>
+            <button
+              className={`platform-btn ${platform === "android" ? "active" : ""}`}
+              onClick={() => setPlatform("android")}
+              disabled={running}
+            >Android</button>
+          </div>
           <button className="btn btn-tree" onClick={refreshTree} disabled={running}>
             <span className="btn-icon">🌳</span> Inspect
           </button>
@@ -304,7 +316,7 @@ function App() {
         ) : labels.length > 0 ? (
           <span>{labels.length} UI elements | {treeElements.length} nodes</span>
         ) : (
-          <span>Click Inspect to capture Simulator UI</span>
+          <span>{platform === "ios" ? "Click Inspect to capture Simulator UI" : "Click Inspect to capture Android UI"}</span>
         )}
       </footer>
     </div>

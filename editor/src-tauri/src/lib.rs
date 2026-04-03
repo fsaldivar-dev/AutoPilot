@@ -2,23 +2,45 @@ use std::process::Command;
 use std::path::PathBuf;
 use serde_json::Value;
 
-fn auto_binary() -> PathBuf {
-    // Look for auto binary: next to the editor, in parent dir, or in PATH
-    let candidates = [
-        std::env::current_exe().ok().and_then(|p| p.parent().map(|d| d.join("auto"))),
-        std::env::current_dir().ok().map(|d| d.join("auto")),
-        std::env::current_dir().ok().map(|d| d.join("../auto")),
-        Some(PathBuf::from("/Users/franciscojaviersaldivarrubio/Documents/AutomationApp/auto")),
-    ];
-    for c in candidates.iter().flatten() {
-        if c.exists() { return c.clone(); }
+fn find_binary(name: &str) -> PathBuf {
+    // Look next to the editor binary
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            let candidate = dir.join(name);
+            if candidate.exists() { return candidate; }
+        }
     }
-    PathBuf::from("auto") // fallback to PATH
+
+    // Look in current directory, parent, grandparent (project root)
+    if let Ok(cwd) = std::env::current_dir() {
+        for path in [
+            cwd.join(name),
+            cwd.join(format!("../{}", name)),
+            cwd.join(format!("../../{}", name)),
+            cwd.join(format!("../../cli/.build/debug/{}", name)),
+            cwd.join(format!("../../cli/.build/release/{}", name)),
+            cwd.join(format!("../cli/.build/debug/{}", name)),
+            cwd.join(format!("../cli/.build/release/{}", name)),
+        ] {
+            if path.exists() { return path; }
+        }
+    }
+
+    // Fallback to PATH
+    PathBuf::from(name)
+}
+
+fn auto_binary(platform: &str) -> PathBuf {
+    match platform {
+        "android" => find_binary("auto-android"),
+        _ => find_binary("auto"),
+    }
 }
 
 #[tauri::command]
-fn run_auto(args: Vec<String>) -> Result<String, String> {
-    let bin = auto_binary();
+fn run_auto(args: Vec<String>, platform: Option<String>) -> Result<String, String> {
+    let plat = platform.as_deref().unwrap_or("ios");
+    let bin = auto_binary(plat);
     let output = Command::new(&bin)
         .args(&args)
         .output()
@@ -35,8 +57,9 @@ fn run_auto(args: Vec<String>) -> Result<String, String> {
 }
 
 #[tauri::command]
-fn get_ax_tree() -> Result<Value, String> {
-    let bin = auto_binary();
+fn get_ax_tree(platform: Option<String>) -> Result<Value, String> {
+    let plat = platform.as_deref().unwrap_or("ios");
+    let bin = auto_binary(plat);
     let output = Command::new(&bin)
         .args(["tree"])
         .output()
@@ -44,8 +67,6 @@ fn get_ax_tree() -> Result<Value, String> {
 
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
 
-    // Parse tree output into structured elements
-    // Format: "  AXButton  label="Login"  id=loginBtn  [100,200 50x30]"
     let mut elements: Vec<Value> = Vec::new();
     let mut labels: Vec<String> = Vec::new();
 
@@ -60,10 +81,9 @@ fn get_ax_tree() -> Result<Value, String> {
         let mut value = String::new();
         let mut frame = String::new();
 
-        // Extract role (first word starting with AX)
-        if let Some(ax_start) = trimmed.find("AX") {
-            let rest = &trimmed[ax_start..];
-            role = rest.split_whitespace().next().unwrap_or("").to_string();
+        // Extract role — first word (AXButton for iOS, TextView for Android)
+        if let Some(first_word) = trimmed.split_whitespace().next() {
+            role = first_word.to_string();
         }
 
         // Extract quoted strings after keywords
@@ -134,10 +154,16 @@ fn get_ax_tree() -> Result<Value, String> {
     }))
 }
 
-/// Gets the element index ($N) for precise targeting.
+/// Gets the element index ($N) for precise targeting (iOS only).
 #[tauri::command]
-fn get_element_index() -> Result<Value, String> {
-    let bin = auto_binary();
+fn get_element_index(platform: Option<String>) -> Result<Value, String> {
+    let plat = platform.as_deref().unwrap_or("ios");
+    if plat == "android" {
+        // Android doesn't have $N index — return empty
+        return Ok(serde_json::json!({ "elements": [] }));
+    }
+
+    let bin = auto_binary(plat);
     let output = Command::new(&bin)
         .args(["index"])
         .output()
@@ -148,7 +174,6 @@ fn get_element_index() -> Result<Value, String> {
 
     for line in stdout.lines() {
         let trimmed = line.trim();
-        // Parse: $0    Button       "Inicio"                       [53,762 60x30]
         if !trimmed.starts_with('$') { continue; }
 
         let parts: Vec<&str> = trimmed.splitn(2, |c: char| c.is_whitespace()).collect();
@@ -159,12 +184,10 @@ fn get_element_index() -> Result<Value, String> {
         if idx < 0 { continue; }
 
         let rest = parts[1].trim();
-        // Extract role (first word)
         let role_end = rest.find(|c: char| c.is_whitespace()).unwrap_or(rest.len());
         let role = &rest[..role_end];
         let after_role = rest[role_end..].trim();
 
-        // Extract label (quoted string)
         let mut label = String::new();
         if let Some(q1) = after_role.find('"') {
             if let Some(q2) = after_role[q1+1..].find('"') {
@@ -172,7 +195,6 @@ fn get_element_index() -> Result<Value, String> {
             }
         }
 
-        // Extract frame [x,y wxh]
         let mut frame = String::new();
         if let Some(b1) = after_role.find('[') {
             if let Some(b2) = after_role[b1..].find(']') {
@@ -191,10 +213,11 @@ fn get_element_index() -> Result<Value, String> {
     Ok(serde_json::json!({ "elements": elements }))
 }
 
-/// Captures screenshot + AX tree in one call. Returns base64 image + elements.
+/// Captures screenshot + tree in one call. Returns base64 image + elements.
 #[tauri::command]
-fn inspect() -> Result<Value, String> {
-    let bin = auto_binary();
+fn inspect(platform: Option<String>) -> Result<Value, String> {
+    let plat = platform.as_deref().unwrap_or("ios");
+    let bin = auto_binary(plat);
 
     // 1. Screenshot to temp file
     let tmp = std::env::temp_dir().join("autopilot-inspect.png");
@@ -232,8 +255,8 @@ fn inspect() -> Result<Value, String> {
     };
 
     // 3. Get tree + index
-    let tree_result = get_ax_tree()?;
-    let index_result = get_element_index()?;
+    let tree_result = get_ax_tree(Some(plat.to_string()))?;
+    let index_result = get_element_index(Some(plat.to_string()))?;
 
     Ok(serde_json::json!({
         "screenshot": format!("data:image/png;base64,{}", image_b64),
@@ -248,7 +271,6 @@ fn open_screenshots() -> Result<String, String> {
     let dir = std::env::current_dir()
         .unwrap_or_default()
         .join("screenshots");
-    // Create if doesn't exist
     let _ = std::fs::create_dir_all(&dir);
     Command::new("open")
         .arg(&dir)
