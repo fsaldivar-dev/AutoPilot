@@ -108,7 +108,7 @@ function App() {
     appendOutput(`\n${stepNum} step(s) completed`);
     setCurrentStep(-1);
     setRunning(false);
-  }, [script, appendOutput]);
+  }, [script, appendOutput, platform]);
 
   const stopScript = useCallback(() => { abortRef.current = true; }, []);
 
@@ -127,7 +127,7 @@ function App() {
     } catch (err: any) {
       appendOutput(`Inspect error: ${err}`);
     }
-  }, [appendOutput]);
+  }, [appendOutput, platform]);
 
   const handleEditorMount: OnMount = (editor, monaco) => {
     editorRef.current = editor;
