@@ -384,15 +384,15 @@ public final class SimulatorBridge {
         }
     }
 
-    /// Enroll or unenroll Face ID on the simulator.
-    public func faceIDEnroll() throws {
+    // MARK: - Biometric (Face ID / Touch ID via Simulator menus)
+
+    public func biometricEnroll() throws {
         try clickSimulatorMenu("""
         tell application "System Events" to tell process "Simulator" to click menu item "Enrolled" of menu "Face ID" of menu item "Face ID" of menu "Features" of menu bar 1
         """)
     }
 
-    /// Check if Face ID is currently enrolled.
-    public func faceIDIsEnrolled() throws -> Bool {
+    public func biometricIsEnrolled() throws -> Bool {
         activateSimulatorApp()
         let process = Process()
         let pipe = Pipe()
@@ -412,19 +412,23 @@ public final class SimulatorBridge {
         return String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) == "true"
     }
 
-    /// Simulate a successful Face ID scan.
-    public func faceIDMatch() throws {
+    public func biometricMatch() throws {
         try clickSimulatorMenu("""
         tell application "System Events" to tell process "Simulator" to click menu item "Matching Face" of menu "Face ID" of menu item "Face ID" of menu "Features" of menu bar 1
         """)
     }
 
-    /// Simulate a failed Face ID scan.
-    public func faceIDFail() throws {
+    public func biometricFail() throws {
         try clickSimulatorMenu("""
         tell application "System Events" to tell process "Simulator" to click menu item "Non-matching Face" of menu "Face ID" of menu item "Face ID" of menu "Features" of menu bar 1
         """)
     }
+
+    // Legacy aliases
+    public func faceIDEnroll() throws { try biometricEnroll() }
+    public func faceIDMatch() throws { try biometricMatch() }
+    public func faceIDFail() throws { try biometricFail() }
+    public func faceIDIsEnrolled() throws -> Bool { try biometricIsEnrolled() }
 
     /// Set the pasteboard/clipboard content on the simulator.
     public func setPasteboard(text: String) throws {

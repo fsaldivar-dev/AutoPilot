@@ -216,33 +216,6 @@ func executeCommand(_ args: [String]) throws {
             }
         }
 
-    case "faceid":
-        guard args.count >= 2 else {
-            print("Usage: auto faceid <enroll|match|fail|status>")
-            return
-        }
-        let ms: Int
-        switch args[1] {
-        case "enroll":
-            try bridge.faceIDEnroll()
-            ms = elapsedMs(start)
-            print("Face ID enrollment toggled (\(ms)ms)")
-        case "match":
-            try bridge.faceIDMatch()
-            ms = elapsedMs(start)
-            print("Face ID match sent (\(ms)ms)")
-        case "fail":
-            try bridge.faceIDFail()
-            ms = elapsedMs(start)
-            print("Face ID non-match sent (\(ms)ms)")
-        case "status":
-            let enrolled = try bridge.faceIDIsEnrolled()
-            ms = elapsedMs(start)
-            print("Enrolled: \(enrolled ? "YES" : "NO") (\(ms)ms)")
-        default:
-            print("Unknown: \(args[1]). Use enroll/match/fail/status")
-        }
-
     case "camera":
         guard args.count >= 2 else {
             print("Usage: auto camera <start|feed|stop|status> [image]")
