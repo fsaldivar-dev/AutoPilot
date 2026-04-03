@@ -125,3 +125,8 @@ Análisis completo: [Capítulo 6 — Alternativas](docs/libro/06-alternativas.md
 ## Licencia
 
 MIT
+
+
+---
+
+> *El conocimiento se pudre cuando se guarda. Se mantiene vivo cuando se comparte.* — [Manifiesto](./MANIFESTO.md)
