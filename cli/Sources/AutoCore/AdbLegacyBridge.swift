@@ -473,7 +473,11 @@ public final class AdbLegacyBridge: DeviceBridge {
     /// Configura PIN lockscreen + navega Settings + simula toques del sensor.
     public func biometricEnroll() throws {
         // 1. Set lock screen PIN (required for fingerprint)
-        try runAdb(["shell", "locksettings", "set-pin", "1234"])
+        // Try without old PIN first, then with old PIN if already set
+        let pinResult = try? runAdb(["shell", "locksettings", "set-pin", "1234"])
+        if pinResult == nil {
+            try? runAdb(["shell", "locksettings", "set-pin", "--old", "1234", "1234"])
+        }
 
         // 2. Open fingerprint enrollment
         try runAdb(["shell", "am", "start", "-a", "android.settings.BIOMETRIC_ENROLL"])
