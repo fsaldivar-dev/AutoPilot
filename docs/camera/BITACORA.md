@@ -450,3 +450,99 @@ tap "Capturar"
 | #10 | Apps demo Android | Mergeado |
 | #11 | AdbBridge + docs | Mergeado |
 | #12 | Editor con soporte Android | Pendiente |
+
+## Sesion 2026-04-03 — Agente Android nativo
+
+### Contexto
+
+El AdbBridge implementado ayer funcionaba pero era inaceptablemente lento: 2100ms por tap. Decidimos investigar con rigor (como hicimos con la camara iOS) en vez de aceptar la primera solucion.
+
+### Investigacion previa (antes de codificar)
+
+**Maestro:** Despliega APK de instrumentacion con UIAutomator2 server. Usa `dadb` (ADB nativo en Kotlin). HTTP/JSON sobre port forward. Tap: ~50-150ms.
+
+**Appium:** Mismo approach (APK servidor), pero con overhead W3C WebDriver. Tap: ~50-200ms.
+
+**scrcpy:** JAR via `app_process`, `InputManager` via reflexion, protocolo binario sobre socket. Input: <5ms. Pero no tiene acceso a UI tree.
+
+**AccessibilityService vs Instrumentation:** Evaluamos ambos. Instrumentation gano por `injectInputEvent()` (1-3ms) vs `dispatchGesture()` (10-50ms) y soporte de key events.
+
+**Hallazgo clave:** Nadie rapido usa `uiautomator dump`. Todos mantienen un proceso vivo con acceso directo a `UiAutomation`.
+
+### Implementacion
+
+4 archivos Kotlin, ~300 lineas totales:
+
+| Archivo | Responsabilidad |
+|---|---|
+| `AgentInstrumentation.kt` | Entry point, obtiene UiAutomation, lanza server |
+| `SocketServer.kt` | LocalServerSocket, command dispatch, JSON protocol |
+| `TreeSerializer.kt` | AccessibilityNodeInfo → JSON (formato compartido con iOS) |
+| `InputInjector.kt` | injectInputEvent para tap/swipe/type/keyevent |
+
+### Protocolo
+
+JSON sobre LocalSocket (abstract Unix domain socket), una linea por mensaje:
+```
+→ {"method":"ping"}
+← {"result":"pong","api":36}
+
+→ {"method":"tap","params":{"target":"Login"}}  
+← {"result":{"success":true,"x":540,"y":1200}}
+```
+
+Conexion desde host: `adb forward tcp:9008 localabstract:autopilot`
+
+### Resultados
+
+| Operacion | uiautomator dump (viejo) | Agente socket (nuevo) | Mejora |
+|---|---|---|---|
+| Ping | 67ms | 0ms | ∞ |
+| Tree (cold) | 2000ms | 315ms | 6x |
+| Tree (warm) | 2000ms | 3-6ms | 330-660x |
+| Tap por label | 2100ms | 75-171ms | 12-28x |
+
+### Validacion de datos
+
+Comparamos arboles del metodo viejo y nuevo en la misma pantalla (auth screen de Explorea). Resultado: **identicos**. Mismos nodos, roles, textos, coordenadas, jerarquia. diff retorna solo la linea de tiempo del viejo.
+
+### Tropiezo: findAccessibilityNodeInfosByText() y Compose
+
+La API del framework Android para buscar nodos por texto (`findAccessibilityNodeInfosByText()`) retorna lista vacia en apps de Jetpack Compose. El tree muestra los nodos con texto, pero la API de busqueda no los ve.
+
+Causa: Compose genera su arbol de accesibilidad via `SemanticsNode`, no via `View` system. La API del framework busca en el View hierarchy.
+
+Solucion: busqueda recursiva manual con `getChild(i)` + comparacion de `getText()` y `getContentDescription()`. Dos pasadas: exacto primero, contains despues.
+
+### Prueba end-to-end
+
+Flujo completo via socket — auth de Explorea:
+1. `ping` → pong (0ms)
+2. `tree` → arbol con "Desbloquear con PIN" (6ms)
+3. `tap "Desbloquear con PIN"` → abre PIN pad (110ms)
+4. `tap "1"`, `tap "2"`, `tap "3"`, `tap "4"` → cada uno ~75-158ms
+5. `tree` → Home screen con "Aventura", "Gastronomia", entries (10ms)
+6. `swipe up` → scroll (834ms, incluye animacion)
+
+Todo funciono en el primer intento. La diferencia con la camara iOS (10 intentos): esta vez investigamos antes de codificar.
+
+### Archivos creados
+
+```
+agent/
+├── app/
+│   ├── build.gradle.kts
+│   └── src/main/
+│       ├── AndroidManifest.xml
+│       └── kotlin/dev/autopilot/agent/
+│           ├── AgentInstrumentation.kt
+│           ├── SocketServer.kt
+│           ├── TreeSerializer.kt
+│           └── InputInjector.kt
+├── build.gradle.kts
+├── settings.gradle.kts
+├── gradle.properties
+└── gradlew
+```
+
+APK debug: ~200KB. Compila en 1 segundo (incremental).
