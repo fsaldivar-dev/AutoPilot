@@ -2,6 +2,7 @@ import Foundation
 import AppKit
 import ApplicationServices
 import CoreGraphics
+import AutoCore
 
 /// Controls the iOS Simulator directly via macOS Accessibility APIs.
 /// No XCUITest, no xcodebuild, no test runner needed.
@@ -1074,36 +1075,11 @@ public final class SimulatorBridge {
     }
 }
 
-// MARK: - Errors
+// MARK: - DeviceBridge conformance
 
-public enum BridgeError: Error, CustomStringConvertible {
-    case simulatorNotRunning
-    case noWindow
-    case elementNotFound(String)
-    case noFrame(String)
-    case noBootedDevice
-    case invalidDirection(String)
-    case screenshotFailed
-    case mediaInjectionFailed(String)
-    case appleScriptFailed(String)
-    case simctlFailed(String)
-    case deviceNotFound(String)
-    case cameraImageNotFound(String)
-
-    public var description: String {
-        switch self {
-        case .simulatorNotRunning: return "Simulator is not running. Open it first."
-        case .noWindow: return "No simulator window found"
-        case .elementNotFound(let t): return "Element not found: '\(t)'"
-        case .noFrame(let t): return "Element '\(t)' has no frame"
-        case .noBootedDevice: return "No booted simulator. Run: xcrun simctl boot <device>"
-        case .invalidDirection(let d): return "Invalid direction: \(d). Use up/down/left/right"
-        case .screenshotFailed: return "Screenshot failed"
-        case .mediaInjectionFailed(let p): return "Failed to inject media: \(p)"
-        case .appleScriptFailed(let msg): return "AppleScript failed: \(msg)"
-        case .simctlFailed(let msg): return "simctl failed: \(msg)"
-        case .deviceNotFound(let name): return "Device not found: '\(name)'. Run: auto list"
-        case .cameraImageNotFound(let p): return "Image not found: '\(p)'"
-        }
+extension SimulatorBridge: DeviceBridge {
+    /// Protocol-conforming wrapper (no AXUIElement parameter exposed).
+    public func tree() throws -> [[String: Any]] {
+        return try tree(element: nil)
     }
 }

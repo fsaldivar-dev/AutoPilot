@@ -5,18 +5,32 @@ let package = Package(
     name: "auto",
     platforms: [.macOS(.v13)],
     targets: [
+        // Shared: protocol, models, script parser, config, tree printer
         .target(
-            name: "AutoLib",
-            path: "Sources/AutoLib"
+            name: "AutoCore",
+            path: "Sources/AutoCore"
         ),
+        // iOS-specific: SimulatorBridge + AX helpers
+        .target(
+            name: "AutoLibiOS",
+            dependencies: ["AutoCore"],
+            path: "Sources/AutoLibiOS"
+        ),
+        // iOS CLI binary
         .executableTarget(
             name: "auto",
-            dependencies: ["AutoLib"],
+            dependencies: ["AutoCore", "AutoLibiOS"],
             path: "Sources/CLI"
+        ),
+        // Android CLI binary (stub)
+        .executableTarget(
+            name: "auto-android",
+            dependencies: ["AutoCore"],
+            path: "Sources/CLIAndroid"
         ),
         .testTarget(
             name: "AutoTests",
-            dependencies: ["AutoLib"],
+            dependencies: ["AutoCore"],
             path: "Tests"
         )
     ]
