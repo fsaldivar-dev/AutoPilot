@@ -9,19 +9,26 @@ on:
 jobs:
   e2e:
     runs-on: macos-15
-    timeout-minutes: 20
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build auto CLI
-        run: |
-          cd cli && swift build -c release
-          cp .build/release/auto ../auto
-          cd ..
-          ./auto help | head -5
+      # ── Cache SPM ─────────────────────────────────────
+      - name: Cache Swift build
+        uses: actions/cache@v4
+        with:
+          path: cli/.build
+          key: swift-${{ hashFiles('cli/Sources/**/*.swift', 'cli/Package.swift') }}
+          restore-keys: swift-
 
-      - name: Boot Simulator
+      # ── Build CLI + Boot Simulator in parallel ────────
+      - name: Build CLI + Boot Simulator
         run: |
+          # Start build in background
+          (cd cli && swift build -c release && cp .build/release/auto ../auto) &
+          BUILD_PID=$!
+
+          # Boot simulator while building
           DEVICE_UDID=$(xcrun simctl list devices available -j | python3 -c "
           import json, sys
           data = json.loads(sys.stdin.read())
@@ -33,56 +40,42 @@ jobs:
                   sys.exit(0)
           sys.exit(1)
           ")
-          echo "Booting simulator: $DEVICE_UDID"
           xcrun simctl boot "$DEVICE_UDID"
           echo "DEVICE_UDID=$DEVICE_UDID" >> $GITHUB_ENV
-          sleep 5
-          xcrun simctl list devices booted
+          open -a Simulator &
 
-      - name: Open Simulator UI
+          # Wait for both to finish
+          wait $BUILD_PID
+          xcrun simctl bootstatus "$DEVICE_UDID"
+
+          # Verify
+          ./auto ping
+
+      # ── Test image (1s) ───────────────────────────────
+      - name: Setup
         run: |
-          open -a Simulator
-          sleep 10
+          mkdir -p temp screenshots
+          python3 -c "
+          import struct, zlib
+          def c(t,d): return struct.pack('>I',len(d))+t+d+struct.pack('>I',zlib.crc32(t+d)&0xffffffff)
+          w,h=200,200; r=b''
+          for y in range(h): r+=b'\x00'+b'\xff\x96\x32\xff'*w
+          open('temp/test-image.png','wb').write(b'\x89PNG\r\n\x1a\n'+c(b'IHDR',struct.pack('>IIBBBBB',w,h,8,6,0,0,0))+c(b'IDAT',zlib.compress(r))+c(b'IEND',b''))
+          "
 
-      - name: Generate test image
-        run: |
-          mkdir -p temp
-          swift -e '
-          import Foundation
-          import CoreGraphics
-          import ImageIO
-          import UniformTypeIdentifiers
+      # ── Hardware: Biometric + Pasteboard ──────────────
+      - name: "Test: Biometric + Pasteboard"
+        run: ./auto run scripts/examples/hardware-test.auto
 
-          let w = 200, h = 200
-          let colorSpace = CGColorSpaceCreateDeviceRGB()
-          guard let ctx = CGContext(data: nil, width: w, height: h, bitsPerComponent: 8, bytesPerRow: w * 4, space: colorSpace, bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue) else { exit(1) }
-          ctx.setFillColor(red: 1.0, green: 0.6, blue: 0.2, alpha: 1.0)
-          ctx.fill(CGRect(x: 0, y: 0, width: w, height: h))
-          ctx.setFillColor(red: 1.0, green: 0.3, blue: 0.5, alpha: 0.5)
-          ctx.fillEllipse(in: CGRect(x: 30, y: 30, width: 140, height: 140))
-          guard let image = ctx.makeImage() else { exit(1) }
-          let url = URL(fileURLWithPath: "temp/test-image.jpg")
-          guard let dest = CGImageDestinationCreateWithURL(url as CFURL, UTType.jpeg.identifier as CFString, 1, nil) else { exit(1) }
-          CGImageDestinationAddImage(dest, image, [kCGImageDestinationLossyCompressionQuality: 0.9] as CFDictionary)
-          CGImageDestinationFinalize(dest)
-          print("Created test image")
-          '
-          ls -la temp/test-image.jpg
+      # ── Camera: Build + Mock + Capture ────────────────
+      - name: Cache CameraTestApp
+        uses: actions/cache@v4
+        with:
+          path: ~/Library/Developer/Xcode/DerivedData/CameraTestApp*
+          key: camera-app-${{ hashFiles('Demo/iOS/CameraTestApp/**') }}
+          restore-keys: camera-app-
 
-      # ============================================================
-      # Hardware: Face ID, Pasteboard
-      # ============================================================
-
-      - name: "Hardware: Face ID + Pasteboard"
-        run: |
-          mkdir -p screenshots
-          ./auto run scripts/examples/hardware-test.auto
-
-      # ============================================================
-      # Camera Mock: auto build + capture
-      # ============================================================
-
-      - name: Build CameraTestApp with camera mock
+      - name: "Test: Camera Mock E2E"
         run: |
           ./auto build \
             -project Demo/iOS/CameraTestApp/CameraTestApp.xcodeproj \
@@ -90,26 +83,15 @@ jobs:
             -sdk iphonesimulator \
             -destination "id=$DEVICE_UDID"
 
-      - name: Grant camera permission
-        run: xcrun simctl privacy booted grant camera dev.autopilot.test.CameraTestApp
-
-      - name: Install CameraTestApp
-        run: |
+          xcrun simctl privacy booted grant camera dev.autopilot.test.CameraTestApp
           APP=$(find ~/Library/Developer/Xcode/DerivedData/CameraTestApp*/Build/Products/Debug-iphonesimulator -name '*.app' -maxdepth 1)
-          echo "Installing: $APP"
           xcrun simctl install booted "$APP"
 
-      - name: "Camera: mock capture E2E"
-        run: |
-          SIMCTL_CHILD_AUTOPILOT_CAMERA_IMAGE=$(pwd)/temp/test-image.jpg \
+          SIMCTL_CHILD_AUTOPILOT_CAMERA_IMAGE=$(pwd)/temp/test-image.png \
             xcrun simctl launch booted dev.autopilot.test.CameraTestApp
-          sleep 5
           ./auto run scripts/examples/camera-test.auto
 
-      # ============================================================
-      # Artifacts
-      # ============================================================
-
+      # ── Artifacts ─────────────────────────────────────
       - name: Upload screenshots
         if: always()
         uses: actions/upload-artifact@v4
