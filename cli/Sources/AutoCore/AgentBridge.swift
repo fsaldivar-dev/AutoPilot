@@ -240,7 +240,11 @@ public final class AgentBridge: DeviceBridge {
     // MARK: - DeviceBridge: Biometric (via adb emu)
 
     public func biometricEnroll() throws {
-        throw BridgeError.adbFailed("Biometric enrollment requires Settings UI. Enroll manually:\n  adb shell am start -a android.settings.BIOMETRIC_ENROLL\n  adb -e emu finger touch 1  (repeat 10-15 times)")
+        try legacy.biometricEnroll()
+    }
+
+    public func biometricUnenroll() throws {
+        try legacy.biometricUnenroll()
     }
 
     public func biometricMatch() throws {

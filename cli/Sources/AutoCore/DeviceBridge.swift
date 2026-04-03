@@ -44,7 +44,8 @@ public protocol DeviceBridge {
 
     // MARK: - Biometric
 
-    func biometricEnroll() throws
+    func biometricEnroll() throws      // Idempotente: enrolla solo si no está
+    func biometricUnenroll() throws    // Idempotente: des-enrolla solo si está
     func biometricMatch() throws
     func biometricFail() throws
     func biometricIsEnrolled() throws -> Bool

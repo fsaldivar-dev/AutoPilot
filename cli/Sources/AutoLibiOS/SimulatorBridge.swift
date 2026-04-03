@@ -386,7 +386,20 @@ public final class SimulatorBridge {
 
     // MARK: - Biometric (Face ID / Touch ID via Simulator menus)
 
+    /// Idempotente: enrolla solo si no está enrollado.
     public func biometricEnroll() throws {
+        if try biometricIsEnrolled() { return }
+        try toggleBiometricEnrollment()
+    }
+
+    /// Idempotente: des-enrolla solo si está enrollado.
+    public func biometricUnenroll() throws {
+        if try !biometricIsEnrolled() { return }
+        try toggleBiometricEnrollment()
+    }
+
+    /// Toggle interno — click en "Enrolled" del menú.
+    private func toggleBiometricEnrollment() throws {
         try clickSimulatorMenu("""
         tell application "System Events" to tell process "Simulator" to click menu item "Enrolled" of menu "Face ID" of menu item "Face ID" of menu "Features" of menu bar 1
         """)
