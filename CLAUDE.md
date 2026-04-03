@@ -140,7 +140,7 @@ auto launch
 - Con `--legacy`: `uiautomator dump` toma 1-2 segundos (el AgentBridge default no tiene este problema)
 - Clipboard read no soportado via ADB (solo write como workaround)
 - Camera mock no implementado aun en Android
-- El editor Tauri aun no soporta Android (busca binario `auto` hardcodeado)
+- Element index `$N` en Android se genera en el editor (Rust), no en el CLI — `auto-android index` aun no existe
 
 ### General
 - El editor necesita Rust toolchain instalado (`rustup`)
