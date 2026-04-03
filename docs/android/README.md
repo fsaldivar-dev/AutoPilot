@@ -68,6 +68,11 @@ Todos los comandos del protocolo `DeviceBridge` estan disponibles:
 | `auto-android waitFor "texto" 10` | Polling cada 500ms, timeout configurable | **Funcional** |
 | `auto-android openurl <url>` | `am start -a VIEW -d <url>` | **Funcional** |
 | `auto-android media <img>` | `push` + media scanner broadcast | **Funcional** |
+| `auto-android biometric enroll` | `locksettings set-pin` + `emu finger touch` x15 | **Funcional** |
+| `auto-android biometric unenroll` | `locksettings clear --old 1234` | **Funcional** |
+| `auto-android biometric match` | `adb -e emu finger touch 1` | **Funcional** |
+| `auto-android biometric fail` | `adb -e emu finger touch 0` | **Funcional** |
+| `auto-android biometric status` | `locksettings get-disabled` | **Funcional** |
 
 ## UIAutomatorParser — El puente entre XML y TreePrinter
 
@@ -102,7 +107,7 @@ Esto permite que `TreePrinter.printAX()` y `CommandDispatcher` funcionen identic
 | Element index ($N) | `auto index` (CLI nativo) | `index_from_tree()` en Rust del editor ([ver cap. 5](../libro/05-el-editor.md#element-index-en-android)) |
 | Camera mock | DYLD_INSERT_LIBRARIES | No implementado aun |
 | Clipboard read | `simctl pbpaste` | No soportado via ADB |
-| Biometrico | AppleScript menus Face ID | `adb -e emu finger touch` (pendiente) |
+| Biometrico | AppleScript menus Face ID | `adb -e emu finger touch` + `locksettings` (enroll/match/fail/status) |
 
 ## Prerequisitos
 

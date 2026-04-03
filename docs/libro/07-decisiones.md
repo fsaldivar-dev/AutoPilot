@@ -300,7 +300,7 @@ cli/Sources/
 
 La clave fue que el bridge Android no necesita ningún framework de macOS — solo `Foundation` + sockets TCP. `AgentBridge` habla con un agente nativo en el dispositivo via `LocalServerSocket`. El viejo `AdbLegacyBridge` (que forkeaba `adb` por cada comando) se archivó para benchmarks. Ambos viven en `AutoCore`.
 
-Cada `main.swift` maneja sus comandos específicos de plataforma (iOS: ping, faceid, camera, build, inject, inspect; Android: ping con info de device) y delega el resto al dispatcher compartido.
+Cada `main.swift` maneja sus comandos específicos de plataforma (iOS: ping, camera, build, inject, inspect; Android: ping con info de device) y delega el resto al dispatcher compartido. El comando `biometric` (antes `faceid`) es cross-platform y vive en el dispatcher.
 
 **Consecuencias:**
 
