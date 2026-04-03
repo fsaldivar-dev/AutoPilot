@@ -308,7 +308,7 @@ fun AuthScreen(onAuthenticated: () -> Unit) {
         val info = BiometricPrompt.PromptInfo.Builder()
             .setTitle("Explorea")
             .setSubtitle("Desbloquea tu diario de viajes")
-            .setNegativeButtonText("Usar PIN")
+            .setNegativeButtonText("Usar código")
             .build()
         prompt.authenticate(info)
     }
@@ -373,8 +373,8 @@ fun AuthScreen(onAuthenticated: () -> Unit) {
                     )
                     Spacer(Modifier.width(12.dp))
                     Text(
-                        if (biometricAvailable) "Desbloquear con biometrico"
-                        else "Desbloquear con PIN",
+                        if (biometricAvailable) "Desbloquear con biometría"
+                        else "Desbloquear con código",
                         color = Color.White,
                         fontSize = 16.sp,
                         fontWeight = FontWeight.SemiBold
@@ -384,13 +384,13 @@ fun AuthScreen(onAuthenticated: () -> Unit) {
                 if (biometricAvailable) {
                     Spacer(Modifier.height(16.dp))
                     TextButton(onClick = { showPIN = true }) {
-                        Text("Usar PIN", color = Color.White.copy(alpha = 0.8f), fontSize = 14.sp)
+                        Text("Usar código", color = Color.White.copy(alpha = 0.8f), fontSize = 14.sp)
                     }
                 }
             } else {
                 // PIN entry
                 Text(
-                    "Ingresa tu PIN",
+                    "Ingresa tu código",
                     color = Color.White,
                     fontSize = 18.sp,
                     fontWeight = FontWeight.SemiBold
@@ -429,7 +429,7 @@ fun AuthScreen(onAuthenticated: () -> Unit) {
 
                 if (pinError) {
                     Spacer(Modifier.height(8.dp))
-                    Text("PIN incorrecto", color = Color(0xFFFFCDD2), fontSize = 14.sp)
+                    Text("Código incorrecto", color = Color(0xFFFFCDD2), fontSize = 14.sp)
                 }
 
                 Spacer(Modifier.height(32.dp))
@@ -504,7 +504,7 @@ fun AuthScreen(onAuthenticated: () -> Unit) {
                         pinError = false
                     }) {
                         Text(
-                            "Usar biometrico",
+                            "Usar biometría",
                             color = Color.White.copy(alpha = 0.8f),
                             fontSize = 14.sp
                         )

@@ -6,7 +6,7 @@ waitFor "Explorea" 10
 screenshot /tmp/01-auth-screen.png
 
 # Auth — entrar a modo PIN e ingresar 1234
-tap "Desbloquear con PIN"
+tap "Desbloquear con código"
 waitFor "Ingresa tu PIN" 5
 tap "1"
 tap "2"
