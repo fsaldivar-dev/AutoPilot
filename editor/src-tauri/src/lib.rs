@@ -1,5 +1,7 @@
 use std::process::Command;
 use std::path::PathBuf;
+use std::sync::mpsc;
+use std::time::Duration;
 use serde_json::Value;
 
 fn find_binary(name: &str) -> PathBuf {
@@ -291,27 +293,40 @@ fn take_screenshot(bin: &PathBuf) -> String {
 }
 
 /// Captures screenshot + tree in one call — screenshot and tree run in parallel.
+/// Uses a 10-second timeout to prevent the editor from freezing if the CLI hangs.
 #[tauri::command]
 fn inspect(platform: Option<String>) -> Result<Value, String> {
     let plat = platform.as_deref().unwrap_or("ios");
     let bin = auto_binary(plat);
+    let timeout = Duration::from_secs(10);
+
+    // Channels for receiving results with timeout
+    let (screenshot_tx, screenshot_rx) = mpsc::channel::<String>();
+    let (tree_tx, tree_rx) = mpsc::channel::<Result<(Vec<Value>, Vec<String>), String>>();
 
     // Run screenshot and tree in parallel
     let bin_screenshot = bin.clone();
-    let screenshot_thread = std::thread::spawn(move || {
-        take_screenshot(&bin_screenshot)
+    std::thread::spawn(move || {
+        let result = take_screenshot(&bin_screenshot);
+        let _ = screenshot_tx.send(result);
     });
 
     let bin_tree = bin.clone();
-    let tree_thread = std::thread::spawn(move || -> Result<(Vec<Value>, Vec<String>), String> {
-        let stdout = run_cli(&bin_tree, &["tree"])?;
-        Ok(parse_tree_output(&stdout))
+    std::thread::spawn(move || {
+        let result = run_cli(&bin_tree, &["tree"])
+            .map(|stdout| parse_tree_output(&stdout));
+        let _ = tree_tx.send(result);
     });
 
-    // Collect results
-    let image_b64 = screenshot_thread.join().unwrap_or_default();
-    let (elements, labels) = tree_thread.join()
-        .map_err(|_| "Tree thread panicked".to_string())?
+    // Collect results with timeout
+    let image_b64 = screenshot_rx.recv_timeout(timeout)
+        .unwrap_or_else(|_| {
+            eprintln!("inspect: screenshot timed out after 10s");
+            String::new()
+        });
+
+    let (elements, labels) = tree_rx.recv_timeout(timeout)
+        .map_err(|_| "Inspect timeout: tree took longer than 10 seconds. Is the device connected?".to_string())?
         .map_err(|e| format!("Tree failed: {}", e))?;
 
     // Index: for Android, generate from tree; for iOS, call `auto index`
