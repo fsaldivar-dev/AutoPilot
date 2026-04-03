@@ -367,8 +367,18 @@ public final class AdbLegacyBridge: DeviceBridge {
     // MARK: - DeviceBridge: App Lifecycle
 
     public func launchApp(bundleId: String, envVars: [String: String]) throws {
-        // Use monkey to launch the default launcher activity
-        try runAdb(["shell", "monkey", "-p", bundleId, "-c", "android.intent.category.LAUNCHER", "1"])
+        // Use am start for proper intent launching with env var support
+        var cmdArgs = ["shell", "am", "start",
+                       "-a", "android.intent.action.MAIN",
+                       "-c", "android.intent.category.LAUNCHER",
+                       bundleId]
+
+        // Pass environment variables as intent string extras with AUTOPILOT_ prefix
+        for (key, value) in envVars.sorted(by: { $0.key < $1.key }) {
+            cmdArgs.append(contentsOf: ["--es", "AUTOPILOT_\(key)", value])
+        }
+
+        try runAdb(cmdArgs)
     }
 
     public func terminateApp(bundleId: String) throws {
