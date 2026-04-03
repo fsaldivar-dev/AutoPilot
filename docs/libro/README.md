@@ -1,4 +1,4 @@
-# AutoPilot — Ingeniería de automatización iOS desde macOS
+# AutoPilot — Ingeniería de automatización iOS y Android desde macOS
 
 > "Information is power. But like all power, there are those who want to keep it for themselves.
 > The world's entire scientific and cultural heritage [...] is increasingly being digitized and locked up
@@ -20,12 +20,12 @@ Documentamos todo el proceso — los errores, los callejones sin salida, las dec
 ### El libro
 
 1. **[El problema](01-el-problema.md)** — Por qué la automatización iOS está rota y que observación lo cambió todo
-2. **[Arquitectura](02-arquitectura.md)** — AXUIElement, CGEvent, simctl, AppleScript: las 4 capas que reemplazan a XCUITest
+2. **[Arquitectura](02-arquitectura.md)** — Las 4 capas iOS + DeviceBridge: el protocolo que unifica iOS y Android
 3. **[La cámara virtual](03-la-camara-virtual.md)** — 10 intentos, 9 fracasos, y lo que aprendimos de cada uno
 4. **[Inyección sin recompilar](04-inyeccion-sin-recompilar.md)** — DYLD_INSERT_LIBRARIES como herramienta de testing (un enfoque que nadie más usa)
 5. **[El editor](05-el-editor.md)** — De CLI a IDE visual con Tauri + Monaco
 6. **[Alternativas](06-alternativas.md)** — Maestro, Appium, AXe, XCUITest, idb: que hacen bien y por qué elegimos otro camino
-7. **[Decisiones](07-decisiones.md)** — ADRs: por qué Swift puro, por qué AX públicas, por qué no YAML
+7. **[Decisiones](07-decisiones.md)** — ADRs 1-8: Swift puro, AX públicas, no YAML, dos binarios + DeviceBridge
 8. **[Por qué es libre](08-por-que-es-libre.md)** — La deuda con el open source, el problema de la IA privatizada, y por qué documentamos los fracasos
 
 ### Apendices
@@ -38,7 +38,8 @@ Documentamos todo el proceso — los errores, los callejones sin salida, las dec
 ### Referencia
 
 - **[Roadmap](../../ROADMAP.md)** — Fases futuras (Android, web, recorder)
-- **[Bitacora](../../camera/BITACORA.md)** — Diario de laboratorio crudo (cada sesion, cada intento)
+- **[Bitacora](../camera/BITACORA.md)** — Diario de laboratorio crudo (cada sesion, cada intento)
+- **[Android backend](../android/README.md)** — AdbBridge, UIAutomatorParser, comandos implementados
 
 ---
 
@@ -46,7 +47,7 @@ Documentamos todo el proceso — los errores, los callejones sin salida, las dec
 
 Si quieres entender **por qué existe** AutoPilot, lee el [Capítulo 1](01-el-problema.md).
 
-Si quieres entender **cómo funcióna** por dentro, lee el [Capítulo 2](02-arquitectura.md).
+Si quieres entender **cómo funciona** por dentro, lee el [Capítulo 2](02-arquitectura.md).
 
 Si quieres ver **ingeniería inversa real** — intentos fallidos, ARM64 PAC, ObjC runtime hacks, descubrimientos que no estan documentados en ningún otro lugar — lee los Capítulos [3](03-la-camara-virtual.md) y [4](04-inyeccion-sin-recompilar.md).
 
@@ -54,4 +55,4 @@ Si quieres **usar** AutoPilot, ve al [README principal](../../README.md).
 
 ---
 
-*Todo el contenido esta en español. El código fuente y los ejemplos usan convenciones en ingles donde es idiomático (nombres de funciónes, variables, APIs).*
+*Todo el contenido esta en español. El código fuente y los ejemplos usan convenciones en ingles donde es idiomático (nombres de funciones, variables, APIs).*

@@ -210,35 +210,45 @@ include compartido/login.auto
 
 ---
 
-## Fase 5 — Backend Android
+## Completado — Backend Android
 
-Mismo CLI, mismos comandos, diferente backend. El usuario no deberia necesitar saber si el dispositivo es iOS o Android.
+Mismo protocolo (`DeviceBridge`), diferente backend. Dos binarios: `auto` (iOS) y `auto-android` (Android). El mismo script `.auto` funciona en ambos.
 
 ### Bridge ADB
 
-**Enfoque tecnico:** `adb` para gestion de dispositivos, `adb shell input` para interaccion, `uiautomator dump` para inspeccion de UI.
+**Enfoque tecnico:** `adb` para gestion de dispositivos, `adb shell input` para interaccion, `uiautomator dump` + `UIAutomatorParser` para inspeccion de UI.
 
-- [ ] `auto --platform android list` — `adb devices`
-- [ ] `auto --platform android launch <paquete>` — `adb shell am start`
-- [ ] `auto --platform android terminate <paquete>` — `adb shell am force-stop`
-- [ ] `auto --platform android install <apk>` — `adb install`
+- [x] `auto-android list` — `adb devices -l`
+- [x] `auto-android launch <paquete>` — `adb shell monkey -p <pkg> -c LAUNCHER 1`
+- [x] `auto-android terminate <paquete>` — `adb shell am force-stop`
+- [x] `auto-android install <apk>` — `adb install -r`
 
 ### Inspeccion UI
 
-- [ ] `auto --platform android tree` — `uiautomator dump` parseado al mismo formato de arbol
-- [ ] `auto --platform android search "Login"` — mismo algoritmo de busqueda sobre XML de UIAutomator
+- [x] `auto-android tree` — `uiautomator dump` parseado al formato compartido `[[String: Any]]`
+- [x] `auto-android tree -s "query"` — busqueda recursiva en text/content-desc/resource-id
 
 ### Entrada
 
-- [ ] `auto --platform android tap "Login"` — coordenadas de uiautomator + `adb shell input tap`
-- [ ] `auto --platform android type "texto"` — `adb shell input text`
-- [ ] `auto --platform android swipe up` — `adb shell input swipe`
+- [x] `auto-android tap "Login"` — dump UI → encontrar elemento → coordenadas → `adb shell input tap`
+- [x] `auto-android type "texto"` — `adb shell input text` con escaping
+- [x] `auto-android swipe up` — `adb shell input swipe` (40% de la pantalla)
+- [x] `auto-android longPress`, `doubleTap`, `clear`, `scroll`, `tapAt`
 
-### Auto-Deteccion de Plataforma
+### Arquitectura
 
-- [ ] Auto-detectar: si el Simulador iOS esta corriendo, usar iOS. Si hay dispositivo ADB conectado, usar Android.
-- [ ] Explicito: `--platform ios` / `--platform android`
-- [ ] El `protocol/commands.json` sirve como contrato compartido para ambos backends
+- [x] Protocolo `DeviceBridge` con 22 metodos en `AutoCore`
+- [x] `AdbBridge` implementa `DeviceBridge` via `Process()` + `adb`
+- [x] `UIAutomatorParser` convierte XML de uiautomator al formato compartido
+- [x] `CommandDispatcher` compartido — misma logica para ambas plataformas
+- [x] Dos binarios separados (no flag `--platform`)
+
+### Pendiente Android
+
+- [ ] Camera mock en Android
+- [ ] Clipboard read via ADB (write funciona como workaround)
+- [ ] Integrar biometrico en emulador (fingerprint enrollment)
+- [ ] Soporte Android en el Editor Tauri
 
 ---
 

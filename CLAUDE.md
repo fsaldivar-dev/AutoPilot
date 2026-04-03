@@ -3,9 +3,10 @@
 ## Filosofia
 
 - Swift puro, sin dependencias externas, sin Python, sin runtimes
-- Un solo binario CLI (`auto`) que controla todo
+- Dos binarios CLI: `auto` (iOS) y `auto-android` (Android)
+- Protocolo `DeviceBridge` compartido — misma interfaz, diferente backend
 - Scripts `.auto` como lenguaje principal de automatizacion
-- El mismo script debe funcionar en iOS y Android
+- El mismo script funciona en iOS y Android (cambias el binario, no el script)
 - Documentacion en español
 
 ## Stack
@@ -17,13 +18,15 @@
 ## Estructura del proyecto
 
 ```
-cli/Sources/AutoLib/     → Logica del CLI (SimulatorBridge, Config, ElementIndex, etc.)
-cli/Sources/CLI/         → Entry point y dispatch de comandos
+cli/Sources/AutoCore/    → Compartido: DeviceBridge, AdbBridge, CommandDispatcher, ScriptParser, Config, TreePrinter
+cli/Sources/AutoLibiOS/  → iOS: SimulatorBridge, ElementIndex, TargetResolver, UIStabilizer, AXDebug
+cli/Sources/CLI/         → Binario `auto` (iOS)
+cli/Sources/CLIAndroid/  → Binario `auto-android` (Android)
 editor/src/              → Frontend React del editor
 editor/src-tauri/        → Backend Rust del editor
-Demo/                    → Apps de demo (Explorea, CameraTestApp)
-camera/                  → Camara virtual (mock, bitacora)
-scripts/examples/        → Scripts .auto de ejemplo
+Demo/iOS/                → Apps de demo iOS (CameraTestApp, Test Automatitacion)
+Demo/Android/            → Apps de demo Android (CameraTestApp, TestAutomatitacion)
+scripts/examples/        → Scripts .auto de ejemplo (iOS + Android)
 docs/                    → Documentacion por modulo
 ```
 
@@ -35,12 +38,17 @@ docs/                    → Documentacion por modulo
 
 ### 2. Implementar
 - Swift: sin dependencias, sin frameworks externos
+- Codigo compartido va en `AutoCore/`, iOS-only en `AutoLibiOS/`
+- Nuevos comandos cross-platform: implementar en `DeviceBridge` protocolo
 - React/TypeScript: Monaco para editor, Tauri para desktop
-- Seguir patrones existentes en el codebase (Process + xcrun para CLI, invoke para editor)
+- Seguir patrones existentes (Process + xcrun para iOS, Process + adb para Android)
 
 ### 3. Probar
-- Compilar CLI: `cd cli && swift build && cp .build/debug/auto ../auto`
-- Probar con scripts .auto: `./auto run scripts/examples/camera-test.auto`
+- Compilar CLI: `cd cli && swift build` (compila ambos binarios)
+- Copiar binario iOS: `cp .build/debug/auto ../auto`
+- Probar iOS: `./auto run scripts/examples/camera-test.auto`
+- Probar Android: `.build/debug/auto-android run scripts/examples/android-login.auto`
+- Requisitos Android: emulador corriendo (`adb devices`), ANDROID_HOME configurado
 - Para UI del editor: `cd editor && npm run tauri dev`
 - Para CI: push a main y verificar GitHub Actions
 - Tomar screenshots como evidencia
@@ -62,22 +70,23 @@ docs/                    → Documentacion por modulo
 - Correr `/code-review --comment` para agregar revision automatica
 
 ### 7. Documentar
-- Actualizar `camera/BITACORA.md` con hallazgos de cada sesion
+- Usar `/docs` para documentar cambios como libro tecnico
+- Actualizar `docs/camera/BITACORA.md` con hallazgos de cada sesion
 - Actualizar `README.md` si hay features nuevos
 - Actualizar memoria en `.claude/projects/.../memory/`
-- Documentacion del editor en `docs/editor/README.md`
 
 ### 8. Limpiar
 - `/clean_gone` para borrar ramas locales ya mergeadas
-- Revisar archivos en `temp/` y eliminar los que no sirven
 - Verificar que `.autopilot` no tiene paths absolutos de tu maquina
 
 ## Convenciones de codigo
 
 ### Swift (CLI)
-- `SimulatorBridge` es el punto central — todos los comandos pasan por ahi
+- `DeviceBridge` protocolo — 22 metodos que iOS y Android implementan
+- `SimulatorBridge` (iOS): AXUIElement + CGEvent + xcrun simctl
+- `AdbBridge` (Android): adb shell + uiautomator dump
+- `CommandDispatcher` — logica compartida de comandos
 - Errores tipados con `BridgeError` enum
-- Process + xcrun para interactuar con el simulador
 - `public` solo para lo que necesita el CLI, `private` para el resto
 
 ### TypeScript (Editor)
@@ -121,7 +130,16 @@ auto launch
 
 ## Limitaciones conocidas
 
+### iOS
 - SwiftUI NavigationBar buttons no se exponen via macOS AX (AXChildren=[0])
 - El preview de camara es imagen estatica (sin feed en tiempo real)
 - `ENABLE_DEBUG_DYLIB=NO` necesario en Xcode 26 para force_load
+
+### Android
+- `uiautomator dump` toma 1-2 segundos por llamada (cada tap requiere un dump)
+- Clipboard read no soportado via ADB (solo write como workaround)
+- Camera mock no implementado aun en Android
+- El editor Tauri aun no soporta Android (busca binario `auto` hardcodeado)
+
+### General
 - El editor necesita Rust toolchain instalado (`rustup`)
