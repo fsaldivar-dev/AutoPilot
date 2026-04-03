@@ -1,5 +1,5 @@
 import XCTest
-@testable import AutoLib
+@testable import AutoCore
 
 final class ScriptParserTests: XCTestCase {
 
