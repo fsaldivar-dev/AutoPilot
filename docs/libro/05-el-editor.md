@@ -101,7 +101,7 @@ El frontend usa `invoke()` de Tauri para llamar al backend Rust, pasando `platfo
 
 ## Soporte Android
 
-Cuando agregamos el backend Android (`AdbBridge`), el editor necesitaba hablar con dos binarios distintos: `auto` para iOS y `auto-android` para Android. La solución fue un toggle de plataforma en el toolbar.
+Cuando agregamos el backend Android, el editor necesitaba hablar con dos binarios distintos: `auto` para iOS y `auto-android` para Android. La solución fue un toggle de plataforma en el toolbar.
 
 ### Toggle iOS / Android
 
@@ -121,13 +121,13 @@ En Rust, `auto_binary(platform)` busca el binario en varias ubicaciones: junto a
 |---|---|---|
 | Binario | `auto` | `auto-android` |
 | Play/tap/tree | Funciona | Funciona |
-| Inspector screenshot | Funciona | Funciona (lento, ~2s por dump) |
+| Inspector screenshot | Funciona | Funciona (via adb screencap) |
 | Element index ($N) | Funciona | No disponible (devuelve vacío) |
 | Auto-wait (AXObserver) | Funciona | No disponible |
 
 ### Limitaciones actuales
 
-El inspector en Android es notablemente más lento que en iOS. Cada `uiautomator dump` toma ~2 segundos, y el inspector hace tres llamadas secuenciales (screenshot + tree + index). En total son ~6 segundos que bloquean la UI. La solución correcta seria hacer las llamadas en paralelo y agregar un indicador de carga, pero eso es trabajo pendiente.
+Con el agente nativo, el tree Android se obtiene en ~30ms (vs ~2s con el viejo `uiautomator dump`). Sin embargo, el inspector aún tiene latencia porque `screenshot` sigue usando `adb screencap + pull` (~1s). La solución correcta sería agregar screenshot al protocolo del agente y hacer las llamadas en paralelo.
 
 ### Setup
 
