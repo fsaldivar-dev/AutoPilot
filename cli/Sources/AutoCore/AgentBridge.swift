@@ -237,6 +237,28 @@ public final class AgentBridge: DeviceBridge {
         throw BridgeError.adbFailed("Clipboard read not supported via ADB")
     }
 
+    // MARK: - DeviceBridge: Biometric (via adb emu)
+
+    public func biometricEnroll() throws {
+        try legacy.biometricEnroll()
+    }
+
+    public func biometricUnenroll() throws {
+        try legacy.biometricUnenroll()
+    }
+
+    public func biometricMatch() throws {
+        try legacy.biometricMatch()
+    }
+
+    public func biometricFail() throws {
+        try legacy.biometricFail()
+    }
+
+    public func biometricIsEnrolled() throws -> Bool {
+        try legacy.biometricIsEnrolled()
+    }
+
     // MARK: - Helpers
 
     private func searchRecursive(elements: [[String: Any]], query: String, results: inout [[String: Any]]) {

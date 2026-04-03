@@ -466,4 +466,74 @@ public final class AdbLegacyBridge: DeviceBridge {
     public func getPasteboard() throws -> String {
         throw BridgeError.adbFailed("Clipboard read not supported via ADB")
     }
+
+    // MARK: - DeviceBridge: Biometric (via adb emu)
+
+    /// Enrolla fingerprint en el emulador automáticamente.
+    /// Configura PIN lockscreen + navega Settings + simula toques del sensor.
+    public func biometricEnroll() throws {
+        // Skip if already enrolled
+        if try biometricIsEnrolled() { return }
+
+        // 1. Set lock screen PIN (required for fingerprint)
+        // Try without old PIN first, then with old PIN if already set
+        let pinResult = try? runAdb(["shell", "locksettings", "set-pin", "1234"])
+        if pinResult == nil {
+            try? runAdb(["shell", "locksettings", "set-pin", "--old", "1234", "1234"])
+        }
+
+        // 2. Open fingerprint enrollment
+        try runAdb(["shell", "am", "start", "-a", "android.settings.BIOMETRIC_ENROLL"])
+        usleep(2_000_000) // Wait for Settings to open
+
+        // 3. Enter lockscreen PIN
+        try runAdb(["shell", "input", "text", "1234"])
+        try runAdb(["shell", "input", "keyevent", "66"]) // ENTER
+        usleep(2_000_000) // Wait for enrollment screen
+
+        // 4. Scroll down and tap MORE then I AGREE
+        try runAdb(["shell", "input", "swipe", "640", "2000", "640", "1000", "300"])
+        usleep(1_000_000)
+        // Try tapping MORE (may or may not appear)
+        try? runAdb(["shell", "input", "tap", "1088", "2676"]) // approximate MORE button
+        usleep(1_000_000)
+        // Try tapping I AGREE
+        try? runAdb(["shell", "input", "tap", "1088", "2676"]) // approximate I AGREE button
+        usleep(2_000_000)
+
+        // 5. Simulate fingerprint touches (15 times)
+        for _ in 0..<15 {
+            try runAdb(["-e", "emu", "finger", "touch", "1"])
+            usleep(500_000)
+        }
+        usleep(2_000_000)
+
+        // 6. Tap DONE
+        try? runAdb(["shell", "input", "tap", "1088", "2676"]) // approximate DONE button
+        usleep(1_000_000)
+
+        // 7. Go back to home
+        try runAdb(["shell", "input", "keyevent", "3"]) // HOME
+    }
+
+    /// Des-enrolla fingerprint removiendo el lock screen.
+    public func biometricUnenroll() throws {
+        try runAdb(["shell", "locksettings", "clear", "--old", "1234"])
+    }
+
+    public func biometricMatch() throws {
+        try runAdb(["-e", "emu", "finger", "touch", "1"])
+    }
+
+    public func biometricFail() throws {
+        try runAdb(["-e", "emu", "finger", "touch", "0"])
+    }
+
+    public func biometricIsEnrolled() throws -> Bool {
+        // locksettings get-disabled returns "true" if no lock credential
+        // If there IS a lock credential (PIN), fingerprint is likely enrolled
+        // (because we set the PIN as part of biometric enrollment)
+        let output = try runAdb(["shell", "locksettings", "get-disabled"])
+        return output.trimmingCharacters(in: .whitespacesAndNewlines) == "false"
+    }
 }

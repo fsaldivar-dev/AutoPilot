@@ -68,7 +68,7 @@ func executeCommand(_ args: [String]) throws {
             bundleId = b
         } else {
             print("Usage: auto-android launch <package>")
-            print("   or: auto-android config bundle shajaru.Test_Automatitacion")
+            print("   or: auto-android config bundle dev.autopilot.test.Explorea")
             print("       auto-android launch")
             return
         }
@@ -114,6 +114,7 @@ func printUsage() {
       install <path/to/app.apk>        Install APK
       elementAt <x> <y>                 Element at coordinate
       screenshot [filename.png]         Screenshot
+      biometric <enroll|match|fail|status> Biometric control
       terminate <package>               Kill app
       config                            Show all config
       config <key> <value>              Set config value
@@ -121,13 +122,13 @@ func printUsage() {
 
     Script format (.auto):
       # Comments start with #
-      launch shajaru.Test_Automatitacion
+      launch dev.autopilot.test.Explorea
       waitFor "Explorea"
-      tap "Desbloquear con biometrico"
+      tap "Desbloquear con biometría"
       screenshot result.png
 
     Examples:
-      auto-android launch shajaru.Test_Automatitacion
+      auto-android launch dev.autopilot.test.Explorea
       auto-android tap "Explorea"
       auto-android tree -s "Login"
       auto-android swipe down
