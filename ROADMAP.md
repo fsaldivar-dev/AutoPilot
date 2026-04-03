@@ -216,7 +216,7 @@ Mismo protocolo (`DeviceBridge`), diferente backend. Dos binarios: `auto` (iOS) 
 
 ### Bridge ADB
 
-**Enfoque tecnico:** `adb` para gestion de dispositivos, `adb shell input` para interaccion, `uiautomator dump` + `UIAutomatorParser` para inspeccion de UI.
+**Enfoque tecnico:** Agente nativo (APK de instrumentacion) con `UiAutomation` directa + `LocalServerSocket`. Fallback a `adb` para operaciones de dispositivo.
 
 - [x] `auto-android list` — `adb devices -l`
 - [x] `auto-android launch <paquete>` — `adb shell monkey -p <pkg> -c LAUNCHER 1`
@@ -225,7 +225,7 @@ Mismo protocolo (`DeviceBridge`), diferente backend. Dos binarios: `auto` (iOS) 
 
 ### Inspeccion UI
 
-- [x] `auto-android tree` — `uiautomator dump` parseado al formato compartido `[[String: Any]]`
+- [x] `auto-android tree` — agente nativo con UiAutomation directa (3-6ms warm, 82x mas rapido que uiautomator dump)
 - [x] `auto-android tree -s "query"` — busqueda recursiva en text/content-desc/resource-id
 
 ### Entrada
@@ -238,7 +238,7 @@ Mismo protocolo (`DeviceBridge`), diferente backend. Dos binarios: `auto` (iOS) 
 ### Arquitectura
 
 - [x] Protocolo `DeviceBridge` con 22 metodos en `AutoCore`
-- [x] `AdbBridge` implementa `DeviceBridge` via `Process()` + `adb`
+- [x] `AgentBridge` (default) via socket al agente nativo + `AdbLegacyBridge` (`--legacy`) via `adb shell`
 - [x] `UIAutomatorParser` convierte XML de uiautomator al formato compartido
 - [x] `CommandDispatcher` compartido — misma logica para ambas plataformas
 - [x] Dos binarios separados (no flag `--platform`)

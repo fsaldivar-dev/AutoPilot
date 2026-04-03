@@ -18,7 +18,7 @@
 ## Estructura del proyecto
 
 ```
-cli/Sources/AutoCore/    → Compartido: DeviceBridge, AdbBridge, CommandDispatcher, ScriptParser, Config, TreePrinter
+cli/Sources/AutoCore/    → Compartido: DeviceBridge, AgentBridge, AdbLegacyBridge, CommandDispatcher, ScriptParser
 cli/Sources/AutoLibiOS/  → iOS: SimulatorBridge, ElementIndex, TargetResolver, UIStabilizer, AXDebug
 cli/Sources/CLI/         → Binario `auto` (iOS)
 cli/Sources/CLIAndroid/  → Binario `auto-android` (Android)
@@ -137,7 +137,7 @@ auto launch
 - `ENABLE_DEBUG_DYLIB=NO` necesario en Xcode 26 para force_load
 
 ### Android
-- `uiautomator dump` toma 1-2 segundos por llamada (cada tap requiere un dump)
+- Con `--legacy`: `uiautomator dump` toma 1-2 segundos (el AgentBridge default no tiene este problema)
 - Clipboard read no soportado via ADB (solo write como workaround)
 - Camera mock no implementado aun en Android
 - El editor Tauri aun no soporta Android (busca binario `auto` hardcodeado)
