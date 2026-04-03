@@ -350,3 +350,103 @@ tap "Capturar"
 - `-dynamiclib` requiere todos los frameworks como dependencias explicitas (a diferencia de static lib que los resuelve al linkear con el binario final)
 - La dylib de 75KB es autocontenida — no necesita que la app tenga ningun framework extra
 - El hot-swap funciona porque `capturePhoto` lee el archivo en cada invocacion, no lo cachea
+
+## Sesion 2026-04-02 (tarde/noche) — Android + Editor multi-plataforma
+
+### Lo que hicimos
+
+**Limpieza:**
+- Eliminamos `legacy/`, `protocol/`, `temp/`, y 4 subcarpetas de `camera/` (experimentos abandonados)
+- Movimos docs de camera a `docs/camera/`
+- Reorganizamos `Demo/` en `Demo/iOS/` y `Demo/Android/`
+
+**Arquitectura multi-plataforma:**
+- Extrajimos protocolo `DeviceBridge` (22 metodos) en `AutoCore`
+- Movimos iOS a `AutoLibiOS` (SimulatorBridge, ElementIndex, TargetResolver, etc.)
+- `AdbBridge` implementa `DeviceBridge` usando `adb shell` commands
+- `UIAutomatorParser` parsea XML de `uiautomator dump` al formato compartido `[[String: Any]]`
+- `CommandDispatcher` compartido — misma logica para ambas plataformas
+- Dos binarios: `auto` (iOS) y `auto-android` (Android)
+
+**Apps demo Android:**
+- CameraTestApp: CameraX + Compose, espejo de la version iOS
+- TestAutomatitacion (Explorea): app completa con auth, 4 tabs, 7 entries sample
+
+**Editor con soporte Android:**
+- Toggle iOS/Android en toolbar
+- Backend Rust resuelve binario correcto segun plataforma
+
+### Tropiezos y problemas sin resolver
+
+**1. UIAutomatorParser — sufijo pegado al XML**
+- `adb exec-out uiautomator dump /dev/tty` devuelve el XML con "UI hierchary dumped to: /dev/tty" pegado al final SIN newline
+- El parser XML de Foundation fallaba (error 5) porque leia basura despues de `</hierarchy>`
+- Solucion: truncar el string en `</hierarchy>` antes de parsear
+
+**2. Editor — path del binario**
+- El editor corre desde `editor/src-tauri/` (no la raiz del proyecto)
+- Los binarios estan en `../../auto` y `../../auto-android`
+- Teniamos un path hardcodeado a otra maquina: `/Users/franciscojaviersaldivarrubio/Documents/AutomationApp/auto`
+- Tuvimos que buscar en 7 paths diferentes para cubrir dev, release, y PATH
+
+**3. Editor — iconos PNG faltantes**
+- `tauri.conf.json` referencia `32x32.png`, `128x128.png`, `128x128@2x.png` pero solo existian `.icns` y `.ico`
+- La compilacion fallaba con "failed to open icon"
+- Solucion: generar PNGs desde el icns con `sips`
+
+**4. Editor — errores TypeScript preexistentes**
+- `setSelectedElement(null)` — variable que ya no existia (probablemente eliminada en refactor anterior)
+- `useRef` importado pero no usado en Inspector.tsx
+- Ambos impedian `tauri build`
+
+**5. Android — latencia de uiautomator dump (~2s)**
+- Cada `tap(target:)` requiere un dump completo del arbol UI para encontrar el elemento
+- Un script de 18 pasos toma ~24 segundos (vs ~5s en iOS)
+- El inspector del editor hace 3 llamadas secuenciales (screenshot + tree + index) = ~6s bloqueando la UI
+- **Sin resolver**: necesita cache del tree y/o llamadas paralelas
+
+**6. Android — inspector del editor no funciona bien**
+- El tree se genera pero el inspector freeze la app al intentar cargar
+- Probablemente por la combinacion de latencia + bloqueo de UI thread
+- **Sin resolver**: necesita ejecutar en background con indicador de carga
+
+**7. Android — biometrico en emulador**
+- La app Explorea tiene codigo para biometrico + PIN, pero el emulador no tiene fingerprint enrollado
+- Solo muestra "Desbloquear con PIN" en vez de ambas opciones
+- `BiometricManager.canAuthenticate()` retorna false en el emulador
+- **Sin resolver**: necesita `adb -e emu finger touch 1` para enrollar fingerprint
+
+**8. Android — clipboard**
+- `getPasteboard()` no tiene API directa en ADB
+- `setPasteboard()` usa `adb shell input text` como workaround (no es clipboard real)
+- **Sin resolver**: requeriria un helper APK o acceso a clipboard service
+
+**9. Android — Compose elements sin texto en uiautomator**
+- Algunos elementos de Jetpack Compose no exponen `text` en el dump de uiautomator
+- Los Buttons aparecen como `View` sin texto, el texto esta en un `TextView` hijo
+- El tap funciona si buscas por el texto del hijo, pero la jerarquia es confusa
+- Workaround: usar `content-desc` (accessibility label) en la app
+
+**10. Android — tabs invisibles despues de navegar**
+- Al estar en la pantalla de Capturar, los tabs del bottom bar no aparecen en `uiautomator dump`
+- Probablemente el tab bar esta fuera del viewport o uiautomator no lo escanea
+- **Sin resolver**: posiblemente un bug de la app demo, no del bridge
+
+### Hallazgos
+
+- El protocolo `DeviceBridge` funciona: misma interfaz, diferente backend, sin duplicar logica
+- Los scripts `.auto` son portables — el mismo formato funciona en iOS y Android
+- `uiautomator dump` es el cuello de botella en Android (2s vs acceso instantaneo de AXUIElement en iOS)
+- El approach de dos binarios separados evita arrastrar frameworks de macOS en el binario Android
+- `monkey -p <pkg> -c LAUNCHER 1` es mas confiable que `am start -n` para lanzar apps (no necesitas saber el Activity)
+
+### PRs de la sesion
+
+| PR | Titulo | Estado |
+|---|---|---|
+| #7 | Limpieza carpetas muertas | Mergeado |
+| #8 | Demo iOS/Android reorg | Pendiente |
+| #9 | DeviceBridge + AutoCore/AutoLibiOS | Mergeado |
+| #10 | Apps demo Android | Mergeado |
+| #11 | AdbBridge + docs | Mergeado |
+| #12 | Editor con soporte Android | Pendiente |
