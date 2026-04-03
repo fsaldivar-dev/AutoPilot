@@ -593,3 +593,79 @@ Después de validar el agente, conectamos el CLI `auto-android` al socket:
 **Solucion:** `index_from_tree()` en el backend Rust del editor. Genera indices `$N` directamente desde el arbol de accesibilidad. Resuelve nodos genericos "View" (tipicos de Compose) usando el texto de hijos, y omite contenedores sin informacion util (FrameLayout, LinearLayout en profundidad 0-1). Se integro en `get_element_index` e `inspect`.
 
 **Resultado:** Autocomplete de elementos `$N` funciona en Android. El inspector muestra indices clickeables para ambas plataformas.
+
+### Unificacion de labels de auth (PR #17)
+
+**Problema:** Los scripts de login para iOS y Android usaban labels diferentes para los mismos elementos UI. La app iOS decia "Ingresa tu codigo" y la Android "Ingresa tu PIN". Los scripts no eran intercambiables sin editar labels.
+
+**Cambios:**
+- Unificamos los labels de autenticacion en ambas apps demo (iOS y Android) para que coincidan
+- Apps demo iOS (`Test Automatitacion`): AuthView reescrita con labels consistentes
+- App demo Android (`TestAutomatitacion`): MainActivity actualizada con mismos labels
+- Scripts `.auto` actualizados para usar labels unificados
+- Workflow de CI actualizado para reflejar los nuevos labels
+
+**Archivos tocados:**
+- `Demo/iOS/Test Automatitacion/` — AuthView, ContentView, AppState, modelos, tema
+- `Demo/Android/TestAutomatitacion/` — MainActivity.kt
+- `scripts/examples/login.auto`, `scripts/examples/android-login.auto`
+- `.github/workflows/camera-test.yml`
+
+**Resultado:** El mismo script `.auto` funciona en ambas plataformas sin cambiar labels. Un paso mas hacia scripts verdaderamente cross-platform.
+
+### Comando biometric cross-platform (PR #18)
+
+**Contexto:** El comando `faceid` solo existia para iOS (AppleScript → menus del Simulador). Android no tenia soporte biometrico. Ademas, el nombre "faceid" era especifico de Apple.
+
+**Diseño:**
+- Nuevo comando generico `biometric` con 5 subcomandos: `enroll`, `unenroll`, `match`, `fail`, `status`
+- 5 metodos nuevos en el protocolo `DeviceBridge`: `biometricEnroll()`, `biometricUnenroll()`, `biometricMatch()`, `biometricFail()`, `biometricIsEnrolled()`
+- `faceid` se mantiene como alias legacy en el dispatcher
+
+**Implementacion iOS (SimulatorBridge):**
+- Misma mecanica que antes: AppleScript via System Events para controlar menus del Simulador
+- `enroll/unenroll`: toggle del menu item "Enrolled" bajo Features > Face ID
+- `match/fail`: click en "Matching Face" / "Non-matching Face"
+- `status`: lee `AXMenuItemMarkChar` para detectar si tiene checkmark
+
+**Implementacion Android (AdbLegacyBridge):**
+- `biometricEnroll()`: flujo completamente automatizado:
+  1. Verifica si ya esta enrollado (`biometricIsEnrolled()`) — idempotente
+  2. Configura PIN via `locksettings set-pin 1234`
+  3. Lanza `android.settings.BIOMETRIC_ENROLL`
+  4. Navega pantallas de consentimiento con taps automaticos
+  5. Simula 15 toques de fingerprint via `adb -e emu finger touch 1`
+- `biometricUnenroll()`: `locksettings clear --old 1234`
+- `biometricMatch()`: `adb -e emu finger touch 1`
+- `biometricFail()`: `adb -e emu finger touch 0`
+- `biometricIsEnrolled()`: verifica via `locksettings get-disabled` (false = PIN activo = fingerprint enrollado)
+
+**Tropiezos resueltos:**
+1. **PIN existente:** `locksettings set-pin` falla si ya hay PIN. Solucion: detectar y agregar `--old 1234`
+2. **Enroll idempotente:** Si ya esta enrollado, no repetir el flujo de 15 toques
+3. **Deteccion real de enrollment:** Inicialmente hardcodeado `true`, cambiado a usar `locksettings` para deteccion real via `dumpsys`
+
+**Script cross-platform:**
+```
+biometric enroll
+biometric status
+biometric match
+```
+Funciona identico en iOS y Android — mismo comando, diferente backend.
+
+**Archivos:**
+- `cli/Sources/AutoCore/DeviceBridge.swift` — 5 metodos nuevos en protocolo
+- `cli/Sources/AutoCore/CommandDispatcher.swift` — dispatch de `biometric` + alias `faceid`
+- `cli/Sources/AutoLibiOS/SimulatorBridge.swift` — implementacion iOS
+- `cli/Sources/AutoCore/AgentBridge.swift` — delega a AdbLegacyBridge
+- `cli/Sources/AutoCore/AdbLegacyBridge.swift` — implementacion Android completa
+- `scripts/examples/hardware-test.auto` — script de prueba cross-platform
+
+### PRs de la sesion (continuacion)
+
+| PR | Titulo | Estado |
+|---|---|---|
+| #15 | Fix editor Inspect Android | Mergeado |
+| #16 | Element index Android en editor | Mergeado |
+| #17 | Unificar labels de auth | Mergeado |
+| #18 | Comando biometric cross-platform | Mergeado |
