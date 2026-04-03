@@ -3,7 +3,7 @@
 #   auto run scripts/examples/login.auto
 #   auto-android run scripts/examples/login.auto
 
-launch shajaru.Test_Automatitacion
+launch dev.autopilot.test.Explorea
 waitFor "Explorea" 10
 screenshot /tmp/01-auth.png
 

@@ -12,40 +12,71 @@ ping
 `;
 
 const AUTO_COMMANDS = [
+  // Conexión
   { label: "ping", detail: "Verificar conexion" },
+  { label: "list", detail: "Listar dispositivos" },
+  { label: "boot", detail: "Encender dispositivo", insertText: 'boot "${1:iPhone 17 Pro}"' },
+  { label: "shutdown", detail: "Apagar dispositivo", insertText: 'shutdown "${1:device}"' },
+
+  // Inspección
   { label: "tree", detail: "Arbol de accesibilidad" },
   { label: "tree -s", detail: "Buscar elementos", insertText: 'tree -s "${1:query}"' },
+  { label: "exists", detail: "Verificar existencia", insertText: 'exists "${1:element}"' },
+  { label: "waitFor", detail: "Esperar elemento", insertText: 'waitFor "${1:element}" ${2:10}' },
+  { label: "elementAt", detail: "Elemento en coordenada", insertText: "elementAt ${1:x} ${2:y}" },
+  { label: "index", detail: "Listar elementos con $N (iOS)" },
+
+  // Interacción
   { label: "tap", detail: "Tap en elemento", insertText: 'tap "${1:element}"' },
-  { label: "tap (multi)", detail: "Tap varios elementos", insertText: "tap ${1:1,2,3,4,Confirmar}" },
+  { label: "tap (multi)", detail: "Tap varios elementos", insertText: "tap ${1:a,b,c}" },
   { label: "doubleTap", detail: "Doble tap", insertText: 'doubleTap "${1:element}"' },
   { label: "longPress", detail: "Presion larga", insertText: 'longPress "${1:element}" ${2:1}' },
   { label: "tapAt", detail: "Tap coordenadas", insertText: "tapAt ${1:x} ${2:y}" },
   { label: "type", detail: "Escribir texto", insertText: 'type "${1:text}"' },
+  { label: "type (en campo)", detail: "Tap campo + escribir", insertText: 'type "${1:campo}" "${2:texto}"' },
   { label: "clear", detail: "Limpiar campo", insertText: 'clear "${1:field}"' },
   { label: "swipe", detail: "Deslizar", insertText: "swipe ${1|up,down,left,right|}" },
   { label: "scroll", detail: "Scroll elemento", insertText: 'scroll "${1:element}" ${2|down,up|}' },
-  { label: "exists", detail: "Verificar existencia", insertText: 'exists "${1:element}"' },
-  { label: "waitFor", detail: "Esperar elemento", insertText: 'waitFor "${1:element}" ${2:10}' },
-  { label: "elementAt", detail: "Elemento en coordenada", insertText: "elementAt ${1:x} ${2:y}" },
+
+  // App
+  { label: "launch", detail: "Abrir app", insertText: "launch ${1:dev.autopilot.test.Explorea}" },
+  { label: "terminate", detail: "Cerrar app", insertText: "terminate ${1:dev.autopilot.test.Explorea}" },
+  { label: "install", detail: "Instalar app", insertText: "install ${1:/path/to/app}" },
+
+  // Timing
+  { label: "wait", detail: "Pausar N segundos", insertText: "wait ${1:2}" },
+  { label: "sleep", detail: "Alias de wait", insertText: "sleep ${1:1}" },
+
+  // Captura
   { label: "screenshot", detail: "Captura de pantalla", insertText: "screenshot ${1:file.png}" },
-  { label: "launch", detail: "Abrir app", insertText: "launch ${1:com.example.app}" },
-  { label: "terminate", detail: "Cerrar app", insertText: "terminate ${1:com.example.app}" },
-  { label: "install", detail: "Instalar app", insertText: "install ${1:/path/to/app.app}" },
-  { label: "boot", detail: "Encender simulador", insertText: 'boot "${1:iPhone 17 Pro}"' },
-  { label: "shutdown", detail: "Apagar simulador", insertText: 'shutdown "${1:iPhone 17 Pro}"' },
-  { label: "list", detail: "Listar simuladores" },
-  { label: "faceid enroll", detail: "Activar Face ID" },
-  { label: "faceid match", detail: "Face ID exitoso" },
-  { label: "faceid fail", detail: "Face ID fallido" },
-  { label: "faceid status", detail: "Estado Face ID" },
+
+  // Biometría
+  { label: "biometric enroll", detail: "Enrollar biometría (idempotente)" },
+  { label: "biometric unenroll", detail: "Des-enrollar biometría" },
+  { label: "biometric match", detail: "Biometría exitosa" },
+  { label: "biometric fail", detail: "Biometría fallida" },
+  { label: "biometric status", detail: "Estado biometría" },
+
+  // Cámara (iOS)
   { label: "camera start", detail: "Iniciar camara virtual", insertText: "camera start ${1:image.jpg}" },
   { label: "camera feed", detail: "Actualizar imagen", insertText: "camera feed ${1:image.jpg}" },
   { label: "camera stop", detail: "Detener camara" },
   { label: "camera status", detail: "Estado camara" },
-  { label: "build", detail: "Compilar con mock", insertText: "build -project ${1:App.xcodeproj} -scheme ${2:App} -sdk iphonesimulator -destination ${3:'id=XXXX'}" },
+  { label: "inject", detail: "Cambiar imagen mock", insertText: "inject ${1:image.jpg}" },
+
+  // Build (iOS)
+  { label: "build", detail: "Compilar con mock", insertText: "build -project ${1:App.xcodeproj} -scheme ${2:App}" },
+
+  // Media y datos
   { label: "media", detail: "Inyectar foto a galeria", insertText: "media ${1:photo.jpg}" },
   { label: "paste", detail: "Portapapeles", insertText: 'paste "${1:text}"' },
   { label: "openurl", detail: "Abrir URL", insertText: 'openurl "${1:miapp://ruta}"' },
+
+  // Config
+  { label: "config", detail: "Ver configuracion" },
+  { label: "config (set)", detail: "Configurar valor", insertText: "config ${1:bundle} ${2:dev.autopilot.test.Explorea}" },
+
+  // Script
   { label: "run", detail: "Ejecutar script", insertText: "run ${1:script.auto}" },
 ];
 
@@ -139,7 +170,7 @@ function App() {
           [/#.*$/, "comment"],
           [/"[^"]*"/, "string"],
           [/'[^']*'/, "string"],
-          [/\b(ping|tree|tap|doubleTap|longPress|type|clear|swipe|scroll|tapAt|elementAt|exists|waitFor|screenshot|launch|terminate|install|faceid|paste|openurl|media|build|camera|run|boot|shutdown|list)\b/, "keyword"],
+          [/\b(ping|tree|tap|doubleTap|longPress|type|clear|swipe|scroll|tapAt|elementAt|exists|waitFor|wait|sleep|screenshot|launch|terminate|install|biometric|faceid|paste|openurl|media|build|camera|inject|index|config|run|boot|shutdown|list)\b/, "keyword"],
           [/\b(enroll|match|fail|status|start|feed|stop|up|down|left|right)\b/, "type"],
           [/--env\b/, "annotation"],
           [/\b\d+\b/, "number"],

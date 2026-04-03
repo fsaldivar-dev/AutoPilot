@@ -1,4 +1,4 @@
-package shajaru.Test_Automatitacion
+package dev.autopilot.test.Explorea
 
 import android.Manifest
 import android.content.ClipData
