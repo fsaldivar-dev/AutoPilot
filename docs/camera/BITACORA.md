@@ -402,13 +402,12 @@ tap "Capturar"
 **5. Android — latencia de uiautomator dump (~2s)**
 - Cada `tap(target:)` requiere un dump completo del arbol UI para encontrar el elemento
 - Un script de 18 pasos toma ~24 segundos (vs ~5s en iOS)
-- El inspector del editor hace 3 llamadas secuenciales (screenshot + tree + index) = ~6s bloqueando la UI
-- **Sin resolver**: necesita cache del tree y/o llamadas paralelas
+- **Resuelto**: agente nativo con UiAutomation directa (3-6ms tree, ~150ms tap)
 
 **6. Android — inspector del editor no funciona bien**
 - El tree se genera pero el inspector freeze la app al intentar cargar
-- Probablemente por la combinacion de latencia + bloqueo de UI thread
-- **Sin resolver**: necesita ejecutar en background con indicador de carga
+- **Resuelto parcialmente**: screenshot + tree ahora corren en paralelo (threads Rust)
+- **Resuelto**: bug de closure en React — `useCallback` sin `platform` en dependencias causaba que Inspect siempre usara el binario iOS
 
 **7. Android — biometrico en emulador**
 - La app Explorea tiene codigo para biometrico + PIN, pero el emulador no tiene fingerprint enrollado
@@ -568,3 +567,19 @@ Después de validar el agente, conectamos el CLI `auto-android` al socket:
 | exists | ~2000ms | 306ms | 7x |
 
 **Tropiezo:** El socket Swift inicialmente hacia `shutdown(SHUT_WR)` después de enviar el comando, lo que cerraba la conexión antes de recibir respuestas grandes (como tree). Solución: leer hasta `\n` sin cerrar el write side.
+
+### Editor — Fix Inspect Android
+
+**Problema:** El botón Inspect del editor siempre ejecutaba `auto` (iOS) aunque el toggle mostraba Android. Error: "No simulator window found".
+
+**Causa raiz:** Bug de closure en React. `refreshTree` usaba `useCallback` con dependencias `[appendOutput]` pero sin `platform`. El closure capturaba `platform = "ios"` del primer render y nunca se actualizaba al cambiar el toggle.
+
+**Fix:**
+- `useCallback` de `refreshTree`: agregar `platform` a dependencias
+- `useCallback` de `runScript`: agregar `platform` a dependencias
+- Backend Rust: screenshot y tree ahora corren en paralelo (threads) para reducir latencia del Inspect
+- Debug logs via archivo (`/tmp/autopilot-debug.log`) porque `eprintln` no es visible en Tauri
+
+**Tropiezo adicional:** Cargo no recompilaba el editor después de editar `lib.rs` con Claude Code. El tool Edit no actualiza el mtime del archivo de forma que cargo lo detecte. Solución: `touch -t` con timestamp futuro para forzar recompilación.
+
+**Resultado:** Inspect funciona en Android — screenshot + tree en ~500ms (paralelo).
