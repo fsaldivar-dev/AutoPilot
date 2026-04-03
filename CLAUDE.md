@@ -84,7 +84,8 @@ docs/                    → Documentacion por modulo
 ### Swift (CLI)
 - `DeviceBridge` protocolo — 22 metodos que iOS y Android implementan
 - `SimulatorBridge` (iOS): AXUIElement + CGEvent + xcrun simctl
-- `AdbBridge` (Android): adb shell + uiautomator dump
+- `AgentBridge` (Android, default): socket TCP al agente nativo con UiAutomation directa
+- `AdbLegacyBridge` (Android, `--legacy`): adb shell + uiautomator dump (archivado para benchmarks)
 - `CommandDispatcher` — logica compartida de comandos
 - Errores tipados con `BridgeError` enum
 - `public` solo para lo que necesita el CLI, `private` para el resto
