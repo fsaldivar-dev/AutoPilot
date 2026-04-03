@@ -26,6 +26,7 @@ Documentamos todo el proceso — los errores, los callejones sin salida, las dec
 5. **[El editor](05-el-editor.md)** — De CLI a IDE visual con Tauri + Monaco
 6. **[Alternativas](06-alternativas.md)** — Maestro, Appium, AXe, XCUITest, idb: que hacen bien y por qué elegimos otro camino
 7. **[Decisiones](07-decisiones.md)** — ADRs: por qué Swift puro, por qué AX públicas, por qué no YAML
+8. **[Por qué es libre](08-por-que-es-libre.md)** — La deuda con el open source, el problema de la IA privatizada, y por qué documentamos los fracasos
 
 ### Apendices
 
