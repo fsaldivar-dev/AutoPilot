@@ -1,7 +1,7 @@
 # Android — Login flow en Explorea
 # Prueba: launch → auth con PIN → home → navegar tabs
 
-launch shajaru.Test_Automatitacion
+launch dev.autopilot.test.Explorea
 waitFor "Explorea" 10
 screenshot /tmp/01-auth-screen.png
 
