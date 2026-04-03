@@ -1,4 +1,4 @@
-# AutoPilot — Ingeniería de automatización iOS y Android desde macOS
+# AutoPilot — CLI de control de dispositivos iOS y Android
 
 > "Information is power. But like all power, there are those who want to keep it for themselves.
 > The world's entire scientific and cultural heritage [...] is increasingly being digitized and locked up
@@ -9,7 +9,7 @@
 
 Este no es un manual de usuario. Es la documentación técnica de una investigación.
 
-AutoPilot nació de una pregunta simple: ¿se puede controlar el Simulador iOS sin XCUITest, sin servidor, sin dependencias? La respuesta involucró APIs de accesibilidad de macOS, inyección de dylibs via DYLD_INSERT_LIBRARIES, swizzle de 25 métodos de AVFoundation, y 10 intentos de mockear una cámara que no existe.
+AutoPilot nació de una pregunta: ¿se puede controlar dispositivos iOS y Android desde la terminal sin servidores, test runners, ni dependencias pesadas? La respuesta involucró APIs de accesibilidad de macOS, un agente nativo Android con UiAutomation directa, inyección de dylibs, y 10 intentos de mockear una cámara que no existe.
 
 Documentamos todo el proceso — los errores, los callejones sin salida, las decisiones — para que cualquier ingeniero que enfrente problemas similares tenga un punto de partida. El conocimiento es libre.
 
@@ -19,10 +19,10 @@ Documentamos todo el proceso — los errores, los callejones sin salida, las dec
 
 ### El libro
 
-1. **[El problema](01-el-problema.md)** — Por qué la automatización iOS está rota y que observación lo cambió todo
-2. **[Arquitectura](02-arquitectura.md)** — Las 4 capas iOS + DeviceBridge: el protocolo que unifica iOS y Android
+1. **[El problema](01-el-problema.md)** — Por qué controlar dispositivos desde la terminal no debería ser tan difícil
+2. **[Arquitectura](02-arquitectura.md)** — AXUIElement (iOS) + UiAutomation (Android) + DeviceBridge: el protocolo que unifica ambos
 3. **[La cámara virtual](03-la-camara-virtual.md)** — 10 intentos, 9 fracasos, y lo que aprendimos de cada uno
-4. **[Inyección sin recompilar](04-inyeccion-sin-recompilar.md)** — DYLD_INSERT_LIBRARIES como herramienta de testing (un enfoque que nadie más usa)
+4. **[Inyección sin recompilar](04-inyeccion-sin-recompilar.md)** — DYLD_INSERT_LIBRARIES como herramienta de inyección de código (un enfoque que nadie más usa)
 5. **[El editor](05-el-editor.md)** — De CLI a IDE visual con Tauri + Monaco
 6. **[Alternativas](06-alternativas.md)** — Maestro, Appium, AXe, XCUITest, idb: que hacen bien y por qué elegimos otro camino
 7. **[Decisiones](07-decisiones.md)** — ADRs 1-8: Swift puro, AX públicas, no YAML, dos binarios + DeviceBridge
