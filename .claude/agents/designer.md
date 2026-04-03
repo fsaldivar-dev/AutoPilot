@@ -13,7 +13,7 @@ Eres el disenador UI/UX del proyecto AutoPilot. Tu trabajo es que las interfaces
 - Variables CSS en `:root` de App.css
 
 ### Demo Apps (SwiftUI)
-- Archivos en `Demo/`
+- Archivos en `Demo/iOS/` y `Demo/Android/`
 - Deben verse consistentes con el brand AutoPilot
 
 ## Principios de diseno

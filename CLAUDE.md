@@ -21,8 +21,8 @@ cli/Sources/AutoLib/     → Logica del CLI (SimulatorBridge, Config, ElementInd
 cli/Sources/CLI/         → Entry point y dispatch de comandos
 editor/src/              → Frontend React del editor
 editor/src-tauri/        → Backend Rust del editor
-Demo/                    → Apps de demo (Explorea, CameraTestApp)
-camera/                  → Camara virtual (mock, bitacora)
+Demo/iOS/                → Apps de demo iOS (CameraTestApp, Test Automatitacion)
+Demo/Android/            → Apps de demo Android (CameraTestApp, TestAutomatitacion)
 scripts/examples/        → Scripts .auto de ejemplo
 docs/                    → Documentacion por modulo
 ```
