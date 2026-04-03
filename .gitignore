@@ -36,5 +36,11 @@ build/
 !assets/**/*.png
 !docs/**/*.png
 
+# Android
+.gradle/
+local.properties
+*.apk
+*.aab
+
 # Compiled dylibs
 *.dylib
