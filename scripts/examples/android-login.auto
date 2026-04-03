@@ -1,0 +1,31 @@
+# Android — Login flow en Explorea
+# Prueba: launch → auth con PIN → home → navegar tabs
+
+launch shajaru.Test_Automatitacion
+waitFor "Explorea" 10
+screenshot /tmp/01-auth-screen.png
+
+# Auth — entrar a modo PIN e ingresar 1234
+tap "Desbloquear con PIN"
+waitFor "Ingresa tu PIN" 5
+tap "1"
+tap "2"
+tap "3"
+tap "4"
+screenshot /tmp/02-pin-entered.png
+
+# Home — ya autenticado
+waitFor "Inicio" 5
+screenshot /tmp/03-home.png
+
+# Filtrar por Aventura
+tap "Aventura"
+screenshot /tmp/04-filtered.png
+
+# Scroll en home
+swipe up
+screenshot /tmp/05-scrolled.png
+
+# Ir a Capturar
+tap "Capturar"
+screenshot /tmp/06-capture.png

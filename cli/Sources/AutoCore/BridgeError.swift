@@ -13,6 +13,8 @@ public enum BridgeError: Error, CustomStringConvertible {
     case simctlFailed(String)
     case deviceNotFound(String)
     case cameraImageNotFound(String)
+    case adbNotFound
+    case adbFailed(String)
 
     public var description: String {
         switch self {
@@ -28,6 +30,8 @@ public enum BridgeError: Error, CustomStringConvertible {
         case .simctlFailed(let msg): return "simctl failed: \(msg)"
         case .deviceNotFound(let name): return "Device not found: '\(name)'. Run: auto list"
         case .cameraImageNotFound(let p): return "Image not found: '\(p)'"
+        case .adbNotFound: return "ADB not found. Set ANDROID_HOME or add adb to PATH."
+        case .adbFailed(let msg): return "ADB failed: \(msg)"
         }
     }
 }
