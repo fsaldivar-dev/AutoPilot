@@ -472,6 +472,9 @@ public final class AdbLegacyBridge: DeviceBridge {
     /// Enrolla fingerprint en el emulador automáticamente.
     /// Configura PIN lockscreen + navega Settings + simula toques del sensor.
     public func biometricEnroll() throws {
+        // Skip if already enrolled
+        if try biometricIsEnrolled() { return }
+
         // 1. Set lock screen PIN (required for fingerprint)
         // Try without old PIN first, then with old PIN if already set
         let pinResult = try? runAdb(["shell", "locksettings", "set-pin", "1234"])
@@ -527,8 +530,16 @@ public final class AdbLegacyBridge: DeviceBridge {
     }
 
     public func biometricIsEnrolled() throws -> Bool {
-        // Check if lockscreen has a PIN set (heuristic for fingerprint enrollment)
-        let output = try runAdb(["shell", "locksettings", "get-disabled"])
-        return !output.contains("true")
+        // Check fingerprint count via dumpsys
+        let output = try runAdb(["shell", "dumpsys", "fingerprint"])
+        // Look for "count":N where N > 0
+        if let range = output.range(of: "\"count\":") {
+            let after = output[range.upperBound...]
+            let digits = after.prefix(while: { $0.isNumber })
+            if let count = Int(digits), count > 0 {
+                return true
+            }
+        }
+        return false
     }
 }
