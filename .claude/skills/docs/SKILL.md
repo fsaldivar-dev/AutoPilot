@@ -41,13 +41,19 @@ docs/
 ├── 05-el-editor.md              ← De CLI a IDE visual
 ├── 06-alternativas.md           ← Landscape honesto
 ├── 07-decisiones.md             ← ADRs: por qué Swift, por qué AX públicas
+├── 08-por-que-es-libre.md       ← La deuda con el open source
+├── 09-el-agente-android.md      ← De 2100ms a 75ms con agente nativo
+├── 10-paridad-android.md        ← (placeholder, se escribirá después de implementar paridad)
 ├── apendices/
-│   ├── comandos.md              ← Referencia CLI
+│   ├── comandos.md              ← Referencia CLI (~30 comandos, agrupados por categoría)
+│   ├── scripts.md               ← Guía de scripts .auto (sintaxis, patrones, errores)
 │   ├── variables-entorno.md     ← Inyección de datos
 │   ├── ci-cd.md                 ← GitHub Actions
 │   └── troubleshooting.md       ← Errores comunes
 └── roadmap.md                   ← Futuro
 ```
+
+> **Mantenimiento:** Cuando se agregan comandos nuevos al CLI, actualizar `apendices/comandos.md`. Cuando se cambia la sintaxis del parser, actualizar `apendices/scripts.md`.
 
 ## Reglas de distribución
 
