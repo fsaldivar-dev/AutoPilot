@@ -287,7 +287,7 @@ public func executeSharedCommand(_ args: [String], bridge: any DeviceBridge) thr
 
     case "biometric", "faceid":
         guard args.count >= 2 else {
-            print("Usage: auto biometric <enroll|match|fail|status>")
+            print("Usage: auto biometric <enroll|unenroll|match|fail|status>")
             return true
         }
         let ms: Int
@@ -295,7 +295,11 @@ public func executeSharedCommand(_ args: [String], bridge: any DeviceBridge) thr
         case "enroll":
             try bridge.biometricEnroll()
             ms = elapsedMs(start)
-            print("Biometric enrollment toggled (\(ms)ms)")
+            print("Biometric enrolled (\(ms)ms)")
+        case "unenroll":
+            try bridge.biometricUnenroll()
+            ms = elapsedMs(start)
+            print("Biometric unenrolled (\(ms)ms)")
         case "match":
             try bridge.biometricMatch()
             ms = elapsedMs(start)
@@ -309,7 +313,7 @@ public func executeSharedCommand(_ args: [String], bridge: any DeviceBridge) thr
             ms = elapsedMs(start)
             print("Enrolled: \(enrolled ? "YES" : "NO") (\(ms)ms)")
         default:
-            print("Unknown: \(args[1]). Use enroll/match/fail/status")
+            print("Unknown: \(args[1]). Use enroll/unenroll/match/fail/status")
         }
 
     default:
