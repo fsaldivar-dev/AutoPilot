@@ -1,0 +1,29 @@
+appId: dev.autopilot.test.Explorea
+---
+# Benchmark: Biometric flow (Maestro)
+# Maestro no tiene biometric nativo — usa runScript + xcrun simctl
+
+- runScript:
+    file: biometric-helpers.js
+    env:
+      ACTION: unenroll
+
+- runScript:
+    file: biometric-helpers.js
+    env:
+      ACTION: enroll
+
+- stopApp
+
+- launchApp
+
+- assertVisible:
+    text: "Desbloquear con biometría"
+    timeout: 10000
+
+- tapOn: "Desbloquear con biometría"
+
+- runScript:
+    file: biometric-helpers.js
+    env:
+      ACTION: match

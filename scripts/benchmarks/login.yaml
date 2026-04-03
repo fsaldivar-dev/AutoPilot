@@ -1,0 +1,31 @@
+appId: dev.autopilot.test.Explorea
+---
+# Benchmark: Login + navegacion (Maestro)
+# UI pura — terreno natural de Maestro
+
+- launchApp
+
+- assertVisible:
+    text: "Explorea"
+    timeout: 10000
+
+- tapOn: "Desbloquear con código"
+
+- assertVisible:
+    text: "Ingresa tu código"
+    timeout: 5000
+
+- tapOn: "1"
+- tapOn: "2"
+- tapOn: "3"
+- tapOn: "4"
+
+- assertVisible:
+    text: "Inicio"
+    timeout: 5000
+
+- tapOn: "Aventura"
+
+- swipe:
+    direction: UP
+    duration: 400
