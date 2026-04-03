@@ -530,16 +530,10 @@ public final class AdbLegacyBridge: DeviceBridge {
     }
 
     public func biometricIsEnrolled() throws -> Bool {
-        // Check fingerprint count via dumpsys
-        let output = try runAdb(["shell", "dumpsys", "fingerprint"])
-        // Look for "count":N where N > 0
-        if let range = output.range(of: "\"count\":") {
-            let after = output[range.upperBound...]
-            let digits = after.prefix(while: { $0.isNumber })
-            if let count = Int(digits), count > 0 {
-                return true
-            }
-        }
-        return false
+        // locksettings get-disabled returns "true" if no lock credential
+        // If there IS a lock credential (PIN), fingerprint is likely enrolled
+        // (because we set the PIN as part of biometric enrollment)
+        let output = try runAdb(["shell", "locksettings", "get-disabled"])
+        return output.trimmingCharacters(in: .whitespacesAndNewlines) == "false"
     }
 }
