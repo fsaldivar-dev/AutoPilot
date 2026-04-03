@@ -26,6 +26,7 @@ function makeActions(label: string, suffix: string) {
     { label: "longPress", icon: "✊", cmd: `longPress ${ref} 1` },
     { label: "type", icon: "⌨️", cmd: `type ${ref} "text"` },
     { label: "clear", icon: "🗑", cmd: `clear ${ref}` },
+    { label: "scroll", icon: "📜", cmd: `scroll ${ref} down` },
     { label: "waitFor", icon: "⏳", cmd: `waitFor ${ref} 10` },
     { label: "exists", icon: "❓", cmd: `exists ${ref}` },
   ];

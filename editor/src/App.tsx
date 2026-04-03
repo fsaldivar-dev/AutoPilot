@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from "react";
+import { useState, useRef, useCallback, useEffect } from "react";
 import Editor, { OnMount } from "@monaco-editor/react";
 import { invoke } from "@tauri-apps/api/core";
 import Inspector from "./Inspector";
@@ -24,7 +24,7 @@ const AUTO_COMMANDS = [
   { label: "exists", detail: "Verificar existencia", insertText: 'exists "${1:element}"' },
   { label: "waitFor", detail: "Esperar elemento", insertText: 'waitFor "${1:element}" ${2:10}' },
   { label: "elementAt", detail: "Elemento en coordenada", insertText: "elementAt ${1:x} ${2:y}" },
-  { label: "index", detail: "Listar elementos con $N (iOS)" },
+  { label: "index", detail: "Listar elementos con $N (iOS)", platform: "ios" as const },
 
   // Interacción
   { label: "tap", detail: "Tap en elemento", insertText: 'tap "${1:element}"' },
@@ -58,14 +58,14 @@ const AUTO_COMMANDS = [
   { label: "biometric status", detail: "Estado biometría" },
 
   // Cámara (iOS)
-  { label: "camera start", detail: "Iniciar camara virtual", insertText: "camera start ${1:image.jpg}" },
-  { label: "camera feed", detail: "Actualizar imagen", insertText: "camera feed ${1:image.jpg}" },
-  { label: "camera stop", detail: "Detener camara" },
-  { label: "camera status", detail: "Estado camara" },
-  { label: "inject", detail: "Cambiar imagen mock", insertText: "inject ${1:image.jpg}" },
+  { label: "camera start", detail: "Iniciar camara virtual", insertText: "camera start ${1:image.jpg}", platform: "ios" as const },
+  { label: "camera feed", detail: "Actualizar imagen", insertText: "camera feed ${1:image.jpg}", platform: "ios" as const },
+  { label: "camera stop", detail: "Detener camara", platform: "ios" as const },
+  { label: "camera status", detail: "Estado camara", platform: "ios" as const },
+  { label: "inject", detail: "Cambiar imagen mock", insertText: "inject ${1:image.jpg}", platform: "ios" as const },
 
   // Build (iOS)
-  { label: "build", detail: "Compilar con mock", insertText: "build -project ${1:App.xcodeproj} -scheme ${2:App}" },
+  { label: "build", detail: "Compilar con mock", insertText: "build -project ${1:App.xcodeproj} -scheme ${2:App}", platform: "ios" as const },
 
   // Media y datos
   { label: "media", detail: "Inyectar foto a galeria", insertText: "media ${1:photo.jpg}" },
@@ -105,6 +105,9 @@ function App() {
   const abortRef = useRef(false);
   const indexedRef = useRef<any[]>([]);
   const labelsRef = useRef<string[]>([]);
+  const platformRef = useRef<"ios" | "android">(platform);
+
+  useEffect(() => { platformRef.current = platform; }, [platform]);
 
   const appendOutput = useCallback((text: string) => {
     setOutput((prev) => prev + text + "\n");
@@ -184,8 +187,10 @@ function App() {
         const currentIndexed = indexedRef.current;
         const suggestions: any[] = [];
 
-        // 1. Commands
+        // 1. Commands (filtered by platform)
+        const currentPlatform = platformRef.current;
         for (const cmd of AUTO_COMMANDS) {
+          if (cmd.platform && cmd.platform !== currentPlatform) continue;
           suggestions.push({
             label: cmd.label,
             kind: monaco.languages.CompletionItemKind.Function,
