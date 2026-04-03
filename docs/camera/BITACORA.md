@@ -583,3 +583,13 @@ Después de validar el agente, conectamos el CLI `auto-android` al socket:
 **Tropiezo adicional:** Cargo no recompilaba el editor después de editar `lib.rs` con Claude Code. El tool Edit no actualiza el mtime del archivo de forma que cargo lo detecte. Solución: `touch -t` con timestamp futuro para forzar recompilación.
 
 **Resultado:** Inspect funciona en Android — screenshot + tree en ~500ms (paralelo).
+
+### Editor — Element index Android
+
+**Problema:** `get_element_index` devolvia `[]` para Android — sin autocomplete de `$N` en el editor.
+
+**Causa:** El CLI iOS genera indices con `auto index`, pero no existia equivalente en Android.
+
+**Solucion:** `index_from_tree()` en el backend Rust del editor. Genera indices `$N` directamente desde el arbol de accesibilidad. Resuelve nodos genericos "View" (tipicos de Compose) usando el texto de hijos, y omite contenedores sin informacion util (FrameLayout, LinearLayout en profundidad 0-1). Se integro en `get_element_index` e `inspect`.
+
+**Resultado:** Autocomplete de elementos `$N` funciona en Android. El inspector muestra indices clickeables para ambas plataformas.
