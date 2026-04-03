@@ -1,0 +1,28 @@
+# Login flow — Cross-platform (iOS + Android)
+# Mismo script funciona en ambas plataformas:
+#   auto run scripts/examples/login.auto
+#   auto-android run scripts/examples/login.auto
+
+launch shajaru.Test_Automatitacion
+waitFor "Explorea" 10
+screenshot /tmp/01-auth.png
+
+# Auth — entrar con código
+tap "Desbloquear con código"
+waitFor "Ingresa tu código" 5
+tap "1"
+tap "2"
+tap "3"
+tap "4"
+screenshot /tmp/02-code-entered.png
+
+# Home
+waitFor "Inicio" 5
+screenshot /tmp/03-home.png
+
+# Navegar
+tap "Aventura"
+screenshot /tmp/04-filtered.png
+
+swipe up
+screenshot /tmp/05-scrolled.png

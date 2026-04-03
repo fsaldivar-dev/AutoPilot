@@ -89,7 +89,7 @@ class AppState {
                 showPinFallback = false
             }
         } else {
-            authError = "PIN incorrecto"
+            authError = "Código incorrecto"
             pinCode = ""
             triggerHaptic(.error)
         }

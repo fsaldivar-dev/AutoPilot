@@ -45,7 +45,7 @@ struct ProfileView: View {
                     appState.logout()
                 }
             } message: {
-                Text("Tendras que autenticarte de nuevo con Face ID o tu PIN para acceder a tu diario.")
+                Text("Tendrás que autenticarte de nuevo con biometría o tu código para acceder a tu diario.")
             }
             .alert("Datos exportados", isPresented: $showExportAlert) {
                 Button("OK") {}

@@ -87,7 +87,7 @@ struct AuthView: View {
                                 appState.showPinFallback = true
                             }
                         } label: {
-                            Text("Usar PIN")
+                            Text("Usar código")
                                 .font(.subheadline.weight(.medium))
                                 .foregroundStyle(.white.opacity(0.8))
                         }
@@ -99,7 +99,7 @@ struct AuthView: View {
                                 appState.authError = nil
                             }
                         } label: {
-                            Text("Usar Face ID")
+                            Text("Usar biometría")
                                 .font(.subheadline.weight(.medium))
                                 .foregroundStyle(.white.opacity(0.8))
                         }
@@ -141,7 +141,7 @@ struct AuthView: View {
                     Image(systemName: "faceid")
                         .font(.title2)
                 }
-                Text("Desbloquear con Face ID")
+                Text("Desbloquear con biometría")
                     .font(.headline)
             }
             .foregroundStyle(.white)
@@ -161,7 +161,7 @@ struct AuthView: View {
         @Bindable var appState = appState
 
         return VStack(spacing: 20) {
-            Text("Ingresa tu PIN")
+            Text("Ingresa tu código")
                 .font(.headline)
                 .foregroundStyle(.white)
 
