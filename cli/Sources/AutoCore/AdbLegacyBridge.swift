@@ -1,8 +1,8 @@
 import Foundation
 
-/// Controls Android devices via ADB (Android Debug Bridge).
-/// Implements DeviceBridge for cross-platform automation.
-public final class AdbBridge: DeviceBridge {
+/// Legacy bridge: controls Android via adb shell commands (fork per command).
+/// Kept for benchmarks and as fallback. Use AgentBridge for production.
+public final class AdbLegacyBridge: DeviceBridge {
 
     private var selectedDeviceId: String?
     private var cachedAdbPath: String?

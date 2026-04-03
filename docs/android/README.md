@@ -10,33 +10,39 @@
 graph TB
     subgraph CLI["auto-android"]
         CMD[CommandDispatcher<br/>compartido con iOS]
-        BRIDGE[AdbBridge<br/>DeviceBridge protocol]
-        PARSER[UIAutomatorParser<br/>XML → tree]
+        AGENT_B[AgentBridge<br/>default — socket TCP]
+        LEGACY_B[AdbLegacyBridge<br/>--legacy — benchmarks]
     end
 
-    subgraph ADB["ADB Tools"]
-        INPUT["adb shell input<br/>tap, type, swipe"]
-        UIA["uiautomator dump<br/>Inspeccion de UI"]
-        AM["adb shell am<br/>Activity Manager"]
-        PM["adb shell pm<br/>Package Manager"]
-        SCREEN["screencap + pull<br/>Screenshots"]
+    subgraph Agent["Agente nativo (APK)"]
+        SOCKET[LocalServerSocket<br/>autopilot]
+        UIA_DIRECT[UiAutomation<br/>directa — 3-6ms tree]
+        INJECT[InputInjector<br/>injectInputEvent — 1-3ms]
+    end
+
+    subgraph ADB["ADB (fallback)"]
+        AM["adb shell am<br/>launch / terminate"]
+        SCREEN["screencap + pull<br/>screenshots"]
+        PM["adb shell pm<br/>install"]
     end
 
     subgraph Device["Emulador / Dispositivo"]
         APP["App Android"]
     end
 
-    CMD --> BRIDGE
-    BRIDGE --> INPUT
-    BRIDGE --> UIA
-    BRIDGE --> AM
-    BRIDGE --> PM
-    BRIDGE --> SCREEN
-    UIA --> PARSER
-    INPUT --> APP
+    CMD --> AGENT_B
+    CMD -.->|--legacy| LEGACY_B
+    AGENT_B --> SOCKET
+    SOCKET --> UIA_DIRECT
+    SOCKET --> INJECT
+    AGENT_B --> AM
+    AGENT_B --> SCREEN
+    AGENT_B --> PM
+    INJECT --> APP
     AM --> APP
 
     style CLI fill:#00D4FF,color:#000
+    style Agent fill:#FF6B6B,color:#fff
     style ADB fill:#3DDC84,color:#000
     style Device fill:#333,color:#fff
 ```
@@ -51,12 +57,12 @@ Todos los comandos del protocolo `DeviceBridge` estan disponibles:
 | `auto-android launch <pkg>` | `adb shell monkey -p <pkg> -c LAUNCHER 1` | **Funcional** |
 | `auto-android terminate <pkg>` | `adb shell am force-stop <pkg>` | **Funcional** |
 | `auto-android install <apk>` | `adb install -r <apk>` | **Funcional** |
-| `auto-android tree` | `uiautomator dump` → `UIAutomatorParser` | **Funcional** |
-| `auto-android tree -s "query"` | Busqueda recursiva en text/content-desc/resource-id | **Funcional** |
-| `auto-android tap "Login"` | dump → find element → center → `input tap x y` | **Funcional** |
-| `auto-android type "texto"` | `adb shell input text` con escaping | **Funcional** |
-| `auto-android swipe up` | `input swipe` 40% de pantalla desde centro | **Funcional** |
-| `auto-android longPress <el> 2` | `input swipe cx cy cx cy 2000` (mismo punto) | **Funcional** |
+| `auto-android tree` | Agente nativo → UiAutomation directa (**29ms**) | **Funcional** |
+| `auto-android tree -s "query"` | Agente tree + busqueda recursiva en Swift | **Funcional** |
+| `auto-android tap "Login"` | Agente: find + injectInputEvent (**123-286ms**) | **Funcional** |
+| `auto-android type "texto"` | Agente: KeyCharacterMap + injectInputEvent | **Funcional** |
+| `auto-android swipe up` | Agente: injectInputEvent (MotionEvent series) | **Funcional** |
+| `auto-android longPress <el> 2` | Agente: ACTION_DOWN + sleep + ACTION_UP | **Funcional** |
 | `auto-android screenshot x.png` | `screencap` → `pull` → `rm` | **Funcional** |
 | `auto-android exists "texto"` | dump + search, exit 0/1 | **Funcional** |
 | `auto-android waitFor "texto" 10` | Polling cada 500ms, timeout configurable | **Funcional** |
@@ -86,12 +92,12 @@ Esto permite que `TreePrinter.printAX()` y `CommandDispatcher` funcionen identic
 
 ## Diferencias con iOS
 
-| Aspecto | iOS (SimulatorBridge) | Android (AdbBridge) |
+| Aspecto | iOS (SimulatorBridge) | Android (AgentBridge) |
 |---|---|---|
-| Conexion | Proceso local (mismo Mac) | USB o TCP/IP via adb |
-| Inspeccion UI | Tiempo real (AX tree) | Snapshot (`uiautomator dump`, ~2s) |
-| Entrada | CGEvent (kernel, ~50ms) | `adb shell input` (~100ms) |
-| Latencia total de tap | ~90ms | ~2100ms (dump + find + tap) |
+| Conexion | Proceso local (AXUIElement) | Socket TCP → agente nativo (UiAutomation) |
+| Inspeccion UI | Tiempo real (AX tree, ~5ms) | Agente nativo (UiAutomation, ~29ms) |
+| Entrada | CGEvent (kernel, ~50ms) | injectInputEvent (~1-3ms) |
+| Latencia total de tap | ~90ms | ~150ms (find + inject via socket) |
 | Permisos | TCC Accesibilidad | USB debugging habilitado |
 | Camera mock | DYLD_INSERT_LIBRARIES | No implementado aun |
 | Clipboard read | `simctl pbpaste` | No soportado via ADB |
@@ -101,6 +107,9 @@ Esto permite que `TreePrinter.printAX()` y `CommandDispatcher` funcionen identic
 
 - Android SDK con `adb` en PATH (o `ANDROID_HOME` configurado)
 - Emulador corriendo o dispositivo con USB debugging habilitado
+- Agente instalado: `adb install agent/app/build/outputs/apk/debug/app-debug.apk`
+- Agente corriendo: `adb shell am instrument -w dev.autopilot.agent/.AgentInstrumentation &`
+- Socket forwarded: `adb forward tcp:9008 localabstract:autopilot`
 - No requiere root
 
 ## Ejemplo: Script .auto cross-platform
@@ -131,7 +140,9 @@ screenshot home.png
 
 ## Limitaciones actuales
 
-- `uiautomator dump` toma ~2 segundos por llamada — cada `tap(target:)` requiere un dump para encontrar el elemento. En scripts largos esto suma.
-- Clipboard read no tiene API directa en ADB. `setPasteboard` usa `input text` como workaround.
+- `screenshot` sigue pasando por `adb screencap + pull` (~1s). Pendiente agregar al protocolo del agente.
+- `launch`, `terminate`, `install` pasan por `adb shell` (no por el agente). Son operaciones infrecuentes, la latencia no es critica.
+- Clipboard read no tiene API directa. `setPasteboard` usa `input text` como workaround.
 - Camera mock no esta implementado en Android. La inyeccion via DYLD es exclusiva de macOS/iOS.
-- Algunos elementos de Compose no exponen texto en `uiautomator` — usar `content-desc` (accessibility label) como alternativa.
+- `findAccessibilityNodeInfosByText()` no funciona con Jetpack Compose — el agente usa busqueda recursiva manual.
+- Modo `--legacy` disponible para usar el bridge viejo (`uiautomator dump`, ~2s por tap) para benchmarks.
