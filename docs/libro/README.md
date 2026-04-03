@@ -27,6 +27,7 @@ Documentamos todo el proceso — los errores, los callejones sin salida, las dec
 6. **[Alternativas](06-alternativas.md)** — Maestro, Appium, AXe, XCUITest, idb: que hacen bien y por qué elegimos otro camino
 7. **[Decisiones](07-decisiones.md)** — ADRs 1-8: Swift puro, AX públicas, no YAML, dos binarios + DeviceBridge
 8. **[Por qué es libre](08-por-que-es-libre.md)** — La deuda con el open source, el problema de la IA privatizada, y por qué documentamos los fracasos
+9. **[El agente Android](09-el-agente-android.md)** — De 2100ms a 75ms: un APK de instrumentación que habla directo con UiAutomation
 
 ### Apendices
 

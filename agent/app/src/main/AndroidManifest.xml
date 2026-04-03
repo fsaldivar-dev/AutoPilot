@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <instrumentation
+        android:name=".AgentInstrumentation"
+        android:targetPackage="dev.autopilot.agent" />
+
+    <application
+        android:label="AutoPilot Agent" />
+
+</manifest>

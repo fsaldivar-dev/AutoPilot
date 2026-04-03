@@ -62,6 +62,7 @@ Documentamos todo el proceso — los errores, los callejones sin salida, las dec
 | [05 — El editor](docs/libro/05-el-editor.md) | De CLI a IDE visual con Tauri + Monaco |
 | [06 — Alternativas](docs/libro/06-alternativas.md) | Maestro, Appium, AXe, XCUITest — análisis honesto |
 | [07 — Decisiones](docs/libro/07-decisiones.md) | Por qué Swift, por qué AX públicas, por qué no YAML |
+| [09 — El agente Android](docs/libro/09-el-agente-android.md) | De 2100ms a 75ms con UiAutomation directa |
 
 > **[Leer el libro completo →](docs/libro/README.md)**
 
