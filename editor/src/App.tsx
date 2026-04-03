@@ -24,7 +24,8 @@ const AUTO_COMMANDS = [
   { label: "exists", detail: "Verificar existencia", insertText: 'exists "${1:element}"' },
   { label: "waitFor", detail: "Esperar elemento", insertText: 'waitFor "${1:element}" ${2:10}' },
   { label: "elementAt", detail: "Elemento en coordenada", insertText: "elementAt ${1:x} ${2:y}" },
-  { label: "index", detail: "Listar elementos con $N (iOS)", platform: "ios" as const },
+  { label: "index", detail: "Listar elementos con $N" },
+  { label: "inspect", detail: "Inspeccionar elemento", insertText: 'inspect "${1:query}"' },
 
   // Interacción
   { label: "tap", detail: "Tap en elemento", insertText: 'tap "${1:element}"' },
@@ -173,7 +174,7 @@ function App() {
           [/#.*$/, "comment"],
           [/"[^"]*"/, "string"],
           [/'[^']*'/, "string"],
-          [/\b(ping|tree|tap|doubleTap|longPress|type|clear|swipe|scroll|tapAt|elementAt|exists|waitFor|wait|sleep|screenshot|launch|terminate|install|biometric|faceid|paste|openurl|media|build|camera|inject|index|config|run|boot|shutdown|list)\b/, "keyword"],
+          [/\b(ping|tree|tap|doubleTap|longPress|type|clear|swipe|scroll|tapAt|elementAt|exists|waitFor|wait|sleep|screenshot|launch|terminate|install|biometric|faceid|paste|openurl|media|build|camera|inject|index|inspect|config|run|boot|shutdown|list)\b/, "keyword"],
           [/\b(enroll|match|fail|status|start|feed|stop|up|down|left|right)\b/, "type"],
           [/--env\b/, "annotation"],
           [/\b\d+\b/, "number"],
