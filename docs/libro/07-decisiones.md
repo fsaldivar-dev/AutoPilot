@@ -17,6 +17,7 @@ Este capítulo documenta las decisiones arquitectonicas de AutoPilot en formato 
 | 5 | Tauri, no Electron | Aceptada |
 | 6 | DYLD_INSERT_LIBRARIES vs force_load | Aceptada |
 | 7 | ObjC swizzle con #undef AV_INIT_UNAVAILABLE | Aceptada |
+| 8 | Dos binarios + protocolo DeviceBridge | Aceptada |
 
 ---
 
@@ -272,17 +273,61 @@ Lo que perdemos:
 
 ---
 
-## Reflexion
+## ADR 8: Dos binarios + protocolo DeviceBridge
 
-Estas siete decisiones definen lo que AutoPilot es y lo que no es.
+**Fecha:** 2026-04-02
+**Estado:** Aceptada
 
-Es un CLI Swift nativo que habla directamente con macOS. No es cross-platform. Es un formato de scripting minimalista que prioriza legibilidad sobre poder. No es un lenguaje de programacion. Es un hack de ObjC runtime que inyecta una cámara que no existe. No es una solución elegante.
+**Contexto:** AutoPilot nació como herramienta iOS. Toda la lógica vivía en `SimulatorBridge` — una clase de ~1100 líneas que mezclaba APIs de macOS (`AXUIElement`, `CGEvent`, `NSWorkspace`) con lógica de automatización genérica (buscar elementos, hacer tap, parsear árboles). Cuando decidimos soportar Android, teníamos tres caminos.
 
-Cada decision tiene consecuencias que aceptamos con los ojos abiertos. Algunas las revisaremos — `.auto` probablemente necesitara variables y condicionales eventualmente, y Tauri podria no ser la respuesta correcta a largo plazo. Otras son permanentes — Swift y AXUIElement son la base sobre la que todo lo demas se construye.
+**Opciones:**
 
-Lo que importa no es que cada decision sea optima. Lo que importa es que cada decision este documentada con su contexto, sus alternativas y sus tradeoffs. Para nosotros en seis meses, y para cualquier ingeniero que se pregunte "¿por qué no usaron XCUITest?" o "¿por qué no Electron?".
+1. **Un solo binario con flag `--platform`** — Detectar automáticamente o recibir `--platform ios|android`. Un solo ejecutable que carga el backend correcto. El problema: el binario iOS importa `AppKit`, `ApplicationServices`, `CoreGraphics`. Compilar todo junto significa que el binario Android arrastra frameworks de macOS que nunca usa. No es un problema de funcionalidad, pero sí de limpieza arquitectónica.
 
-La respuesta siempre esta aqui.
+2. **Refactor completo con abstracción primero** — Extraer un protocolo, refactorizar `SimulatorBridge`, crear `AndroidBridge`, unificar el dispatcher, todo en un solo paso. El riesgo: romper iOS mientras construyes Android. El refactor toca cada archivo del CLI.
+
+3. **Dos binarios separados sobre un protocolo compartido** — Extraer `DeviceBridge` (protocolo con 22 métodos) en un módulo `AutoCore` compartido. Mover el código iOS a `AutoLibiOS`. Cada binario importa solo lo que necesita. El script `.auto` funciona igual en ambos — cambias el binario, no el script.
+
+**Decisión:** Opción 3. Dos binarios (`auto` y `auto-android`) sobre un protocolo compartido (`DeviceBridge`) en `AutoCore`.
+
+```
+cli/Sources/
+├── AutoCore/       ← DeviceBridge, AdbBridge, CommandDispatcher, ScriptParser
+├── AutoLibiOS/     ← SimulatorBridge, ElementIndex, TargetResolver, AXDebug
+├── CLI/            ← binario `auto` (importa AutoCore + AutoLibiOS)
+└── CLIAndroid/     ← binario `auto-android` (importa solo AutoCore)
+```
+
+La clave fue que `AdbBridge` no necesita ningún framework de macOS — solo `Foundation` + `Process()` para ejecutar `adb`. Vive en `AutoCore` junto con el protocolo, el parser de scripts, el config, y el `CommandDispatcher` que maneja los ~20 comandos genéricos (tap, tree, swipe, screenshot, etc.).
+
+Cada `main.swift` maneja sus comandos específicos de plataforma (iOS: ping, faceid, camera, build, inject, inspect; Android: ping con info de device) y delega el resto al dispatcher compartido.
+
+**Consecuencias:**
+
+Lo que ganamos:
+- iOS sigue funcionando exactamente igual — cero regresión. El refactor fue incremental: primero mover archivos, después agregar Android.
+- `auto-android` compila sin `AppKit` ni `ApplicationServices`. Es un binario limpio que solo depende de `Foundation` + `adb`.
+- El `CommandDispatcher` compartido evita duplicar la lógica de 20+ comandos. Agregar un comando nuevo en el protocolo lo hace disponible en ambas plataformas automáticamente.
+- Los scripts `.auto` son portables. `launch com.example.app` / `tap "Login"` / `screenshot result.png` funcionan igual en iOS y Android.
+
+Lo que perdemos:
+- Dos binarios significan dos instalaciones. El usuario necesita saber cuál usar. No hay auto-detección.
+- Algunos comandos iOS (tap con `$N` index, tap con `[N]` occurrence) no están en el protocolo — son extensiones que usan `AXUIElement` directamente. Android no tiene equivalente todavía.
+- `uiautomator dump` es lento (~2s). Cada `tap(target:)` en Android requiere un dump completo del árbol. iOS hace búsqueda en tiempo real via `AXUIElement`. La diferencia de latencia es notable: ~90ms iOS vs ~2100ms Android.
+
+---
+
+## Reflexión
+
+Estas ocho decisiones definen lo que AutoPilot es y lo que no es.
+
+Es un CLI Swift nativo que habla con macOS y con Android via ADB. Es un protocolo compartido que abstrae las diferencias entre plataformas sin esconder la complejidad. Es un formato de scripting minimalista que prioriza legibilidad sobre poder. Es un hack de ObjC runtime que inyecta una cámara que no existe.
+
+Cada decisión tiene consecuencias que aceptamos con los ojos abiertos. Algunas las revisaremos — `.auto` probablemente necesitará variables y condicionales eventualmente, la latencia de Android necesita optimización, y el editor Tauri aún no conoce Android. Otras son permanentes — Swift, AXUIElement y el protocolo `DeviceBridge` son la base sobre la que todo lo demás se construye.
+
+Lo que importa no es que cada decisión sea óptima. Lo que importa es que cada decisión esté documentada con su contexto, sus alternativas y sus tradeoffs. Para nosotros en seis meses, y para cualquier ingeniero que se pregunte "¿por qué dos binarios?" o "¿por qué no un flag --platform?".
+
+La respuesta siempre está aquí.
 
 ---
 
