@@ -669,3 +669,210 @@ Funciona identico en iOS y Android — mismo comando, diferente backend.
 | #16 | Element index Android en editor | Mergeado |
 | #17 | Unificar labels de auth | Mergeado |
 | #18 | Comando biometric cross-platform | Mergeado |
+
+---
+
+## Sesion 2026-03-28 a 2026-04-02 — Paridad Android y benchmarks iniciales
+
+### Objetivo
+
+Cerrar la brecha de paridad entre iOS y Android: `Label[2]`, `index`, `inspect` en Android. Paralelamente, levantar la infraestructura de benchmarks para medir AutoPilot vs Maestro vs WDA de forma objetiva.
+
+### Android CLI parity (PR #27)
+
+**Brecha identificada:** El agente nativo resolvio la velocidad, pero faltaban features que iOS tenia:
+- `tap "Camera[2]"` — segundo elemento con ese label (iOS: implementado en SimulatorBridge)
+- `auto index` — lista elementos con indices `$N`
+- `auto inspect` — screenshot + tree + index en una sola llamada
+
+**Implementacion de Label[N]:**
+- `TargetResolver` (iOS) buscaba elementos por label, tomaba el N-esimo match
+- En Android, la logica equivalente se movio a `AutoCore/` como `TargetResolverShared`
+- `ElementIndex` tambien se movio a `AutoCore/` como `ElementIndexShared`
+- Resultado: el mismo codigo de matching corre en iOS y Android
+
+**Observacion sobre `index` en Android:**
+El comando `auto-android index` no existe como binario — los indices `$N` se generan en el editor (Rust, `index_from_tree()`), no en el CLI. Razon: el arbol de Android tiene nodos genericos ("View" en Compose) que el CLI no sabe resolver sin heuristicas que ya viven en Rust. Eventualmente `auto-android index` deberia existir, pero no era prioritario.
+
+**Autocomplete y snippets (PR #28):**
+Despues de implementar los comandos, actualizamos la documentacion de referencia: `docs/libro/apendices/comandos.md` y `docs/libro/apendices/scripts.md`. El autocomplete del editor tenia todos los snippets iOS pero faltaban los nuevos de Android.
+
+**Tropiezo — `inspect` faltaba en autocomplete Android (PR #29):**
+El autocomplete tenia una lista de comandos por plataforma. `inspect` se agrego a iOS pero no a Android. Error silencioso — el usuario simplemente no veia el snippet. Fix: una linea en App.tsx agregando `inspect` a la lista Android. Trivial, pero refleja un patron: cada vez que se agrega un comando nuevo hay que actualizarlo en tres lugares (CLI, editor autocomplete, documentacion).
+
+### Fix editor — quoted commands (PR #31)
+
+**Bug:** El Inspector generaba `tap Login` cuando el label era "Login". Funcionaba porque es una palabra. Pero con labels multi-palabra — "Usar código", "Log In" — generaba `tap Usar código` que el CLI parseaba como `tap` con argumento `Usar` (ignorando el resto).
+
+**Descubrimiento durante el fix:**
+Al revisar el codigo del Inspector, encontramos un thread leak. Cuando el usuario hacia click en Inspect y la operacion tardaba mas de 3 segundos (timeout del CLI), el thread de Rust que esperaba la respuesta quedaba colgado. En la siguiente llamada a Inspect se lanzaba otro thread, y otro, hasta que el editor se volvia lento.
+
+**Fix combinado:**
+1. El editor ahora envuelve labels en comillas dobles si contienen espacios: `tap "Usar código"`
+2. El thread de Rust ahora cancela correctamente en timeout via channel + select
+
+**Archivos:**
+- `editor/src-tauri/src/lib.rs` — thread cleanup en timeout
+- `editor/src/Inspector.tsx` — quoting de labels con espacios
+
+---
+
+## Sesion 2026-04-03 — Clipboard real + Camera mock Android (PR #32)
+
+### Contexto
+
+Con el agente nativo funcionando y la paridad de comandos UI completa, quedaban dos features que Android no tenia vs iOS:
+
+1. **Clipboard real:** iOS tiene `auto paste` que lee/escribe el pasteboard del simulador. Android tenia solo `setPasteboard` como workaround con `adb shell input text` (escribe texto pero no es clipboard real).
+2. **Camera mock:** iOS tiene el flujo completo de DYLD_INSERT_LIBRARIES + dylib ObjC. Android no tenia nada.
+
+### Clipboard en Android: el problema oculto
+
+**Primera idea:** Llamar `ClipboardManager.getText()` en el agente.
+
+**Problema:** Android 10 (API 29) introdujo una restriccion de privacidad: apps en background no pueden leer el clipboard. El agente corre como proceso de instrumentacion — tecnicamente en background desde la perspectiva del sistema. `ClipboardManager.getPrimaryClip()` retorna `null`.
+
+**Solucion implementada:**
+- `setClipboard`: escribe via `ClipboardManager` desde el main thread (requiere `Handler(Looper.getMainLooper()).post { ... }`) — esto si funciona porque es un write, no un read
+- `getClipboard`: en vez de leer el clipboard real, el agente cachea el ultimo valor escrito y lo devuelve
+
+**Trade-off documentado:** `getClipboard` solo devuelve lo que AutoPilot escribio. Si la app escribio algo al clipboard via su propia logica, el agente no lo ve. Para testing de flujos donde AutoPilot controla toda la escritura, esto es suficiente.
+
+**Resultado:** `paste "hello 🚀"` → read back ✓. Latencia: ~12ms.
+
+### Camera mock Android: tres intentos
+
+#### Intento 1 — JVMTI agent en C (`agent/camera-mock-native/`)
+
+**Idea:** Usar la API JVMTI (Java Virtual Machine Tool Interface) para inyectar codigo en el proceso de la app sin modificarla. Un `.so` nativo carga un DEX via `DexClassLoader`, que a su vez hookea los metodos de Camera2.
+
+**Implementacion:** `agent.c` — 150 lineas. `attach-agent` via `adb shell cmd activity`. Compilo. El agente cargaba en el proceso.
+
+**Problema:** JVMTI puede interceptar llamadas a metodos Java, pero Camera2 en Jetpack Compose no pasa por metodos Java normales — usa el Camera HAL directamente via NDK (`ACameraManager`, `ACameraDevice`). Los hooks de JVMTI no alcanzan el nivel NDK.
+
+**Resultado:** El agente carga, no hace nada util para Camera2/CameraX en Compose.
+
+#### Intento 2 — Kotlin instrumentation (`agent/camera-mock-kotlin/`)
+
+**Idea:** Usar el agente de instrumentacion (que ya tenemos corriendo) para hookear las clases de Camera2 via reflexion. Cuatro archivos: `CameraHooks.kt` (hooks), `ImageWatcher.kt` (file watcher), `PreviewRenderer.kt` (renderiza imagen en TextureView), `ViewScanner.kt` (busca el TextureView de la camara en el arbol de vistas).
+
+**Problema:** Timing. El agente de instrumentacion inicia antes que la app, pero los hooks se instalan despues de que `CameraActivity` ya inicializo `CameraX`. Para el momento en que `CameraHooks.install()` corre, `ProcessCameraProvider` ya entrego la camara a la app. Los hooks no interceptan una sesion ya activa.
+
+**Alternativa intentada:** Reiniciar la sesion de camara programaticamente desde el agente. Fallida: `ProcessCameraProvider` es un singleton gestionado por la app, no por el agente. Llamar `unbindAll()` desde fuera crashea.
+
+**Resultado:** Compilado, no funciona en practica.
+
+#### Solucion final — socket + base64 + cooperacion de la app
+
+**Cambio de filosofia:** En iOS, DYLD_INSERT_LIBRARIES hookea la app sin que la app sepa. En Android, ese nivel de transparencia no es alcanzable sin root o debug builds especiales que no escalan. La solucion pragmatica: la app coopera.
+
+**Mecanismo:**
+1. `auto-android camera start foto.jpg` — el CLI lee la imagen, la convierte a base64, la envia al agente via socket
+2. El agente escribe la imagen en `context.filesDir/autopilot-camera.jpg`
+3. La app demo (`CameraTestApp`) tiene logica: si existe `filesDir/autopilot-camera.jpg`, usa ese path como fuente en vez de la camara real
+
+**Resultado:**
+```
+camera start (37ms) → status ACTIVE → feed (nueva imagen, 28ms) → stop → INACTIVE ✓
+```
+
+**Comparacion con iOS:**
+| | iOS | Android |
+|---|---|---|
+| Transparencia | Total (DYLD hookea sin modificar la app) | Parcial (la app demo tiene logica especial) |
+| Requiere recompilar | Solo una vez con flag de build | No (la logica ya esta en la app demo) |
+| Funciona con apps de terceros | Si (con el flag de build) | No |
+
+**Estado:** Funcional para la app demo. Para apps de terceros en Android, no hay solucion sin root.
+
+### Archivos nuevos/modificados (PR #32)
+
+```
+agent/app/SocketServer.kt              — handleCamera, handleClipboard
+agent/camera-mock-kotlin/              — intento 2 (archivado, no eliminado)
+agent/camera-mock-native/              — intento 1 (archivado, no eliminado)
+cli/Sources/AutoCore/AgentBridge.swift — cameraStart/Feed/Stop/Status, setPasteboard/getPasteboard
+cli/Sources/CLIAndroid/main.swift      — subcomando camera con help
+editor/src/App.tsx                     — camera commands disponibles en Android (no solo iOS)
+```
+
+---
+
+## Sesion 2026-04-04 — Benchmark suite AutoPilot vs Maestro vs WDA (PR #33)
+
+### Motivacion
+
+Teniamos la intuicion de que AutoPilot era mas rapido que las alternativas, pero no lo habiamos medido. Ademas, la razon no era obvia: ¿es la arquitectura? ¿el stack? ¿o simplemente que nuestros scripts de prueba estaban optimizados para AutoPilot?
+
+### Setup de herramientas
+
+**Maestro:**
+- `brew install mobile-dev-inc/tap/maestro` — 800MB de JVM + el CLI
+- Requiere Android o iOS. iOS via Xcode Simulator.
+- `MAESTRO_CLI_NO_ANALYTICS=1` para evitar telemetria
+
+**WDA (WebDriverAgent) via Appium:**
+- `npm install -g appium @appium/xcuitest-driver`
+- Iniciar WDA: `appium --port 8100`
+- Requiere que el `XCTestAgent` corra en el Simulador (proceso separado)
+- Primer boot tarda 2 minutos — compilar el runner
+
+**Tropiezo — regex de iOS version:**
+El script usaba `xcrun simctl list` y parseaba la version con `iOS (\d+\.\d+)`. En Xcode 16+ la version aparece como `iOS 26-0` (con guion, no punto). El regex fallo silenciosamente — el simulador se detectaba como "sin version". Fix: `iOS (\d+[-.\d]*)`.
+
+**Tropiezo — WDA y el port forward:**
+Cada vez que el Simulador se reiniciaba habia que re-hacer `iproxy 8100 8100`. El script originalmente no lo manejaba. Se agrego un check: si `curl localhost:8100/status` falla, el script reporta el error con instrucciones en vez de fallar misteriosamente.
+
+### Metodologia
+
+**Principio:** Mismo flujo en las 3 herramientas. Mismo script logicamente — lanzar app, esperar splash, tap "Usar codigo", escribir PIN (4 digitos), confirmar, esperar home, tap en categoria, scroll.
+
+| Herramienta | Formato | Script |
+|---|---|---|
+| AutoPilot | `.auto` | `tests/login.auto` |
+| Maestro | YAML | `tests/login.yaml` |
+| WDA/Appium | JavaScript | `tests/login.js` |
+
+**Medicion:** `date +%s%N` antes y despues de cada ejecucion. Tiempo de proceso completo, no solo UI. 3 runs por herramienta, promedio.
+
+**Screenshots como evidencia:** Cada herramienta captura screenshots en los mismos puntos del flujo (step1-step4). Se usan en el dashboard HTML.
+
+### Resultados (iPhone 16 Pro, iOS 26.3)
+
+| Test | AutoPilot | Maestro | WDA |
+|---|---|---|---|
+| Login | **10.2s** | 26.1s | 11.7s |
+| Biometric | **7.6s** | N/A | 10.7s |
+
+Maestro no puede hacer biometric — su sandbox JavaScript no tiene acceso a `simctl` ni AppleScript.
+
+### Por que Maestro es 2.5x mas lento
+
+La primera hipotesis fue el stack JVM. Pero mirando los logs de Maestro en verbose, el tiempo real esta en los waits: cada tap incluye un `wait-for-idle` de ~2 segundos antes de proceder. 5 taps = ~10 segundos extra. Esto es una decision de diseno deliberada — Maestro prioriza estabilidad sobre velocidad. En ambientes con animaciones lentas o servers lentos, ese wait salva carreras.
+
+AutoPilot usa `AXObserver` para detectar quietud de UI en vez de un sleep fijo. Si la UI se estabiliza en 200ms, el siguiente paso empieza en 200ms.
+
+### El dashboard
+
+`scripts/benchmark-suite/report/comparison-dashboard.html` — React + htm (sin Babel, sin build step). 6 tabs:
+1. **Overview** — resultados y metodologia
+2. **APIs** — 37 capacidades comparadas por herramienta
+3. **Arquitectura** — diagramas de las capas
+4. **Timeline** — animacion con screenshots reales capturados en el run
+5. **Scripts** — los 3 scripts con syntax highlighting
+6. **Roadmap** — que falta medir
+
+**Tropiezo — syntax highlighting con regex:**
+Monaco no esta disponible en el HTML estatico. Implementamos highlighting manual con regex. El problema: la regex de keywords colisionaba con la regex de strings — un keyword dentro de un string se resaltaba. Solucion: placeholder trick: primero se reemplaza el contenido de strings por placeholders `§0`, `§1`, luego se aplica la regex de keywords, luego se restauran los strings.
+
+### PRs de la sesion
+
+| PR | Titulo | Estado |
+|---|---|---|
+| #27 | Android CLI parity (Label[N], index, inspect) | Mergeado |
+| #28 | Docs: referencia de comandos + tutorial scripts | Mergeado |
+| #29 | Fix: inspect en autocomplete Android | Mergeado |
+| #30 | Fix: benchmark regex para iOS-26 | Mergeado |
+| #31 | Fix: Inspector quoted commands + thread cleanup | Mergeado |
+| #32 | Feat: Android clipboard real + camera mock | Mergeado |
+| #33 | Feat: Benchmark suite AutoPilot vs Maestro vs WDA | Mergeado |
