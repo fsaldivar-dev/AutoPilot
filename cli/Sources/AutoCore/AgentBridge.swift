@@ -241,43 +241,133 @@ public final class AgentBridge: DeviceBridge {
         throw BridgeError.adbFailed("Invalid clipboard response")
     }
 
-    // MARK: - Camera mock (via agent socket)
+    // MARK: - Camera mock (JVMTI agent injection)
 
-    public func cameraStart(imagePath: String) throws {
-        let data = try loadImageData(path: imagePath)
-        let base64 = data.base64EncodedString()
-        let _ = try sendCommand("camera", params: ["action": "start", "image": base64])
-    }
+    private static let deviceTmpDir = "/data/local/tmp"
+    private static let agentSoName = "libcameramock.so"
+    private static let agentDexName = "autopilot-camera-mock.dex"
+    private static let mockImageName = "camera.jpg"
 
-    public func cameraFeed(imagePath: String) throws {
-        let data = try loadImageData(path: imagePath)
-        let base64 = data.base64EncodedString()
-        let _ = try sendCommand("camera", params: ["action": "feed", "image": base64])
-    }
-
-    public func cameraStop() throws {
-        let _ = try sendCommand("camera", params: ["action": "stop"])
-    }
-
-    public func cameraStatus() throws -> (active: Bool, path: String?) {
-        let result = try sendCommand("camera", params: ["action": "status"])
-        guard let dict = result as? [String: Any] else {
-            return (active: false, path: nil)
+    /// Validate Android package name to prevent shell injection.
+    private func validatePackage(_ pkg: String) throws -> String {
+        let allowed = CharacterSet.alphanumerics.union(CharacterSet(charactersIn: "._"))
+        guard !pkg.isEmpty,
+              pkg.unicodeScalars.allSatisfy({ allowed.contains($0) }),
+              pkg.contains(".") else {
+            throw BridgeError.adbFailed("Invalid package name: \(pkg)")
         }
-        let active = dict["active"] as? Bool ?? false
-        let path = dict["path"] as? String
-        return (active: active, path: path)
+        return pkg
     }
 
-    private func loadImageData(path: String) throws -> Data {
-        var resolvedPath = path
-        if !resolvedPath.hasPrefix("/") {
-            resolvedPath = FileManager.default.currentDirectoryPath + "/" + resolvedPath
+    /// Start camera mock: deploy agent + image, attach to running app.
+    public func cameraStart(imagePath: String, package: String) throws {
+        let pkg = try validatePackage(package)
+        let resolvedImage = resolvePath(imagePath)
+        guard FileManager.default.fileExists(atPath: resolvedImage) else {
+            throw BridgeError.adbFailed("Image not found: \(resolvedImage)")
         }
-        guard FileManager.default.fileExists(atPath: resolvedPath) else {
-            throw BridgeError.adbFailed("Image not found: \(resolvedPath)")
+
+        // Find bundled agent files next to the CLI binary
+        let agentDir = try findAgentBuildDir()
+        let soPath = agentDir + "/\(Self.agentSoName)"
+        let dexPath = agentDir + "/\(Self.agentDexName)"
+
+        guard FileManager.default.fileExists(atPath: soPath) else {
+            throw BridgeError.adbFailed("Agent .so not found: \(soPath). Run agent/camera-mock-native/build.sh first.")
         }
-        return try Data(contentsOf: URL(fileURLWithPath: resolvedPath))
+        guard FileManager.default.fileExists(atPath: dexPath) else {
+            throw BridgeError.adbFailed("Agent .dex not found: \(dexPath). Run agent/camera-mock-kotlin/build.sh first.")
+        }
+
+        // 1. Push files to /data/local/tmp/
+        try legacy.runAdbPublic(["push", soPath, "\(Self.deviceTmpDir)/\(Self.agentSoName)"])
+        try legacy.runAdbPublic(["push", dexPath, "\(Self.deviceTmpDir)/\(Self.agentDexName)"])
+        try legacy.runAdbPublic(["push", resolvedImage, "\(Self.deviceTmpDir)/\(Self.mockImageName)"])
+
+        // 2. Copy into app's data dir via run-as (SELinux requires this)
+        try legacy.runAdbPublic(["shell", "run-as", pkg, "rm", "-f", Self.agentSoName, Self.agentDexName, Self.mockImageName])
+        try legacy.runAdbPublic(["shell", "run-as", pkg, "cp", "\(Self.deviceTmpDir)/\(Self.agentSoName)", "./\(Self.agentSoName)"])
+        try legacy.runAdbPublic(["shell", "run-as", pkg, "cp", "\(Self.deviceTmpDir)/\(Self.agentDexName)", "./\(Self.agentDexName)"])
+        try legacy.runAdbPublic(["shell", "run-as", pkg, "chmod", "444", Self.agentDexName])
+        try legacy.runAdbPublic(["shell", "run-as", pkg, "cp", "\(Self.deviceTmpDir)/\(Self.mockImageName)", "./\(Self.mockImageName)"])
+
+        // 3. Get PID and data dir
+        let pidStr = try legacy.runAdbPublic(["shell", "pidof", pkg]).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !pidStr.isEmpty else {
+            throw BridgeError.adbFailed("App not running: \(pkg). Launch it first.")
+        }
+        let dataDir = try legacy.runAdbPublic(["shell", "run-as", pkg, "pwd"]).trimmingCharacters(in: .whitespacesAndNewlines)
+
+        // 4. Attach JVMTI agent
+        let agentArg = "\(dataDir)/\(Self.agentSoName)=\(dataDir)/\(Self.mockImageName)"
+        try legacy.runAdbPublic(["shell", "cmd", "activity", "attach-agent", pidStr, agentArg])
+    }
+
+    /// Update mock camera image (hot-swap — ImageWatcher detects the change).
+    public func cameraFeed(imagePath: String, package: String) throws {
+        let pkg = try validatePackage(package)
+        let resolvedImage = resolvePath(imagePath)
+        guard FileManager.default.fileExists(atPath: resolvedImage) else {
+            throw BridgeError.adbFailed("Image not found: \(resolvedImage)")
+        }
+
+        try legacy.runAdbPublic(["push", resolvedImage, "\(Self.deviceTmpDir)/\(Self.mockImageName)"])
+        try legacy.runAdbPublic(["shell", "run-as", pkg, "cp", "\(Self.deviceTmpDir)/\(Self.mockImageName)", "./\(Self.mockImageName)"])
+    }
+
+    /// Stop camera mock by force-stopping the app.
+    public func cameraStop(package: String) throws {
+        let pkg = try validatePackage(package)
+        try legacy.runAdbPublic(["shell", "am", "force-stop", pkg])
+    }
+
+    private func resolvePath(_ path: String) -> String {
+        if path.hasPrefix("/") { return path }
+        return FileManager.default.currentDirectoryPath + "/" + path
+    }
+
+    private func findAgentBuildDir() throws -> String {
+        // Look for pre-built files relative to the repo root
+        // Convention: agent/camera-mock-native/build/ has .so, agent/camera-mock-kotlin/build/ has .dex
+        let cwd = FileManager.default.currentDirectoryPath
+        let fm = FileManager.default
+
+        // Try relative to cwd (user is in repo root)
+        let nativeBuild = cwd + "/agent/camera-mock-native/build"
+        let kotlinBuild = cwd + "/agent/camera-mock-kotlin/build"
+
+        // Check for .so in native build dir — use arm64 by default
+        let soArm64 = nativeBuild + "/libcameramock-arm64.so"
+        let soGeneric = nativeBuild + "/libcameramock.so"
+        guard fm.fileExists(atPath: soArm64) || fm.fileExists(atPath: soGeneric) else {
+            throw BridgeError.adbFailed("Camera mock .so not found in \(nativeBuild). Run build.sh first.")
+        }
+
+        // For the .so, prefer arm64 variant
+        if fm.fileExists(atPath: soArm64) && !fm.fileExists(atPath: soGeneric) {
+            try? fm.copyItem(atPath: soArm64, toPath: soGeneric)
+        }
+
+        // Check .dex exists
+        let dexPath = kotlinBuild + "/\(Self.agentDexName)"
+        guard fm.fileExists(atPath: dexPath) else {
+            throw BridgeError.adbFailed("Camera mock .dex not found at \(dexPath). Run build.sh first.")
+        }
+
+        // Create a combined staging dir in /tmp
+        let staging = "/tmp/autopilot-camera-agent"
+        try? fm.createDirectory(atPath: staging, withIntermediateDirectories: true)
+        try? fm.removeItem(atPath: staging + "/\(Self.agentSoName)")
+        try? fm.removeItem(atPath: staging + "/\(Self.agentDexName)")
+
+        if fm.fileExists(atPath: soArm64) {
+            try fm.copyItem(atPath: soArm64, toPath: staging + "/\(Self.agentSoName)")
+        } else {
+            try fm.copyItem(atPath: soGeneric, toPath: staging + "/\(Self.agentSoName)")
+        }
+        try fm.copyItem(atPath: dexPath, toPath: staging + "/\(Self.agentDexName)")
+
+        return staging
     }
 
     // MARK: - DeviceBridge: Biometric (via adb emu)
