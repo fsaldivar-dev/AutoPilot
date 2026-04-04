@@ -304,29 +304,38 @@ fn inspect(platform: Option<String>) -> Result<Value, String> {
     let (screenshot_tx, screenshot_rx) = mpsc::channel::<String>();
     let (tree_tx, tree_rx) = mpsc::channel::<Result<(Vec<Value>, Vec<String>), String>>();
 
-    // Run screenshot and tree in parallel
+    // Run screenshot and tree in parallel (keep handles for cleanup)
     let bin_screenshot = bin.clone();
-    std::thread::spawn(move || {
+    let screenshot_handle = std::thread::spawn(move || {
         let result = take_screenshot(&bin_screenshot);
         let _ = screenshot_tx.send(result);
     });
 
     let bin_tree = bin.clone();
-    std::thread::spawn(move || {
+    let tree_handle = std::thread::spawn(move || {
         let result = run_cli(&bin_tree, &["tree"])
             .map(|stdout| parse_tree_output(&stdout));
         let _ = tree_tx.send(result);
     });
 
     // Collect results with timeout
-    let image_b64 = screenshot_rx.recv_timeout(timeout)
-        .unwrap_or_else(|_| {
+    let image_b64 = match screenshot_rx.recv_timeout(timeout) {
+        Ok(result) => result,
+        Err(_) => {
             eprintln!("inspect: screenshot timed out after 10s");
+            let _ = screenshot_handle.join();
             String::new()
-        });
+        }
+    };
 
-    let (elements, labels) = tree_rx.recv_timeout(timeout)
-        .map_err(|_| "Inspect timeout: tree took longer than 10 seconds. Is the device connected?".to_string())?
+    let tree_result = match tree_rx.recv_timeout(timeout) {
+        Ok(result) => result,
+        Err(_) => {
+            let _ = tree_handle.join();
+            return Err("Inspect timeout: tree took longer than 10 seconds. Is the device connected?".to_string());
+        }
+    };
+    let (elements, labels) = tree_result
         .map_err(|e| format!("Tree failed: {}", e))?;
 
     // Index: for Android, generate from tree; for iOS, call `auto index`
