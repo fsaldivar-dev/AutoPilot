@@ -9,12 +9,15 @@ import android.util.Log
 
 /**
  * Entry point called by the native JVMTI agent.
- * Installs camera hooks by monitoring the view hierarchy for camera
- * preview surfaces and placing an ImageView overlay on top.
+ * Installs all camera hooks:
  *
- * Strategy: Don't mock Camera2 API (final classes, package-private ctors).
- * Instead, let the real camera open, then overlay an ImageView on top of
- * the preview view in the layout hierarchy.
+ * 1. Preview overlay — ImageView on top of the camera preview (visual)
+ * 2. IntentInterceptor — intercepts ACTION_IMAGE_CAPTURE results
+ * 3. Camera2Interceptor — intercepts Camera2/CameraX ImageReader output
+ * 4. Camera1Interceptor — intercepts legacy Camera API callbacks
+ *
+ * Together these cover both the preview (what the user sees) and the
+ * capture output (the bytes the app receives when taking a photo).
  */
 object CameraHooks {
     private const val TAG = "AutoPilotCamera"
@@ -36,7 +39,13 @@ object CameraHooks {
             return
         }
 
-        // Monitor activity lifecycle to find camera preview views
+        // Install capture interceptors (output bytes)
+        IntentInterceptor.install(app)
+        Camera2Interceptor.install()
+        Camera1Interceptor.install()
+        Log.d(TAG, "Capture interceptors installed")
+
+        // Monitor activity lifecycle to find camera preview views (visual overlay)
         app.registerActivityLifecycleCallbacks(object : Application.ActivityLifecycleCallbacks {
             override fun onActivityResumed(activity: Activity) {
                 // Delay scan to let camera preview initialize

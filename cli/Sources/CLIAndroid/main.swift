@@ -167,21 +167,30 @@ func executeCommand(_ args: [String]) throws {
 
     case "launch":
         let config = AutoPilotConfig.readAll()
-        let bundleId: String
-        if args.count >= 2 && !args[1].hasPrefix("--") {
-            bundleId = args[1]
-        } else if let b = config["bundle"] {
-            bundleId = b
-        } else {
-            print("Usage: auto-android launch <package>")
+        guard let parsed = parseLaunchArgs(args, config: config) else {
+            print("Usage: auto-android launch <package> [--inject image.jpg]")
             print("   or: auto-android config bundle dev.autopilot.test.Explorea")
             print("       auto-android launch")
             return
         }
 
-        try bridge.launchApp(bundleId: bundleId, envVars: [:])
-        let ms = elapsedMs(start)
-        print("Launched \(bundleId) (\(ms)ms)")
+        if let injectImg = parsed.injectImage {
+            guard let agent = bridge as? AgentBridge else {
+                print("Error: --inject requires agent bridge (not --legacy)")
+                return
+            }
+            var imgPath = injectImg
+            if !imgPath.hasPrefix("/") {
+                imgPath = FileManager.default.currentDirectoryPath + "/" + imgPath
+            }
+            try agent.injectAndLaunch(bundleId: parsed.bundleId, imagePath: imgPath)
+            let ms = elapsedMs(start)
+            print("Launched \(parsed.bundleId) with camera mock → \(imgPath) (\(ms)ms)")
+        } else {
+            try bridge.launchApp(bundleId: parsed.bundleId, envVars: [:])
+            let ms = elapsedMs(start)
+            print("Launched \(parsed.bundleId) (\(ms)ms)")
+        }
 
     case "camera":
         guard args.count >= 2 else {
@@ -260,7 +269,7 @@ func printUsage() {
       tree -s "query"                   Search elements
       index [query]                     List indexed elements ($N syntax)
       inspect <query>                   Deep element inspection
-      launch <package>                  Launch app
+      launch <package> [--inject img]    Launch app (--inject for camera mock)
       tap <label|$N|label[N]>           Tap element (supports $N and Label[2])
       longPress <text|desc|id> [secs]   Long press element
       doubleTap <text|desc|id>          Double tap element

@@ -358,6 +358,25 @@ public final class AgentBridge: DeviceBridge {
         try legacy.runAdbPublic(["shell", "am", "force-stop", pkg])
     }
 
+    /// Launch app with camera mock injection (JVMTI).
+    /// Equivalent to iOS's `injectAndLaunch` — one command for both platforms.
+    public func injectAndLaunch(bundleId: String, imagePath: String) throws {
+        let pkg = try validatePackage(bundleId)
+        let resolvedImage = resolvePath(imagePath)
+        guard FileManager.default.fileExists(atPath: resolvedImage) else {
+            throw BridgeError.adbFailed("Image not found: \(resolvedImage)")
+        }
+
+        // 1. Launch the app
+        try launchApp(bundleId: pkg, envVars: [:])
+
+        // 2. Wait for app process to start
+        usleep(2_000_000) // 2 seconds
+
+        // 3. Attach JVMTI agent with camera hooks
+        try cameraStart(imagePath: resolvedImage, package: pkg)
+    }
+
     private func resolvePath(_ path: String) -> String {
         if path.hasPrefix("/") { return path }
         return FileManager.default.currentDirectoryPath + "/" + path

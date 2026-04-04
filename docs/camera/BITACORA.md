@@ -939,3 +939,85 @@ Solo reemplaza preview visual. NO intercepta bytes de captura. Cuando la app tom
 | PR | Titulo | Estado |
 |---|---|---|
 | #35 | feat: transparent Android camera mock via JVMTI agent | Abierto |
+
+## Sesion 2026-04-04 (noche) — Capture interception: los bytes de la foto
+
+### Contexto
+
+El PR #35 logro preview overlay transparente. Pero `ImageCapture.takePicture()` seguia entregando los bytes reales de la camara. Esta sesion cierra esa brecha.
+
+### Tres interceptores
+
+Implementamos tres interceptores para cubrir las tres APIs de camara de Android:
+
+1. **IntentInterceptor** — `Instrumentation.addMonitor()` bloquea `ACTION_IMAGE_CAPTURE`, devuelve ActivityResult mock
+2. **Camera1Interceptor** — `java.lang.reflect.Proxy` sobre `PreviewCallback`, wrappea `takePicture()` PictureCallback
+3. **Camera2Interceptor** — el dificil, cuatro intentos adicionales (ver abajo)
+
+### Camera2Interceptor: cuatro intentos
+
+**Intento 7 — ImageWriter injection**
+`ImageWriter.newInstance(reader.surface, 2)` → "Failed to connect to native window". El Surface del ImageReader ya tiene la camara como producer. Un Surface solo admite un producer. Descartado.
+
+**Intento 8 — Buffer replacement post-acquisition**
+Dejar que CameraX adquiera el Image, encontrarlo en el pipeline via reflexion, modificar bytes. El scanner encuentra el ImageReader (via `findByFieldName("mImageReader")` con depth 20, Strategy 4), pero no hay forma practica de modificar los bytes del Image entre acquisition y lectura.
+
+**Intento 9 — Direct delivery, busqueda amplia**
+Adquirir el Image antes que CameraX, crear ImageProxy mock via `Proxy`, buscar `OnImageCapturedCallback` desde `ProcessCameraProvider` (scanner visits ~1630 objects). `onImageAvailable` wrapper funciona — se activa en cada captura. Pero el scanner no encuentra el callback: es un objeto anonimo en un lambda de Compose, almacenado ~15 niveles dentro de `TakePictureManager`.
+
+**Intento 10 — Direct delivery con cached ImageCapture (funciona)**
+Mismo concepto, pero:
+- Cachear `ImageCapture` instance durante el escaneo periodico de ImageReaders
+- Buscar el callback desde `ImageCapture` directamente (path ~5 niveles) en vez de `ProcessCameraProvider` (~15 niveles)
+- Reemplazar el ByteBuffer del plane[0] via reflexion en `SurfacePlane.mBuffer`
+- Crear ImageProxy via `Proxy` con los mock bytes
+- Entregar al callback en main thread via `handler.post`
+
+### Tropiezos tecnicos
+
+| Problema | Causa | Solucion |
+|----------|-------|----------|
+| Hidden API restriction en mListener | Android 9+ bloquea campos privados | `VMRuntime.setHiddenApiExemptions(["L"])` en agent.c |
+| SELinux bloquea .so en /data/local/tmp/ | `untrusted_app` no puede execute | Copiar .so al data dir de la app via `run-as` |
+| `getFormat()` no existe | Renombrado a `getImageFormat()` en API 36 | Descubierto via `javap -public` |
+| Scanner no encuentra callback | Path demasiado largo desde ProcessCameraProvider | Cachear ImageCapture, buscar desde ahi |
+| `replace_all` rompio Class.forName strings | Editor reemplazo "android.media.ImageReader" en strings | Arreglo manual de todas las FQN en strings |
+| findFieldsOfType depth insuficiente | CameraX anida ImageReader ~10+ niveles | Depth 15-20 + Collection/Map/Array traversal |
+| Segunda captura falla | Primera captura dejo Image abierto, "request in-flight" | Verificar que mock ImageProxy.close() libera el Image |
+
+### Fix critico: classloader en agent.c
+
+El `agent.c` original usaba `getSystemClassLoader()` como parent del DexClassLoader. Nuestro DEX no podia resolver `androidx.camera.*` (CameraX) — ClassNotFoundException. Fix: usar el classloader de la app como parent. Tambien se agrego bypass de hidden API restrictions.
+
+### Resultados verificados
+
+```
+Preview overlay: imagen mock visible sobre camera preview ✓
+Capture interception: bytes mock entregados a la app ✓
+Hot-swap: cambiar imagen → siguiente captura usa nueva imagen ✓
+Tamaños verificados:
+  foto-1.jpg (127925 bytes) → app reporta "Foto capturada (96099 bytes)" (recompresion JPEG 90%)
+  foto-2.jpg (8229 bytes) → app reporta "Foto capturada (3612 bytes)"
+```
+
+### Archivos nuevos/modificados
+
+| Archivo | Cambio |
+|---|---|
+| `agent/camera-mock-kotlin/src/Camera2Interceptor.kt` | Nuevo — intercepta Camera2/CameraX capture output |
+| `agent/camera-mock-kotlin/src/IntentInterceptor.kt` | Nuevo — intercepta ACTION_IMAGE_CAPTURE |
+| `agent/camera-mock-kotlin/src/Camera1Interceptor.kt` | Nuevo — intercepta legacy Camera API |
+| `agent/camera-mock-kotlin/src/CameraHooks.kt` | Modificado — instala los 3 interceptores |
+| `agent/camera-mock-kotlin/src/ImageWatcher.kt` | Modificado — expone currentJpegBytes |
+| `agent/camera-mock-native/agent.c` | Modificado — hidden API bypass, app classloader |
+| `cli/Sources/AutoCore/LaunchArgsParser.swift` | Nuevo — parseo de --inject flag |
+| `cli/Sources/AutoCore/AgentBridge.swift` | Modificado — injectAndLaunch() |
+| `cli/Sources/CLIAndroid/main.swift` | Modificado — launch --inject, camera commands |
+| `cli/Tests/LaunchArgsTests.swift` | Nuevo — 10 tests para --inject |
+
+### Hallazgos clave
+
+- `VMRuntime.setHiddenApiExemptions(["L"])` es la unica forma confiable de acceder a campos privados en Android 9+. Sin esto, `ImageReader.mListener` es inaccesible.
+- CameraX almacena ImageReaders ~10+ niveles de profundidad via AndroidImageReaderProxy. El scanner generico por tipo no los encuentra (depth 5 default), pero `findByFieldName("mImageReader")` con depth 20 si.
+- El callback anonimo de `OnImageCapturedCallback` NO es encontrable desde ProcessCameraProvider (path demasiado largo, ~15 niveles, >1600 objetos visitados sin resultado). PERO es encontrable desde `ImageCapture` directamente (~5 niveles).
+- `java.lang.reflect.Proxy` funciona para crear ImageProxy y PlaneProxy en runtime — no necesitamos dependencias de CameraX en nuestro DEX.

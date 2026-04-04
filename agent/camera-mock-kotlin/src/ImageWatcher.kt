@@ -17,6 +17,10 @@ object ImageWatcher {
     @Volatile var currentBitmap: Bitmap? = null
         private set
 
+    /** Raw JPEG bytes of the current mock image, for capture interceptors. */
+    @Volatile var currentJpegBytes: ByteArray? = null
+        private set
+
     private var lastModified = 0L
     private var lastSize = 0L
     @Volatile private var running = false
@@ -74,6 +78,7 @@ object ImageWatcher {
             val bitmap = BitmapFactory.decodeFile(path, opts)
             if (bitmap != null) {
                 currentBitmap = bitmap
+                currentJpegBytes = file.readBytes()
                 lastModified = file.lastModified()
                 lastSize = file.length()
                 Log.d(TAG, "Image loaded: ${bitmap.width}x${bitmap.height} (${file.length()} bytes)")
