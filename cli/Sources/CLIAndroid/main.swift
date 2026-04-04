@@ -185,44 +185,53 @@ func executeCommand(_ args: [String]) throws {
 
     case "camera":
         guard args.count >= 2 else {
-            print("Usage: auto-android camera <start|feed|stop|status> [image]")
+            print("Usage: auto-android camera <start|feed|stop> [image] [--package <pkg>]")
             return
         }
         guard let agent = bridge as? AgentBridge else {
             print("Error: camera mock requires agent bridge (not --legacy)")
             return
         }
-        switch args[1] {
+
+        // Resolve package from --package flag or .autopilot config
+        let pkgFlag: String? = {
+            if let idx = args.firstIndex(of: "--package"), idx + 1 < args.count {
+                return args[idx + 1]
+            }
+            return nil
+        }()
+        let config = AutoPilotConfig.readAll()
+        guard let package = pkgFlag ?? config["bundle"] else {
+            print("Error: no package specified. Use --package <pkg> or set: auto-android config bundle <pkg>")
+            return
+        }
+
+        // Filter out --package flag from positional args
+        let cameraArgs = args.filter { $0 != "--package" && $0 != package }
+
+        switch cameraArgs.count >= 2 ? cameraArgs[1] : "" {
         case "start":
-            guard args.count >= 3 else {
-                print("Usage: auto-android camera start <image.jpg>")
+            guard cameraArgs.count >= 3 else {
+                print("Usage: auto-android camera start <image.jpg> [--package <pkg>]")
                 return
             }
-            try agent.cameraStart(imagePath: args[2])
+            try agent.cameraStart(imagePath: cameraArgs[2], package: package)
             let ms = elapsedMs(start)
-            print("Camera started with '\(args[2])' (\(ms)ms)")
+            print("Camera mock injected into \(package) with '\(cameraArgs[2])' (\(ms)ms)")
         case "feed":
-            guard args.count >= 3 else {
-                print("Usage: auto-android camera feed <image.jpg>")
+            guard cameraArgs.count >= 3 else {
+                print("Usage: auto-android camera feed <image.jpg> [--package <pkg>]")
                 return
             }
-            try agent.cameraFeed(imagePath: args[2])
+            try agent.cameraFeed(imagePath: cameraArgs[2], package: package)
             let ms = elapsedMs(start)
-            print("Camera feed updated: '\(args[2])' (\(ms)ms)")
+            print("Camera feed updated: '\(cameraArgs[2])' (\(ms)ms)")
         case "stop":
-            try agent.cameraStop()
+            try agent.cameraStop(package: package)
             let ms = elapsedMs(start)
-            print("Camera stopped (\(ms)ms)")
-        case "status":
-            let status = try agent.cameraStatus()
-            let ms = elapsedMs(start)
-            if status.active {
-                print("ACTIVE — feed: \(status.path ?? "none") (\(ms)ms)")
-            } else {
-                print("INACTIVE (\(ms)ms)")
-            }
+            print("Camera stopped for \(package) (\(ms)ms)")
         default:
-            print("Unknown camera action: \(args[1]). Use start/feed/stop/status")
+            print("Unknown camera action: \(args[1]). Use start/feed/stop")
         }
 
     case "help", "--help", "-h":
@@ -266,10 +275,9 @@ func printUsage() {
       screenshot [filename.png]         Screenshot
       biometric <enroll|match|fail|status> Biometric control
       paste [text]                      Set/get clipboard
-      camera start <image.jpg>          Start mock camera feed
-      camera feed <image.jpg>           Update camera image
-      camera stop                       Stop mock camera
-      camera status                     Check camera status
+      camera start <image.jpg> [--package <pkg>]  Inject mock camera (JVMTI)
+      camera feed <image.jpg> [--package <pkg>]  Update camera image (hot-swap)
+      camera stop [--package <pkg>]              Stop mock camera (kills app)
       terminate <package>               Kill app
       config                            Show all config
       config <key> <value>              Set config value
