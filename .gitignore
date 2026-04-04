@@ -35,6 +35,7 @@ build/
 !Demo/**/*.png
 !assets/**/*.png
 !docs/**/*.png
+!scripts/demo-images/**/*.png
 
 # Android
 .gradle/
