@@ -1,0 +1,19 @@
+# Benchmark: Login + navegacion
+# Con screenshots como evidencia
+
+launch dev.autopilot.test.Explorea
+waitFor "Explorea" 10
+screenshot evidence/autopilot-login-step1.png
+tap "Usar código"
+waitFor "Ingresa tu código" 5
+screenshot evidence/autopilot-login-step2.png
+tap "1"
+tap "2"
+tap "3"
+tap "4"
+tap "Confirmar"
+waitFor "Inicio" 5
+screenshot evidence/autopilot-login-step3.png
+tap "Aventura"
+swipe up
+screenshot evidence/autopilot-login-step4.png
