@@ -1157,4 +1157,30 @@ extension SimulatorBridge: DeviceBridge {
             print(result)
         }
     }
+
+    public func rotate(direction: String) throws {
+        let menuItem: String
+        switch direction {
+        case "left":      menuItem = "Rotate Left"
+        case "right":     menuItem = "Rotate Right"
+        case "portrait":  menuItem = "Rotate Left"
+        case "landscape": menuItem = "Rotate Right"
+        default:
+            throw BridgeError.appleScriptFailed("Invalid direction '\(direction)'. Use: left, right, portrait, landscape")
+        }
+        let script = """
+        tell application "System Events"
+            tell process "Simulator"
+                tell menu bar 1
+                    tell menu bar item "Device"
+                        tell menu "Device"
+                            click menu item "\(menuItem)"
+                        end tell
+                    end tell
+                end tell
+            end tell
+        end tell
+        """
+        try clickSimulatorMenu(script)
+    }
 }

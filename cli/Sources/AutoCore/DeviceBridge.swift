@@ -57,4 +57,8 @@ public protocol DeviceBridge {
     // MARK: - Permissions
 
     func setPermission(action: String, service: String, bundleId: String) throws
+
+    // MARK: - Device Orientation
+
+    func rotate(direction: String) throws
 }

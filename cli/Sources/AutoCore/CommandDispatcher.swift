@@ -347,6 +347,15 @@ public func executeSharedCommand(_ args: [String], bridge: any DeviceBridge) thr
         let output = try bridge.getLogs(bundleId: isSystem ? nil : bundleId, lines: lines)
         print(output)
 
+    case "rotate":
+        guard args.count >= 2 else {
+            print("Usage: auto rotate <left|right|portrait|landscape>")
+            return true
+        }
+        try bridge.rotate(direction: args[1])
+        let ms = elapsedMs(start)
+        print("Rotated \(args[1]) (\(ms)ms)")
+
     default:
         return false
     }

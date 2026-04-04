@@ -314,6 +314,12 @@ public final class AgentBridge: DeviceBridge {
         try legacy.setPermission(action: action, service: service, bundleId: bundleId)
     }
 
+    // MARK: - Device Orientation
+
+    public func rotate(direction: String) throws {
+        try legacy.rotate(direction: direction)
+    }
+
     // MARK: - Helpers
 
     private func searchRecursive(elements: [[String: Any]], query: String, results: inout [[String: Any]]) {

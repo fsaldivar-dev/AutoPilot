@@ -584,4 +584,19 @@ public final class AdbLegacyBridge: DeviceBridge {
         }
         try runAdb(["shell", "pm", adbAction, bundleId, androidPermission])
     }
+
+    // MARK: - Device Orientation
+
+    public func rotate(direction: String) throws {
+        try runAdb(["shell", "settings", "put", "system", "accelerometer_rotation", "0"])
+        let rotation: String
+        switch direction {
+        case "portrait":           rotation = "0"
+        case "landscape", "right": rotation = "1"
+        case "left":               rotation = "3"
+        default:
+            throw BridgeError.adbFailed("Invalid direction '\(direction)'. Use: left, right, portrait, landscape")
+        }
+        try runAdb(["shell", "settings", "put", "system", "user_rotation", rotation])
+    }
 }

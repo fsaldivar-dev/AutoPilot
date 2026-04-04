@@ -366,6 +366,7 @@ func printUsage() {
       permission <grant|revoke|reset> <service> <bundleId>  Manage app permissions
       logs [bundleId] [--lines N]       Get device logs (last 50 lines)
       logs --system                     Get system logs
+      rotate <left|right|portrait|landscape>  Rotate device orientation
       config                             Show all config
       config <key> <value>              Set config value
       config <key>                      Get config value
