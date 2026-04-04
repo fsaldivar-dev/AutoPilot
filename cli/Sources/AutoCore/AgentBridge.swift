@@ -230,11 +230,54 @@ public final class AgentBridge: DeviceBridge {
     }
 
     public func setPasteboard(text: String) throws {
-        try typeText(text)
+        let _ = try sendCommand("setClipboard", params: ["text": text])
     }
 
     public func getPasteboard() throws -> String {
-        throw BridgeError.adbFailed("Clipboard read not supported via ADB")
+        let result = try sendCommand("getClipboard")
+        if let text = result as? String {
+            return text
+        }
+        throw BridgeError.adbFailed("Invalid clipboard response")
+    }
+
+    // MARK: - Camera mock (via agent socket)
+
+    public func cameraStart(imagePath: String) throws {
+        let data = try loadImageData(path: imagePath)
+        let base64 = data.base64EncodedString()
+        let _ = try sendCommand("camera", params: ["action": "start", "image": base64])
+    }
+
+    public func cameraFeed(imagePath: String) throws {
+        let data = try loadImageData(path: imagePath)
+        let base64 = data.base64EncodedString()
+        let _ = try sendCommand("camera", params: ["action": "feed", "image": base64])
+    }
+
+    public func cameraStop() throws {
+        let _ = try sendCommand("camera", params: ["action": "stop"])
+    }
+
+    public func cameraStatus() throws -> (active: Bool, path: String?) {
+        let result = try sendCommand("camera", params: ["action": "status"])
+        guard let dict = result as? [String: Any] else {
+            return (active: false, path: nil)
+        }
+        let active = dict["active"] as? Bool ?? false
+        let path = dict["path"] as? String
+        return (active: active, path: path)
+    }
+
+    private func loadImageData(path: String) throws -> Data {
+        var resolvedPath = path
+        if !resolvedPath.hasPrefix("/") {
+            resolvedPath = FileManager.default.currentDirectoryPath + "/" + resolvedPath
+        }
+        guard FileManager.default.fileExists(atPath: resolvedPath) else {
+            throw BridgeError.adbFailed("Image not found: \(resolvedPath)")
+        }
+        return try Data(contentsOf: URL(fileURLWithPath: resolvedPath))
     }
 
     // MARK: - DeviceBridge: Biometric (via adb emu)

@@ -183,6 +183,48 @@ func executeCommand(_ args: [String]) throws {
         let ms = elapsedMs(start)
         print("Launched \(bundleId) (\(ms)ms)")
 
+    case "camera":
+        guard args.count >= 2 else {
+            print("Usage: auto-android camera <start|feed|stop|status> [image]")
+            return
+        }
+        guard let agent = bridge as? AgentBridge else {
+            print("Error: camera mock requires agent bridge (not --legacy)")
+            return
+        }
+        switch args[1] {
+        case "start":
+            guard args.count >= 3 else {
+                print("Usage: auto-android camera start <image.jpg>")
+                return
+            }
+            try agent.cameraStart(imagePath: args[2])
+            let ms = elapsedMs(start)
+            print("Camera started with '\(args[2])' (\(ms)ms)")
+        case "feed":
+            guard args.count >= 3 else {
+                print("Usage: auto-android camera feed <image.jpg>")
+                return
+            }
+            try agent.cameraFeed(imagePath: args[2])
+            let ms = elapsedMs(start)
+            print("Camera feed updated: '\(args[2])' (\(ms)ms)")
+        case "stop":
+            try agent.cameraStop()
+            let ms = elapsedMs(start)
+            print("Camera stopped (\(ms)ms)")
+        case "status":
+            let status = try agent.cameraStatus()
+            let ms = elapsedMs(start)
+            if status.active {
+                print("ACTIVE — feed: \(status.path ?? "none") (\(ms)ms)")
+            } else {
+                print("INACTIVE (\(ms)ms)")
+            }
+        default:
+            print("Unknown camera action: \(args[1]). Use start/feed/stop/status")
+        }
+
     case "help", "--help", "-h":
         printUsage()
 
@@ -223,6 +265,11 @@ func printUsage() {
       elementAt <x> <y>                 Element at coordinate
       screenshot [filename.png]         Screenshot
       biometric <enroll|match|fail|status> Biometric control
+      paste [text]                      Set/get clipboard
+      camera start <image.jpg>          Start mock camera feed
+      camera feed <image.jpg>           Update camera image
+      camera stop                       Stop mock camera
+      camera status                     Check camera status
       terminate <package>               Kill app
       config                            Show all config
       config <key> <value>              Set config value
