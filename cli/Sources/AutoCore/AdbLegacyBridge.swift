@@ -547,17 +547,18 @@ public final class AdbLegacyBridge: DeviceBridge {
         return output.trimmingCharacters(in: .whitespacesAndNewlines) == "false"
     }
 
-    // MARK: - DeviceBridge: Logs
+    // MARK: - Logs
 
     public func getLogs(bundleId: String?, lines: Int) throws -> String {
-        var args = ["shell", "logcat", "-t", "\(lines)", "-d"]
-        if let bundleId = bundleId {
-            args += ["-e", bundleId]
-        }
-        return try runAdb(args)
+        let output = try runAdb(["logcat", "-d", "-t", "\(lines)"])
+        guard let bundleId = bundleId else { return output }
+        let filtered = output.split(separator: "\n")
+            .filter { $0.contains(bundleId) }
+            .joined(separator: "\n")
+        return filtered.isEmpty ? output : filtered
     }
 
-    // MARK: - DeviceBridge: Permissions
+    // MARK: - Permissions
 
     public func setPermission(action: String, service: String, bundleId: String) throws {
         let adbAction: String

@@ -337,6 +337,16 @@ public func executeSharedCommand(_ args: [String], bridge: any DeviceBridge) thr
         let ms = elapsedMs(start)
         print("Permission \(action) \(service) → \(bundleId) (\(ms)ms)")
 
+    case "logs":
+        let bundleId: String? = (args.count >= 2 && !args[1].hasPrefix("--")) ? args[1] : nil
+        var lines = 50
+        if let idx = args.firstIndex(of: "--lines"), idx + 1 < args.count {
+            lines = Int(args[idx + 1]) ?? 50
+        }
+        let isSystem = args.contains("--system")
+        let output = try bridge.getLogs(bundleId: isSystem ? nil : bundleId, lines: lines)
+        print(output)
+
     default:
         return false
     }
