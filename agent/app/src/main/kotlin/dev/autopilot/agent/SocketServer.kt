@@ -1,18 +1,27 @@
 package dev.autopilot.agent
 
 import android.app.UiAutomation
+import android.content.ClipData
+import android.content.ClipboardManager
+import android.content.Context
 import android.graphics.Rect
 import android.net.LocalServerSocket
 import android.net.LocalSocket
 import android.os.Build
+import android.os.Handler
+import android.os.Looper
+import android.util.Base64
 import android.util.Log
 import android.view.KeyEvent as AndroidKeyEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import org.json.JSONObject
 import java.io.BufferedReader
+import java.io.File
 import java.io.InputStreamReader
 import java.io.OutputStreamWriter
 import java.io.PrintWriter
+import java.util.concurrent.CountDownLatch
+import java.util.concurrent.TimeUnit
 
 /**
  * Servidor de comandos sobre LocalSocket.
@@ -27,7 +36,10 @@ import java.io.PrintWriter
  *   → {"method": "tree"}
  *   ← {"result": [{...tree...}]}
  */
-class SocketServer(private val uiAutomation: UiAutomation) {
+class SocketServer(
+    private val uiAutomation: UiAutomation,
+    private val context: Context
+) {
 
     companion object {
         const val TAG = "AutoPilot"
@@ -35,6 +47,16 @@ class SocketServer(private val uiAutomation: UiAutomation) {
     }
 
     private val input = InputInjector(uiAutomation)
+
+    // Clipboard cache (Android 10+ restricts background clipboard read)
+    private var lastClipboardText: String? = null
+
+    // Camera mock state
+    private var cameraActive = false
+    private var cameraImagePath: String? = null
+    private val cameraDir: String by lazy {
+        context.filesDir.absolutePath
+    }
 
     fun start() {
         val server = LocalServerSocket(SOCKET_NAME)
@@ -85,6 +107,9 @@ class SocketServer(private val uiAutomation: UiAutomation) {
                 "swipe" -> handleSwipe(params)
                 "keyevent" -> handleKeyEvent(params)
                 "clear" -> handleClear(params)
+                "getClipboard" -> handleGetClipboard()
+                "setClipboard" -> handleSetClipboard(params)
+                "camera" -> handleCamera(params)
                 else -> errorResponse("Unknown method: $method")
             }
 
@@ -237,6 +262,126 @@ class SocketServer(private val uiAutomation: UiAutomation) {
             input.keyEvent(AndroidKeyEvent.KEYCODE_DEL)
         }
         return successResponse("cleared" to textLen)
+    }
+
+    // ── Clipboard ────────────────────────────────────
+
+    private fun handleSetClipboard(params: JSONObject?): String {
+        val text = params?.optString("text", "") ?: return errorResponse("Missing text")
+        if (text.isEmpty()) return errorResponse("Empty text")
+
+        val latch = CountDownLatch(1)
+        var error: String? = null
+
+        Handler(Looper.getMainLooper()).post {
+            try {
+                val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                cm.setPrimaryClip(ClipData.newPlainText("autopilot", text))
+            } catch (e: Exception) {
+                error = e.message
+            }
+            latch.countDown()
+        }
+
+        latch.await(3, TimeUnit.SECONDS)
+        return if (error != null) {
+            errorResponse("Clipboard write failed: $error")
+        } else {
+            lastClipboardText = text
+            successResponse("text" to text)
+        }
+    }
+
+    private fun handleGetClipboard(): String {
+        // Android 10+ restricts clipboard read for non-foreground apps.
+        // Strategy: try ClipboardManager first, fallback to cached value.
+        val latch = CountDownLatch(1)
+        var clipText: String? = null
+
+        Handler(Looper.getMainLooper()).post {
+            try {
+                val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as ClipboardManager
+                clipText = cm.primaryClip?.getItemAt(0)?.text?.toString()
+            } catch (_: Exception) {}
+            latch.countDown()
+        }
+
+        latch.await(3, TimeUnit.SECONDS)
+
+        // Use ClipboardManager result if available, otherwise return cached value
+        val text = clipText ?: lastClipboardText ?: ""
+        val response = JSONObject()
+        response.put("result", text)
+        return response.toString()
+    }
+
+    // ── Camera mock ─────────────────────────────────
+
+    private fun handleCamera(params: JSONObject?): String {
+        val action = params?.optString("action", "") ?: return errorResponse("Missing action")
+
+        return when (action) {
+            "start" -> cameraStart(params)
+            "feed" -> cameraFeed(params)
+            "stop" -> cameraStop()
+            "status" -> cameraStatus()
+            else -> errorResponse("Unknown camera action: $action. Use start/feed/stop/status")
+        }
+    }
+
+    private fun cameraStart(params: JSONObject?): String {
+        val imageBase64 = params?.optString("image", "")
+        if (imageBase64.isNullOrEmpty()) return errorResponse("Missing image (base64)")
+
+        val path = "$cameraDir/autopilot-camera.jpg"
+        return try {
+            val bytes = Base64.decode(imageBase64, Base64.DEFAULT)
+            File(path).writeBytes(bytes)
+            cameraActive = true
+            cameraImagePath = path
+            successResponse("active" to true, "path" to path)
+        } catch (e: Exception) {
+            errorResponse("Camera start failed: ${e.message}")
+        }
+    }
+
+    private fun cameraFeed(params: JSONObject?): String {
+        if (!cameraActive) return errorResponse("Camera not active. Call start first.")
+
+        val imageBase64 = params?.optString("image", "")
+        if (imageBase64.isNullOrEmpty()) return errorResponse("Missing image (base64)")
+
+        val path = cameraImagePath ?: return errorResponse("No camera path")
+        return try {
+            val bytes = Base64.decode(imageBase64, Base64.DEFAULT)
+            File(path).writeBytes(bytes)
+            successResponse("active" to true, "path" to path)
+        } catch (e: Exception) {
+            errorResponse("Camera feed failed: ${e.message}")
+        }
+    }
+
+    private fun cameraStop(): String {
+        cameraActive = false
+        if (cameraImagePath != null) {
+            val file = File(cameraImagePath!!)
+            if (file.exists()) file.delete()
+        }
+        cameraImagePath = null
+        return successResponse("active" to false)
+    }
+
+    private fun cameraStatus(): String {
+        val result = JSONObject()
+        val status = JSONObject()
+        status.put("active", cameraActive)
+        status.put("path", cameraImagePath ?: JSONObject.NULL)
+        if (cameraActive && cameraImagePath != null) {
+            val file = File(cameraImagePath!!)
+            status.put("size", if (file.exists()) file.length() else 0)
+        }
+        result.put("result", status)
+        return result.toString()
     }
 
     // ── Helpers ──────────────────────────────────────────

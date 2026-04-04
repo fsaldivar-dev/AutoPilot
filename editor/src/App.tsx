@@ -58,12 +58,12 @@ const AUTO_COMMANDS = [
   { label: "biometric fail", detail: "Biometría fallida" },
   { label: "biometric status", detail: "Estado biometría" },
 
-  // Cámara (iOS)
-  { label: "camera start", detail: "Iniciar camara virtual", insertText: "camera start ${1:image.jpg}", platform: "ios" as const },
-  { label: "camera feed", detail: "Actualizar imagen", insertText: "camera feed ${1:image.jpg}", platform: "ios" as const },
-  { label: "camera stop", detail: "Detener camara", platform: "ios" as const },
-  { label: "camera status", detail: "Estado camara", platform: "ios" as const },
-  { label: "inject", detail: "Cambiar imagen mock", insertText: "inject ${1:image.jpg}", platform: "ios" as const },
+  // Cámara
+  { label: "camera start", detail: "Iniciar camara virtual", insertText: "camera start ${1:image.jpg}" },
+  { label: "camera feed", detail: "Actualizar imagen", insertText: "camera feed ${1:image.jpg}" },
+  { label: "camera stop", detail: "Detener camara" },
+  { label: "camera status", detail: "Estado camara" },
+  { label: "inject", detail: "Cambiar imagen mock (iOS)", insertText: "inject ${1:image.jpg}" },
 
   // Build (iOS)
   { label: "build", detail: "Compilar con mock", insertText: "build -project ${1:App.xcodeproj} -scheme ${2:App}", platform: "ios" as const },
