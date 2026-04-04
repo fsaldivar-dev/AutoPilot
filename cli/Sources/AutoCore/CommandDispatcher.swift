@@ -291,6 +291,30 @@ public func executeSharedCommand(_ args: [String], bridge: any DeviceBridge) thr
         let ms = elapsedMs(start)
         print("Waited \(seconds)s (\(ms)ms)")
 
+    case "drag":
+        guard args.count >= 3 else {
+            print("Usage: auto drag <from> <to> [duration]")
+            print("       auto drag \"Element A\" \"Element B\" 1.0")
+            print("       auto drag 100,200 300,400")
+            return true
+        }
+        let duration = args.count >= 4 ? Double(args[3]) ?? 0.5 : 0.5
+        let fromArg = args[1]
+        let toArg = args[2]
+        // Check if arguments are coordinates (format: "x,y")
+        let fromParts = fromArg.split(separator: ",")
+        let toParts = toArg.split(separator: ",")
+        if fromParts.count == 2, let fx = Double(fromParts[0]), let fy = Double(fromParts[1]),
+           toParts.count == 2, let tx = Double(toParts[0]), let ty = Double(toParts[1]) {
+            try bridge.dragCoordinates(x1: fx, y1: fy, x2: tx, y2: ty, duration: duration)
+            let ms = elapsedMs(start)
+            print("Dragged (\(fx),\(fy)) → (\(tx),\(ty)) (\(ms)ms)")
+        } else {
+            try bridge.drag(from: fromArg, to: toArg, duration: duration)
+            let ms = elapsedMs(start)
+            print("Dragged '\(fromArg)' → '\(toArg)' (\(ms)ms)")
+        }
+
     case "biometric", "faceid":
         guard args.count >= 2 else {
             print("Usage: auto biometric <enroll|unenroll|match|fail|status>")
@@ -321,6 +345,15 @@ public func executeSharedCommand(_ args: [String], bridge: any DeviceBridge) thr
         default:
             print("Unknown: \(args[1]). Use enroll/unenroll/match/fail/status")
         }
+
+    case "rotate":
+        guard args.count >= 2 else {
+            print("Usage: auto rotate <left|right|portrait|landscape>")
+            return true
+        }
+        try bridge.rotate(direction: args[1])
+        let ms = elapsedMs(start)
+        print("Rotated \(args[1]) (\(ms)ms)")
 
     default:
         return false

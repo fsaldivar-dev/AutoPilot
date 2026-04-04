@@ -707,6 +707,65 @@ public final class SimulatorBridge {
         mouseUp?.post(tap: .cghidEventTap)
     }
 
+    // MARK: - Drag
+
+    public func drag(from: String, to: String, duration: Double) throws {
+        let root = try findSimulatorContent()
+        guard let fromEl = findAXElement(in: root, matching: from, depth: 0, maxDepth: 20) else {
+            throw BridgeError.elementNotFound("Could not find '\(from)' for drag")
+        }
+        guard let toEl = findAXElement(in: root, matching: to, depth: 0, maxDepth: 20) else {
+            throw BridgeError.elementNotFound("Could not find '\(to)' for drag")
+        }
+        let fromInfo = serializeElement(fromEl)
+        let toInfo = serializeElement(toEl)
+        guard let fromPos = fromInfo["_position"] as? CGPoint,
+              let fromSize = fromInfo["_size"] as? CGSize,
+              let toPos = toInfo["_position"] as? CGPoint,
+              let toSize = toInfo["_size"] as? CGSize else {
+            throw BridgeError.noFrame("\(from) or \(to)")
+        }
+        let fromCenter = CGPoint(x: fromPos.x + fromSize.width / 2,
+                                 y: fromPos.y + fromSize.height / 2)
+        let toCenter = CGPoint(x: toPos.x + toSize.width / 2,
+                               y: toPos.y + toSize.height / 2)
+        try dragCoordinates(x1: Double(fromCenter.x), y1: Double(fromCenter.y),
+                            x2: Double(toCenter.x), y2: Double(toCenter.y),
+                            duration: duration)
+    }
+
+    public func dragCoordinates(x1: Double, y1: Double, x2: Double, y2: Double, duration: Double) throws {
+        let from = CGPoint(x: x1, y: y1)
+        let to = CGPoint(x: x2, y: y2)
+        let steps = max(10, Int(duration * 60))
+        let stepDelay = duration / Double(steps)
+
+        let src = CGEventSource(stateID: .combinedSessionState)
+
+        // Mouse down
+        let down = CGEvent(mouseEventSource: src, mouseType: .leftMouseDown,
+                           mouseCursorPosition: from, mouseButton: .left)
+        down?.post(tap: .cghidEventTap)
+        Thread.sleep(forTimeInterval: 0.05)
+
+        // Drag steps
+        for i in 1...steps {
+            let t = Double(i) / Double(steps)
+            let x = x1 + (x2 - x1) * t
+            let y = y1 + (y2 - y1) * t
+            let pos = CGPoint(x: x, y: y)
+            let drag = CGEvent(mouseEventSource: src, mouseType: .leftMouseDragged,
+                               mouseCursorPosition: pos, mouseButton: .left)
+            drag?.post(tap: .cghidEventTap)
+            Thread.sleep(forTimeInterval: stepDelay)
+        }
+
+        // Mouse up
+        let up = CGEvent(mouseEventSource: src, mouseType: .leftMouseUp,
+                         mouseCursorPosition: to, mouseButton: .left)
+        up?.post(tap: .cghidEventTap)
+    }
+
     // MARK: - Private: Click
 
     private func click(at point: CGPoint) throws {
@@ -1098,5 +1157,30 @@ extension SimulatorBridge: DeviceBridge {
     /// Protocol-conforming wrapper (no AXUIElement parameter exposed).
     public func tree() throws -> [[String: Any]] {
         return try tree(element: nil)
+    }
+
+    public func rotate(direction: String) throws {
+        let menuItem: String
+        switch direction {
+        case "left":      menuItem = "Rotate Left"
+        case "right":     menuItem = "Rotate Right"
+        case "portrait":  menuItem = "Rotate Left"
+        case "landscape": menuItem = "Rotate Right"
+        default:
+            throw BridgeError.unknown("Invalid direction '\(direction)'. Use: left, right, portrait, landscape")
+        }
+        try clickSimulatorMenu("""
+        tell application "System Events"
+            tell process "Simulator"
+                tell menu bar 1
+                    tell menu bar item "Device"
+                        tell menu "Device"
+                            click menu item "\(menuItem)"
+                        end tell
+                    end tell
+                end tell
+            end tell
+        end tell
+        """)
     }
 }
