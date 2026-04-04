@@ -91,9 +91,9 @@ getClipboard():
 
 ---
 
-## Camera mock en Android: seis intentos, dos fases
+## Camera mock en Android: diez intentos, tres fases
 
-iOS tuvo 10 intentos para mockear la cámara (ver [Capítulo 3](03-la-camara-virtual.md)). Android tuvo seis, en dos fases. La primera fase terminó con una solución cooperativa (la app tenía que saber del mock). La segunda fase logró inyección transparente — al estilo iOS.
+iOS tuvo 10 intentos para mockear la cámara (ver [Capítulo 3](03-la-camara-virtual.md)). Android tuvo diez, en tres fases. La primera fase terminó con una solución cooperativa (la app tenía que saber del mock). La segunda fase logró inyección transparente del preview. La tercera fase interceptó los bytes de captura — cerrando la brecha con iOS.
 
 ### Fase 1: Tres intentos, solución cooperativa (PR #32)
 
@@ -197,24 +197,59 @@ camera stop   → 201ms (force-stop app)
 | ClassNotFoundException Intrinsics | Compilado sin stdlib | Incluir kotlin-stdlib.jar en d8 |
 | Scoped storage bloquea /sdcard/ | Android 11+ | Copiar imagen via `run-as` |
 
-### La comparación honesta (actualizada)
+### Fase 3: Capture interception — los bytes de la foto
 
-| | iOS | Android (cooperativo, PR #32) | Android (JVMTI, PR #35) |
+La fase 2 reemplazó lo que **se ve** en pantalla. Pero cuando la app hacía `ImageCapture.takePicture()`, recibía los bytes reales de la cámara (el tablero de ajedrez del emulador), no nuestra imagen. Para que el flujo completo funcione — la app toma la foto, la guarda, la sube a un servidor — necesita recibir **nuestros bytes**.
+
+Tres interceptores cubren los tres caminos que Android ofrece para capturar fotos:
+
+#### IntentInterceptor — `ACTION_IMAGE_CAPTURE`
+
+El camino más simple: la app delega al sistema con `startActivityForResult(ACTION_IMAGE_CAPTURE)`. El interceptor usa `Instrumentation.addMonitor()` para bloquear el launch de la cámara del sistema y devolver un `ActivityResult` con nuestros bytes JPEG. Funciona sin tocar la app de cámara.
+
+#### Camera1Interceptor — API legacy `android.hardware.Camera`
+
+Apps antiguas usan `Camera.takePicture(shutterCallback, rawCallback, jpegCallback)`. El interceptor wrappea `Camera.open()` via `java.lang.reflect.Proxy` sobre `PreviewCallback` y reemplaza los bytes JPEG en el `PictureCallback`.
+
+#### Camera2Interceptor — Camera2 + CameraX (el difícil)
+
+CameraX (que internamente usa Camera2) es el camino de las apps modernas. Aquí hubo cuatro intentos adicionales:
+
+**Intento 7 — ImageWriter injection.** La idea: crear un `ImageWriter` conectado al Surface del `ImageReader` de captura y escribir frames mock. Falla con "Failed to connect to native window" — el Surface ya tiene la cámara como producer. Un Surface solo admite un productor.
+
+**Intento 8 — Buffer replacement post-acquisition.** Dejar que CameraX adquiera el Image, encontrarlo en el pipeline interno de CameraX (~10+ niveles de profundidad via reflexión), y modificar sus bytes. Funciona para ENCONTRAR el ImageReader (Strategy 4: `findByFieldName("mImageReader")` con depth 20), pero el Image vive en memoria nativa que no se puede modificar trivialmente antes de que la app lo lea.
+
+**Intento 9 — Direct delivery, búsqueda amplia.** Adquirir el Image antes que CameraX, crear un `ImageProxy` mock via `java.lang.reflect.Proxy`, y entregarlo directamente al callback de la app. El `onImageAvailable` wrapper se activa correctamente. Pero `findInstancesOfClass(OnImageCapturedCallback)` escaneando desde `ProcessCameraProvider` (10000+ objetos visitados) no encuentra el callback — es un objeto anónimo creado inline en un lambda de Compose, almacenado profundo en `TakePictureManager`.
+
+**Intento 10 — Direct delivery con cached ImageCapture (funciona).** La misma idea del intento 9, pero cambiando el punto de partida del scanner:
+
+```mermaid
+flowchart TD
+    A["onImageAvailable fires"] --> B["Acquire Image from ImageReader"]
+    B --> C["Replace plane[0] ByteBuffer\nvia reflection on SurfacePlane.mBuffer"]
+    C --> D["Find callback from cached ImageCapture\n(~5 levels deep, not ~15)"]
+    D --> E["Create mock ImageProxy\n(java.lang.reflect.Proxy)"]
+    E --> F["Deliver to app's onCaptureSuccess\nvia handler.post on main thread"]
+    F --> G["App reads planes[0].buffer\n→ gets our mock JPEG bytes"]
+```
+
+El truco: durante el escaneo periódico de ImageReaders, también cacheamos la instancia de `ImageCapture` (encontrada en el mismo recorrido). Cuando `onImageAvailable` se dispara, buscamos el callback desde `ImageCapture` directamente — path de ~5 niveles — en vez de desde `ProcessCameraProvider` — path de ~15 niveles. El callback anónimo SÍ está almacenado en `TakePictureManager` dentro de `ImageCapture`, y con un path más corto el scanner lo encuentra.
+
+**Tropiezo: Hidden API restrictions.** `ImageReader.mListener` es un campo privado bloqueado por Android 9+. La reflexión lanza `NoSuchFieldException` o retorna `null`. Solución: `VMRuntime.setHiddenApiExemptions(["L"])` llamado desde `agent.c` antes de cargar el DEX. Misma técnica que VCAM (módulo Xposed) y FreeReflection.
+
+**Tropiezo: `getFormat()` renombrado en API 36.** `ImageReader.getFormat()` se convirtió en `getImageFormat()` en Android 16 SDK. Descubierto via `javap -public android.media.ImageReader`. Silencioso — el compilador no avisa porque estás compilando contra API 36 pero corriendo en API 35.
+
+### La comparación honesta (final)
+
+| | iOS | Android (cooperativo) | Android (JVMTI) |
 |---|---|---|---|
 | Transparencia | Total — DYLD hookea sin tocar la app | Parcial — app tiene código especial | **Total — inyecta en cualquier app** |
 | Funciona con apps de terceros | Sí | No | **Sí** (en emulador) |
 | Modifica la app | No | Sí (código cooperativo) | **No** |
-| Requiere | Simulador + Xcode | Agente + app cooperativa | **Emulador + NDK (build una vez)** |
 | Preview mock | ✓ | ✓ | **✓** |
-| Output mock (bytes captura) | ✓ | ✓ (la app controla) | **✗ — falta** |
-
-### Lo que falta: interceptar los bytes de captura
-
-La solución actual reemplaza lo que **se ve** en pantalla (preview). Pero **no intercepta los bytes reales** que la app recibe cuando toma una foto. Si la app hace `ImageCapture.takePicture()`, recibe los frames reales de la cámara (el tablero de ajedrez del emulador), no nuestra imagen.
-
-Para que el flujo completo funcione — la app toma la foto, la guarda, la convierte a base64, la sube a un servidor — necesitamos que reciba **nuestros bytes**. Esto requiere hookear `ImageReader.acquireLatestImage()` o el callback de `ImageCapture` via reflexión.
-
-Es el equivalente a: tenemos el preview, nos falta el output. El PR #35 documenta esta limitación explícitamente.
+| Output mock (bytes captura) | ✓ | ✓ (la app controla) | **✓** |
+| Hot-swap imagen | ✓ | ✓ | **✓** |
+| Requiere | Simulador + Xcode | Agente + app cooperativa | **Emulador + NDK (build una vez)** |
 
 ---
 
@@ -227,7 +262,7 @@ Comandos implementados en ambas plataformas:
   index (editor), inspect, media, clipboard, camera, biometric
 
 Solo iOS:
-  - build, config (camera mock transparente)
+  - build, config (camera mock via recompilación)
   - faceid (alias legacy de biometric)
 
 Solo Android:
@@ -235,13 +270,21 @@ Solo Android:
 
 Diferencias de comportamiento:
   - clipboard read: iOS = sistema real. Android = cache del último set
-  - camera mock preview: iOS = transparente ✓. Android = transparente ✓ (JVMTI)
-  - camera mock output: iOS = transparente ✓. Android = NO intercepta bytes ✗
+  - camera mock: iOS = DYLD_INSERT_LIBRARIES. Android = JVMTI agent injection
+  - camera mock preview: ambos ✓ (transparente)
+  - camera mock output: ambos ✓ (transparente)
   - index CLI: iOS = auto index. Android = solo disponible en editor
   - biometric: iOS = AppleScript. Android = emu finger + locksettings
+
+Mismo script cross-platform:
+  launch com.app --inject foto.jpg
+  waitFor "Cámara lista" 15
+  tap "Capturar Foto"
+  waitFor "Foto capturada" 10
+  screenshot resultado.png
 ```
 
-La brecha de camera mock se cerró para el preview — ambas plataformas inyectan sin modificar la app. Pero la brecha de output (bytes de captura) sigue abierta: iOS reemplaza los bytes en `AVCapturePhotoOutput`, Android aún entrega los bytes reales de la cámara.
+La brecha de camera mock se cerró completamente — preview Y output interceptados en ambas plataformas, sin modificar la app.
 
 ---
 
@@ -255,7 +298,7 @@ La brecha de camera mock se cerró para el preview — ambas plataformas inyecta
 
 4. **Los intentos "fallidos" construyen hacia la solución.** Los 5 intentos que no funcionaron no fueron desperdicio: el `agent.c` del intento 1 se reusó en la solución final, el `ViewScanner` del intento 2 encontró el `PreviewView`, y la infraestructura de DEX loading fue la misma. Cada fracaso dejó una pieza reutilizable.
 
-5. **Transparencia tiene niveles.** El overlay es transparente para la app (no la modificamos), pero no transparente para los bytes (la app recibe frames reales al capturar). iOS logró ambos niveles. Android logró el primero. El segundo requiere hookear `ImageReader` — técnicamente posible, pero es otro capítulo.
+5. **Transparencia tiene niveles — y logramos ambos.** El overlay era transparente para la app (nivel 1: la app no sabe del mock visual). La capture interception es transparente para los bytes (nivel 2: la app recibe nuestro JPEG, no el de la cámara). iOS lo logró con `DYLD_INSERT_LIBRARIES` + swizzle. Android lo logró con JVMTI + reflexión profunda. Mecanismos diferentes, mismo resultado.
 
 6. **Compartir código entre plataformas requiere diseño previo.** `TargetResolverShared` y `ElementIndexShared` solo fueron posibles porque el árbol de accesibilidad de iOS y Android tiene el mismo formato JSON. Esa decisión de diseño del Capítulo 9 pagó dividendos aquí.
 
