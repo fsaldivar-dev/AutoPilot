@@ -201,6 +201,38 @@ camera stop   → 201ms (force-stop app)
 
 La fase 2 reemplazó lo que **se ve** en pantalla. Pero cuando la app hacía `ImageCapture.takePicture()`, recibía los bytes reales de la cámara (el tablero de ajedrez del emulador), no nuestra imagen. Para que el flujo completo funcione — la app toma la foto, la guarda, la sube a un servidor — necesita recibir **nuestros bytes**.
 
+```mermaid
+sequenceDiagram
+    participant CLI as auto-android launch<br/>--inject foto.jpg
+    participant ADB as adb
+    participant JVMTI as agent.c<br/>(JVMTI native)
+    participant DEX as CameraHooks.kt<br/>(DexClassLoader)
+    participant CX as CameraX<br/>(ImageReader)
+    participant App as App<br/>(onCaptureSuccess)
+
+    CLI->>ADB: push .so + .dex + imagen
+    CLI->>ADB: am start + attach-agent
+    ADB->>JVMTI: Agent_OnAttach()
+    JVMTI->>JVMTI: setHiddenApiExemptions(["L"])
+    JVMTI->>DEX: DexClassLoader → CameraHooks.install()
+
+    Note over DEX: Scanner thread (cada 2s)
+    DEX->>CX: Reflexion: find ImageReader<br/>via ProcessCameraProvider<br/>(depth 20, Strategy 4)
+    DEX->>CX: Replace mListener<br/>con Proxy wrapper
+    DEX->>DEX: Cache ImageCapture instance
+
+    Note over App: Usuario toca "Capturar Foto"
+    App->>CX: ImageCapture.takePicture(callback)
+    CX->>DEX: onImageAvailable (wrapper)
+    DEX->>CX: acquireNextImage()
+    CX-->>DEX: Image (JPEG, 1280x960)
+    DEX->>DEX: Replace SurfacePlane.mBuffer<br/>con mock JPEG bytes
+    DEX->>DEX: Find callback desde<br/>cached ImageCapture (~5 levels)
+    DEX->>DEX: Create mock ImageProxy<br/>(java.lang.reflect.Proxy)
+    DEX->>App: handler.post → onCaptureSuccess(mockProxy)
+    App->>App: planes[0].buffer → mock JPEG ✓
+```
+
 Tres interceptores cubren los tres caminos que Android ofrece para capturar fotos:
 
 #### IntentInterceptor — `ACTION_IMAGE_CAPTURE`
