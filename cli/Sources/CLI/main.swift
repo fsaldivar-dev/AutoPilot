@@ -363,6 +363,7 @@ func printUsage() {
       camera stop                       Stop virtual camera
       camera status                     Check camera status
       terminate <bundleId>              Kill app
+      permission <grant|revoke|reset> <service> <bundleId>  Manage app permissions
       config                             Show all config
       config <key> <value>              Set config value
       config <key>                      Get config value

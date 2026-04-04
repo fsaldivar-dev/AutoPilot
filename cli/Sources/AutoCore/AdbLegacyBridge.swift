@@ -546,4 +546,41 @@ public final class AdbLegacyBridge: DeviceBridge {
         let output = try runAdb(["shell", "locksettings", "get-disabled"])
         return output.trimmingCharacters(in: .whitespacesAndNewlines) == "false"
     }
+
+    // MARK: - DeviceBridge: Logs
+
+    public func getLogs(bundleId: String?, lines: Int) throws -> String {
+        var args = ["shell", "logcat", "-t", "\(lines)", "-d"]
+        if let bundleId = bundleId {
+            args += ["-e", bundleId]
+        }
+        return try runAdb(args)
+    }
+
+    // MARK: - DeviceBridge: Permissions
+
+    public func setPermission(action: String, service: String, bundleId: String) throws {
+        let adbAction: String
+        switch action {
+        case "grant":   adbAction = "grant"
+        case "revoke":  adbAction = "revoke"
+        case "reset":
+            throw BridgeError.adbFailed("permission reset not supported on Android. Use 'revoke' or reset via Settings.")
+        default:
+            throw BridgeError.adbFailed("Invalid action: \(action)")
+        }
+        let androidPermission: String
+        switch service {
+        case "camera":        androidPermission = "android.permission.CAMERA"
+        case "microphone":    androidPermission = "android.permission.RECORD_AUDIO"
+        case "photos":        androidPermission = "android.permission.READ_MEDIA_IMAGES"
+        case "contacts":      androidPermission = "android.permission.READ_CONTACTS"
+        case "calendars":     androidPermission = "android.permission.READ_CALENDAR"
+        case "location":      androidPermission = "android.permission.ACCESS_FINE_LOCATION"
+        case "notifications": androidPermission = "android.permission.POST_NOTIFICATIONS"
+        default:
+            throw BridgeError.adbFailed("Service '\(service)' not mapped for Android. Use the full Android permission string.")
+        }
+        try runAdb(["shell", "pm", adbAction, bundleId, androidPermission])
+    }
 }

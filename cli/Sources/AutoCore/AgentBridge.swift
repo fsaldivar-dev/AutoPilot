@@ -302,6 +302,18 @@ public final class AgentBridge: DeviceBridge {
         try legacy.biometricIsEnrolled()
     }
 
+    // MARK: - Logs
+
+    public func getLogs(bundleId: String?, lines: Int) throws -> String {
+        try legacy.getLogs(bundleId: bundleId, lines: lines)
+    }
+
+    // MARK: - Permissions
+
+    public func setPermission(action: String, service: String, bundleId: String) throws {
+        try legacy.setPermission(action: action, service: service, bundleId: bundleId)
+    }
+
     // MARK: - Helpers
 
     private func searchRecursive(elements: [[String: Any]], query: String, results: inout [[String: Any]]) {

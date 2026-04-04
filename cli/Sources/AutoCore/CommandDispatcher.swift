@@ -322,6 +322,21 @@ public func executeSharedCommand(_ args: [String], bridge: any DeviceBridge) thr
             print("Unknown: \(args[1]). Use enroll/unenroll/match/fail/status")
         }
 
+    case "permission":
+        guard args.count >= 4 else {
+            print("Usage: auto permission <grant|revoke|reset> <service> <bundleId>")
+            print("       Services: camera, microphone, photos, contacts, calendars,")
+            print("                 reminders, location, bluetooth, health, homekit,")
+            print("                 notifications, all")
+            return true
+        }
+        let action = args[1]
+        let service = args[2]
+        let bundleId = args[3]
+        try bridge.setPermission(action: action, service: service, bundleId: bundleId)
+        let ms = elapsedMs(start)
+        print("Permission \(action) \(service) → \(bundleId) (\(ms)ms)")
+
     default:
         return false
     }

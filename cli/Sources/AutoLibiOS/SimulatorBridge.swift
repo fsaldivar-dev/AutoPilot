@@ -1099,4 +1099,62 @@ extension SimulatorBridge: DeviceBridge {
     public func tree() throws -> [[String: Any]] {
         return try tree(element: nil)
     }
+
+    public func getLogs(bundleId: String?, lines: Int) throws -> String {
+        let udid = try getBootedDeviceId()
+        var args = ["simctl", "spawn", udid, "log", "show",
+                    "--last", "\(lines)", "--style", "compact"]
+        if let bundleId = bundleId {
+            let processName = bundleId.components(separatedBy: ".").last ?? bundleId
+            args += ["--predicate", "process == \"\(processName)\" OR subsystem == \"\(bundleId)\""]
+        }
+        let process = Process()
+        let pipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
+        process.arguments = args
+        process.standardOutput = pipe
+        process.standardError = Pipe()
+        try process.run()
+        process.waitUntilExit()
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        let output = String(data: data, encoding: .utf8) ?? ""
+        if output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            return bundleId != nil
+                ? "(no logs found for \(bundleId!) — app may not have run yet)"
+                : "(no logs)"
+        }
+        return output
+    }
+
+    public func setPermission(action: String, service: String, bundleId: String) throws {
+        let udid = try getBootedDeviceId()
+        let validActions = ["grant", "revoke", "reset"]
+        guard validActions.contains(action) else {
+            throw BridgeError.simctlFailed("Invalid action '\(action)'. Use: grant, revoke, reset")
+        }
+        let validServices = ["camera", "microphone", "photos", "contacts", "calendars",
+                             "reminders", "location", "bluetooth", "health", "homekit",
+                             "notifications", "all"]
+        guard validServices.contains(service) else {
+            throw BridgeError.simctlFailed("Invalid service '\(service)'. Valid: \(validServices.joined(separator: ", "))")
+        }
+        let process = Process()
+        let pipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
+        process.arguments = ["simctl", "privacy", udid, action, service, bundleId]
+        process.standardOutput = pipe
+        process.standardError = pipe
+        try process.run()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            let msg = String(data: data, encoding: .utf8) ?? "Unknown error"
+            throw BridgeError.simctlFailed(msg)
+        }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        let result = String(data: data, encoding: .utf8) ?? ""
+        if !result.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            print(result)
+        }
+    }
 }
