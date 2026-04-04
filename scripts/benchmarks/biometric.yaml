@@ -17,9 +17,7 @@ appId: dev.autopilot.test.Explorea
 
 - launchApp
 
-- assertVisible:
-    text: "Desbloquear con biometría"
-    timeout: 10000
+- assertVisible: "Desbloquear con biometría"
 
 - tapOn: "Desbloquear con biometría"
 

@@ -1,0 +1,26 @@
+appId: dev.autopilot.test.Explorea
+---
+# Benchmark: Login + navegacion (Maestro)
+
+- launchApp
+
+- assertVisible: "Explorea"
+- takeScreenshot: evidence/maestro-login-step1
+
+- tapOn: "Usar código"
+
+- assertVisible: "Ingresa tu código"
+- takeScreenshot: evidence/maestro-login-step2
+
+- tapOn: "1"
+- tapOn: "2"
+- tapOn: "3"
+- tapOn: "4"
+- tapOn: "Confirmar"
+
+- assertVisible: "Inicio"
+- takeScreenshot: evidence/maestro-login-step3
+
+- tapOn: "Aventura"
+- scroll
+- takeScreenshot: evidence/maestro-login-step4
