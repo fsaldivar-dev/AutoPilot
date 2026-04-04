@@ -142,5 +142,12 @@ object PreviewRenderer {
         overlayView = null
     }
 
-    fun isActive(): Boolean = active
+    fun isActive(): Boolean {
+        // Check if the overlay is still in a valid view hierarchy
+        if (active && overlayView?.parent == null) {
+            active = false
+            overlayView = null
+        }
+        return active
+    }
 }

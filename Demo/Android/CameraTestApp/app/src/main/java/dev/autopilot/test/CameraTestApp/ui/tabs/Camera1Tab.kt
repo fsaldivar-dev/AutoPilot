@@ -103,20 +103,25 @@ fun Camera1Tab() {
         Button(
             onClick = {
                 statusText = "Capturando con Camera1..."
-                camera?.takePicture(null, null) { data, cam ->
-                    val bmp = BitmapFactory.decodeByteArray(data, 0, data.size)
-                    if (bmp != null) {
-                        capturedBitmap = bmp
-                        val stream = ByteArrayOutputStream()
-                        bmp.compress(Bitmap.CompressFormat.JPEG, 90, stream)
-                        capturedSize = stream.size()
-                        statusText = "Camera1 capturada ($capturedSize bytes)"
-                        Log.d("Camera1Tab", "Camera1 photo: ${data.size} raw, $capturedSize compressed")
-                    } else {
-                        statusText = "Error: no se pudo decodificar Camera1 JPEG"
+                try {
+                    camera?.takePicture(null, null) { data, cam ->
+                        val bmp = BitmapFactory.decodeByteArray(data, 0, data.size)
+                        if (bmp != null) {
+                            capturedBitmap = bmp
+                            val stream = ByteArrayOutputStream()
+                            bmp.compress(Bitmap.CompressFormat.JPEG, 90, stream)
+                            capturedSize = stream.size()
+                            statusText = "Camera1 capturada ($capturedSize bytes)"
+                            Log.d("Camera1Tab", "Camera1 photo: ${data.size} raw, $capturedSize compressed")
+                        } else {
+                            statusText = "Error: no se pudo decodificar Camera1 JPEG"
+                        }
+                        // Restart preview after capture
+                        try { cam.startPreview() } catch (_: Exception) {}
                     }
-                    // Restart preview after capture
-                    cam.startPreview()
+                } catch (e: Exception) {
+                    statusText = "Error Camera1: ${e.message}"
+                    Log.e("Camera1Tab", "takePicture failed", e)
                 }
             },
             modifier = Modifier.fillMaxWidth().height(52.dp),

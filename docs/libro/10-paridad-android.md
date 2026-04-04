@@ -216,20 +216,18 @@ sequenceDiagram
     JVMTI->>JVMTI: setHiddenApiExemptions(["L"])
     JVMTI->>DEX: DexClassLoader → CameraHooks.install()
 
-    Note over DEX: Scanner thread (cada 2s)
-    DEX->>CX: Reflexion: find ImageReader<br/>via ProcessCameraProvider<br/>(depth 20, Strategy 4)
+    Note over DEX: Scanner thread (200ms-3s adaptive)
+    DEX->>CX: Reflexion: find ImageReader<br/>via ProcessCameraProvider
     DEX->>CX: Replace mListener<br/>con Proxy wrapper
     DEX->>DEX: Cache ImageCapture instance
 
     Note over App: Usuario toca "Capturar Foto"
     App->>CX: ImageCapture.takePicture(callback)
     CX->>DEX: onImageAvailable (wrapper)
-    DEX->>CX: acquireNextImage()
-    CX-->>DEX: Image (JPEG, 1280x960)
-    DEX->>DEX: Replace SurfacePlane.mBuffer<br/>con mock JPEG bytes
-    DEX->>DEX: Find callback desde<br/>cached ImageCapture (~5 levels)
+    DEX->>DEX: Pre-check: findPendingCallback()<br/>via cached ImageCapture (~5 levels)
+    DEX->>CX: acquireNextImage() + close()<br/>(consume real image)
     DEX->>DEX: Create mock ImageProxy<br/>(java.lang.reflect.Proxy)
-    DEX->>App: handler.post → onCaptureSuccess(mockProxy)
+    DEX->>App: executor → onCaptureSuccess(mockProxy)
     App->>App: planes[0].buffer → mock JPEG ✓
 ```
 
@@ -253,23 +251,67 @@ CameraX (que internamente usa Camera2) es el camino de las apps modernas. Aquí 
 
 **Intento 9 — Direct delivery, búsqueda amplia.** Adquirir el Image antes que CameraX, crear un `ImageProxy` mock via `java.lang.reflect.Proxy`, y entregarlo directamente al callback de la app. El `onImageAvailable` wrapper se activa correctamente. Pero `findInstancesOfClass(OnImageCapturedCallback)` escaneando desde `ProcessCameraProvider` (10000+ objetos visitados) no encuentra el callback — es un objeto anónimo creado inline en un lambda de Compose, almacenado profundo en `TakePictureManager`.
 
-**Intento 10 — Direct delivery con cached ImageCapture (funciona).** La misma idea del intento 9, pero cambiando el punto de partida del scanner:
+**Intento 10 — Direct delivery con cached ImageCapture.** La misma idea del intento 9, pero cambiando el punto de partida del scanner: cacheamos `ImageCapture` durante el escaneo periódico y buscamos el callback desde ahí (~5 niveles) en vez de desde `ProcessCameraProvider` (~15 niveles). El callback SÍ está en `TakePictureManager` dentro de `ImageCapture`.
+
+Funcionó parcialmente — pero la entrega de bytes usaba buffer replacement (`SurfacePlane.mBuffer = ByteBuffer.wrap(mockBytes)`), que resultó ser frágil.
+
+**Intento 11 — Buffer replacement falla en campo.** Al probar con los 6 tabs del CameraTestApp, descubrimos que el buffer del HAL es un `DirectByteBuffer` asignado por hardware. `ByteBuffer.wrap()` crea un `HeapByteBuffer` — tipo distinto. CameraX puede tener referencias cacheadas al buffer original. El reemplazo funciona intermitentemente, no de forma confiable.
+
+**Intento 12 — Consume + mock ImageProxy delivery (funciona).** Estrategia completamente distinta:
 
 ```mermaid
 flowchart TD
-    A["onImageAvailable fires"] --> B["Acquire Image from ImageReader"]
-    B --> C["Replace plane[0] ByteBuffer\nvia reflection on SurfacePlane.mBuffer"]
-    C --> D["Find callback from cached ImageCapture\n(~5 levels deep, not ~15)"]
-    D --> E["Create mock ImageProxy\n(java.lang.reflect.Proxy)"]
-    E --> F["Deliver to app's onCaptureSuccess\nvia handler.post on main thread"]
-    F --> G["App reads planes[0].buffer\n→ gets our mock JPEG bytes"]
+    A["onImageAvailable fires"] --> B["Pre-check: findPendingCallback()"]
+    B -->|found| C["acquireNextImage() + close()\n(consume real image)"]
+    B -->|not found| D["Pass through to original\nlistener — no data lost"]
+    C --> E["Create mock ImageProxy\n(Proxy with JPEG bytes)"]
+    E --> F["callback.onCaptureSuccess(mockProxy)"]
+    F --> G["App reads planes[0].buffer\n→ gets our mock JPEG"]
 ```
 
-El truco: durante el escaneo periódico de ImageReaders, también cacheamos la instancia de `ImageCapture` (encontrada en el mismo recorrido). Cuando `onImageAvailable` se dispara, buscamos el callback desde `ImageCapture` directamente — path de ~5 niveles — en vez de desde `ProcessCameraProvider` — path de ~15 niveles. El callback anónimo SÍ está almacenado en `TakePictureManager` dentro de `ImageCapture`, y con un path más corto el scanner lo encuentra.
+La diferencia clave: **no tocamos los buffers del HAL**. Consumimos la imagen real y entregamos una completamente nueva. Si no encontramos el callback, dejamos pasar al listener original — ninguna imagen se pierde.
 
-**Tropiezo: Hidden API restrictions.** `ImageReader.mListener` es un campo privado bloqueado por Android 9+. La reflexión lanza `NoSuchFieldException` o retorna `null`. Solución: `VMRuntime.setHiddenApiExemptions(["L"])` llamado desde `agent.c` antes de cargar el DEX. Misma técnica que VCAM (módulo Xposed) y FreeReflection.
+El callback se encuentra via path corto: `ImageCapture → mTakePictureManager → mPendingRequests → last.mCallback`. El `ImageCapture` se cachea durante el escaneo periódico de ImageReaders.
 
-**Tropiezo: `getFormat()` renombrado en API 36.** `ImageReader.getFormat()` se convirtió en `getImageFormat()` en Android 16 SDK. Descubierto via `javap -public android.media.ImageReader`. Silencioso — el compilador no avisa porque estás compilando contra API 36 pero corriendo en API 35.
+**Tropiezo: Hidden API restrictions.** `ImageReader.mListener` es un campo privado bloqueado por Android 9+. Solución: `VMRuntime.setHiddenApiExemptions(["L"])` desde `agent.c`. Misma técnica que VCAM (módulo Xposed).
+
+**Tropiezo: Timing del re-wrap en Compose.** Al cambiar de tab, CameraX crea un nuevo `ImageReader`. El scanner tardaba 2-10s en wrapearlo — el primer tap siempre fallaba. Fix: `requestRescan()` activa polling agresivo (200ms → 500ms → 3s) y limpia el estado trackeado para que el mismo ImageReader se re-wrappee.
+
+**Tropiezo: Compose no dispara lifecycle.** Los tab changes son recomposiciones, no cambios de Activity. Un "overlay watchdog" (thread que verifica cada 2s si el overlay sigue en la jerarquía) detecta cuando Compose destruyó el `PreviewView` y trigger re-scan.
+
+**Tropiezo: `monkey` falla en emuladores modernos.** `adb shell monkey` retorna exit code 251. Fix: fallback a `am start` con resolución del launcher activity via `cmd package resolve-activity --brief`.
+
+### Testing E2E: el script `.auto` como verificación
+
+Para probar que la inyección funciona end-to-end, escribimos `android-camera-all-tabs.auto` — 54 pasos que recorren los 6 tabs:
+
+```
+auto-android run scripts/examples/android-camera-all-tabs.auto
+
+[4]  camera start qr-autopilot.png → Injected (787ms)
+[9]  waitFor "Foto capturada"      → Found (616ms)    ← CameraX ✓
+[17] waitFor "QR detectado"        → Found (1043ms)   ← QR+MLKit ✓
+[25] waitFor "Texto detectado"     → Found (1023ms)   ← OCR+MLKit ✓
+[30] tap "Capturar por Intent"     → Tapped (36ms)    ← Intent ✓
+[38] tap "Capturar Frente de ID"   → Tapped (40ms)    ← ID frente ✓
+[43] tap "Capturar Reverso de ID"  → Tapped (47ms)    ← ID reverso ✓
+
+54 step(s) completed (68080ms)
+```
+
+ML Kit decodificó `AUTOPILOT-QR-TEST-2026` desde nuestra imagen QR mock, y reconoció 5 bloques de texto desde la imagen OCR. Los bytes que la app recibe son nuestros — no los del emulador.
+
+### Matrix de APIs
+
+| API | JVMTI Inject | CameraX Capture | QR+MLKit | Notes |
+|-----|-------------|-----------------|----------|-------|
+| 28  | ✓ | ✓ | — | Legacy bridge no navega tabs de Compose |
+| 29  | ✗ | — | — | `run-as` falla (emulador no debuggable) |
+| 31  | ✗ | — | — | `run-as` falla (mismo) |
+| 33  | ✓ | ✓ | ✓ | **54/54 pasos pasan** |
+| 35  | ✓ | ✓ | — | Legacy bridge no navega tabs |
+
+Los fallos en API 29/31 son de setup del emulador (`run-as` necesita `ro.debuggable=1`), no del agente. Los fallos de navegación en API 28/35 son de `uiautomator` con Compose, no de la inyección.
 
 ### La comparación honesta (final)
 
@@ -333,6 +375,10 @@ La brecha de camera mock se cerró completamente — preview Y output intercepta
 5. **Transparencia tiene niveles — y logramos ambos.** El overlay era transparente para la app (nivel 1: la app no sabe del mock visual). La capture interception es transparente para los bytes (nivel 2: la app recibe nuestro JPEG, no el de la cámara). iOS lo logró con `DYLD_INSERT_LIBRARIES` + swizzle. Android lo logró con JVMTI + reflexión profunda. Mecanismos diferentes, mismo resultado.
 
 6. **Compartir código entre plataformas requiere diseño previo.** `TargetResolverShared` y `ElementIndexShared` solo fueron posibles porque el árbol de accesibilidad de iOS y Android tiene el mismo formato JSON. Esa decisión de diseño del Capítulo 9 pagó dividendos aquí.
+
+7. **No modifiques buffers del HAL — reemplaza el objeto completo.** Los `DirectByteBuffer` asignados por el hardware de cámara no se pueden swap con `ByteBuffer.wrap()`. La estrategia correcta (tanto en iOS con swizzle como en Android con Proxy) es interceptar a nivel de API y entregar un objeto mock completo, no modificar internals del framework.
+
+8. **Compose rompe asunciones de lifecycle.** Los hooks que dependen de `onActivityResumed` fallan cuando la UI cambia via recomposición (tab changes, navigation) sin cambio de Activity. Un watchdog que verifica el estado real de la view hierarchy es más robusto que confiar en callbacks de lifecycle.
 
 ---
 
