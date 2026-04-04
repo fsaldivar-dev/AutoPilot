@@ -876,3 +876,66 @@ Monaco no esta disponible en el HTML estatico. Implementamos highlighting manual
 | #31 | Fix: Inspector quoted commands + thread cleanup | Mergeado |
 | #32 | Feat: Android clipboard real + camera mock | Mergeado |
 | #33 | Feat: Benchmark suite AutoPilot vs Maestro vs WDA | Mergeado |
+
+---
+
+## Sesion 2026-04-04 (tarde) — Camera Mock Android: JVMTI transparente
+
+### Contexto
+
+El PR #32 implemento camera mock cooperativo — la app demo revisa si existe un archivo y lo usa. Funcional, pero no transparente. En iOS el dylib hookea AVFoundation sin que la app sepa. En Android la app tenia que cooperar.
+
+Objetivo: lograr inyeccion transparente. Compilar la app normal, lanzarla, y que el agente detecte la camara y reemplace lo que ve el usuario.
+
+### Intento 4 — Subclasear Camera2 API
+
+Creamos `MockCameraManager.kt`, `MockCameraDevice.kt`, `MockCaptureSession.kt`, `CameraManagerProxy.kt`. La idea: usar `java.lang.reflect.Proxy` o subclasear para interceptar `CameraManager.openCamera()` y entregar un device mock.
+
+**Resultado: no compila.** `CameraManager` es clase final. `CameraDevice` tiene constructor package-private. `Proxy` solo funciona con interfaces. Archivos borrados.
+
+### Intento 5 — Surface.lockCanvas() directo
+
+Pivotamos a no mockear Camera2. Dejamos que la camara real abra, pero dibujamos nuestra imagen en el Surface de preview.
+
+`ViewScanner` encuentra `PreviewView` → hijo `SurfaceView[1280x960]`. `Surface.lockCanvas(null)` retorna `null`. CameraX usa `SURFACE_TYPE_PUSH_BUFFERS` — el hardware controla el buffer.
+
+### Intento 6 — ImageView overlay (funciona)
+
+Si no podemos dibujar EN el Surface, ponemos algo ENCIMA. `PreviewRenderer` reescrito: crea `FrameLayout` con `ImageView` + badge `TextView`, lo inserta como hijo de `PreviewView` con `elevation=100f`.
+
+`ImageWatcher` poll cada 500ms el archivo. Cuando detecta cambio (lastModified + size), recarga bitmap y actualiza ImageView. Hot-swap sin relanzar.
+
+### Tropiezos tecnicos
+
+| Problema | Causa | Solucion |
+|----------|-------|----------|
+| kotlinc no ejecutable | macOS app bundle permisos | `java -jar kotlin-compiler.jar` |
+| SELinux bloquea .so en /data/local/tmp/ | `shell_data_file` context | `run-as <pkg> cp` al data dir |
+| "Writable dex file not allowed" | Android security | `chmod 444` post-copy |
+| ClassNotFoundException Intrinsics | Compilado sin stdlib | Incluir kotlin-stdlib.jar en d8 |
+| Scoped storage bloquea /sdcard/ | Android 11+ | Copiar imagen via `run-as` |
+| Surface.lockCanvas() retorna null | PUSH_BUFFERS mode CameraX | Overlay ImageView |
+| Overlay no cubria preview | Insertado como sibling | Insertado como hijo de PreviewView |
+| Command injection en package name | String interpolation en shell | Validacion CharacterSet |
+
+### Integracion CLI
+
+`AgentBridge.swift` actualizado: `cameraStart`/`cameraFeed`/`cameraStop` usan adb push + JVMTI attach-agent.
+
+### Resultados
+
+```
+camera start  → 737ms (deploy + inject)
+camera feed   → 135ms (hot-swap)
+camera stop   → 201ms (force-stop)
+```
+
+### Limitacion critica
+
+Solo reemplaza preview visual. NO intercepta bytes de captura. Cuando la app toma foto, recibe bytes reales. Falta hookear ImageReader/ImageCapture.
+
+### PR de la sesion
+
+| PR | Titulo | Estado |
+|---|---|---|
+| #35 | feat: transparent Android camera mock via JVMTI agent | Abierto |

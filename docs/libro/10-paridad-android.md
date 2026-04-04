@@ -91,69 +91,25 @@ getClipboard():
 
 ---
 
-## Camera mock en Android: tres intentos
+## Camera mock en Android: seis intentos, dos fases
 
-iOS tuvo 10 intentos para mockear la cámara (ver [Capítulo 3](03-la-camara-virtual.md)). Android tuvo tres. El resultado final es diferente en naturaleza: en iOS mockear es transparente para la app; en Android requiere cooperación.
+iOS tuvo 10 intentos para mockear la cámara (ver [Capítulo 3](03-la-camara-virtual.md)). Android tuvo seis, en dos fases. La primera fase terminó con una solución cooperativa (la app tenía que saber del mock). La segunda fase logró inyección transparente — al estilo iOS.
 
-### Intento 1 — JVMTI agent en C
+### Fase 1: Tres intentos, solución cooperativa (PR #32)
 
-**Idea:** JVMTI (Java Virtual Machine Tool Interface) es la API que usan los debuggers de Java para interceptar llamadas a métodos. Un agente nativo `.so` se inyecta en el proceso de la app via `adb shell cmd activity attach-agent`. Desde ahí, cargamos un DEX con `DexClassLoader` que hookea los métodos de Camera2.
+#### Intento 1 — JVMTI agent en C (hookear Camera2 API)
 
-```
-agent/camera-mock-native/
-├── agent.c           ← agente JVMTI en C
-├── build.sh
-└── jvmti-headers/
-```
+**Idea:** JVMTI (Java Virtual Machine Tool Interface) permite inyectar un `.so` en el proceso de cualquier app via `adb shell cmd activity attach-agent`. Desde ahí, cargar un DEX con `DexClassLoader` que hookee Camera2.
 
-El `agent.c` carga `autopilot-camera-mock.dex` en el proceso de la app y llama `CameraHooks.install(imagePath)`.
+**Compiló. No hookeó nada útil.** CameraX y Camera2 usan el Camera HAL vía NDK. Las llamadas no pasan por métodos Java que JVMTI pueda interceptar.
 
-**Compiló. No funcionó.**
+#### Intento 2 — Kotlin instrumentation (timing)
 
-El problema: CameraX y Camera2 en Jetpack Compose usan el Camera HAL directamente vía NDK (`ACameraManager`, `ACameraDevice`). Las llamadas no pasan por métodos Java que JVMTI pueda interceptar. JVMTI solo ve el bytecode de la JVM, no las llamadas nativas.
+**Compiló. Falló por timing.** Los hooks se instalan después de que `CameraActivity` ya inicializó CameraX. `ProcessCameraProvider` ya entregó la cámara — interceptar una sesión ya activa no es posible.
 
-Si la app usara `android.hardware.Camera` (la API deprecada, pre-Android 5), JVMTI habría funcionado. Pero ninguna app moderna la usa.
+#### Intento 3 — Socket + base64 + cooperación de la app
 
-### Intento 2 — Kotlin instrumentation
-
-**Idea:** Si JVMTI no llega a CameraX, tal vez podemos interceptar en un nivel más alto — las vistas. `TextureView` o `SurfaceView` muestran el preview de la cámara. Si encontramos esa vista en el árbol y dibujamos encima, el usuario ve la imagen mock.
-
-```
-agent/camera-mock-kotlin/src/
-├── CameraHooks.kt      ← hooks de Camera2
-├── ImageWatcher.kt     ← detecta cambios en archivo de imagen
-├── PreviewRenderer.kt  ← dibuja imagen en TextureView
-└── ViewScanner.kt      ← busca TextureView en árbol de vistas
-```
-
-**Compiló. Falló por timing.**
-
-El agente de instrumentación inicia antes que la app, pero los hooks se instalan después de que `CameraActivity` ya inicializó `CameraX`. Para cuando `CameraHooks.install()` corre, `ProcessCameraProvider` ya entregó la cámara a la app. Los hooks no interceptan una sesión ya activa.
-
-Intentamos reiniciar la sesión desde el agente: llamar `unbindAll()` en `ProcessCameraProvider`. Falló — `ProcessCameraProvider` es un singleton de la app, no del agente. Acceder desde fuera crashea el proceso.
-
-### Solución final — socket + base64 + cooperación de la app
-
-**Cambio de filosofía.** En iOS, DYLD_INSERT_LIBRARIES es transparente porque el sistema operativo lo diseñó para eso — carga librerías antes que el binario principal. Android no tiene un mecanismo equivalente en apps no-root.
-
-La alternativa pragmática: la app coopera explícitamente.
-
-**Mecanismo:**
-
-```
-[CLI] auto-android camera start foto.jpg
-  → lee foto.jpg → codifica a base64 → envía al agente via socket
-
-[Agente] recibe base64 → decodifica → escribe a context.filesDir/autopilot-camera.jpg
-  → responde: {"result": {"status": "ACTIVE"}}
-
-[App demo] al inicializar cámara:
-  if (File(filesDir, "autopilot-camera.jpg").exists()) {
-      usarImagenMock()  // lee el archivo y lo muestra en el preview
-  } else {
-      usarCamaraReal()
-  }
-```
+La alternativa pragmática: la app coopera explícitamente. El CLI envía la imagen al agente via socket, el agente la escribe a disco, y la app demo revisa si existe el archivo para usarlo en vez de la cámara real.
 
 ```mermaid
 sequenceDiagram
@@ -164,39 +120,101 @@ sequenceDiagram
     CLI->>Agent: camera start [base64 imagen]
     Agent->>Agent: escribe filesDir/autopilot-camera.jpg
     Agent-->>CLI: {status: ACTIVE}
-    
+
     App->>App: inicializa cámara
-    App->>App: if (filesDir/autopilot-camera.jpg existe)
-    App->>App: usarImagenMock()
-    
-    CLI->>Agent: camera feed [nueva imagen]
-    Agent->>Agent: sobreescribe filesDir/autopilot-camera.jpg
-    
-    CLI->>Agent: camera stop
-    Agent->>Agent: borra filesDir/autopilot-camera.jpg
-    Agent-->>CLI: {status: INACTIVE}
+    App->>App: if (archivo mock existe) → usarImagenMock()
 ```
 
-**Resultado real:**
+Funcional (37ms start, 28ms feed), pero no transparente — la app tenía código especial para cooperar.
+
+### Fase 2: Inyección transparente via JVMTI (PR #35)
+
+Los intentos 1 y 2 de la fase anterior no fueron en vano. El agente nativo JVMTI (`agent.c`) y la infraestructura de DEX loading funcionaban — lo que falló fue la estrategia de hookeo. La idea correcta era: dejar que la cámara real funcione, pero interceptar lo que el usuario ve.
+
+#### Intento 4 — Subclasear Camera2 API
+
+Intentamos crear `MockCameraManager`, `MockCameraDevice`, `MockCaptureSession` en Kotlin. Proxy dinámico o subclases que interceptaran `openCamera()`.
+
+**No compila.** `CameraManager` es `final`. `CameraDevice` tiene constructor package-private. `java.lang.reflect.Proxy` solo funciona con interfaces. Sin `cglib`/`dexmaker` (dependencias externas), no hay forma de subclasear clases concretas del framework.
+
+#### Intento 5 — Surface.lockCanvas() directo
+
+Dejar que la cámara real abra, encontrar el `SurfaceView` del preview, y dibujar nuestra imagen directamente en su Surface.
+
+`ViewScanner` encuentra el `PreviewView` → hijo `SurfaceView[1280x960]`. Hasta ahí bien. Pero `Surface.lockCanvas(null)` retorna `null`. CameraX usa `SURFACE_TYPE_PUSH_BUFFERS` — el hardware controla el buffer, la app no puede dibujar en él.
+
+#### Intento 6 — ImageView overlay (funciona)
+
+Si no podemos dibujar EN el Surface, ponemos algo ENCIMA. Un `ImageView` como hijo del `PreviewView` con `elevation=100f` se renderiza por encima de cualquier Surface.
+
+```mermaid
+flowchart LR
+    subgraph Host["Host (macOS)"]
+        CLI["auto-android camera start"]
+    end
+
+    subgraph Device["Device (emulador Android)"]
+        ADB["adb push .so + .dex + imagen"]
+
+        subgraph App["Proceso de la App"]
+            Agent["JVMTI Agent_OnAttach()"]
+            DEX["DexClassLoader"]
+            Hooks["CameraHooks.install()"]
+            IW["ImageWatcher\n(poll 500ms)"]
+            LC["ActivityLifecycleCallbacks"]
+            VS["ViewScanner\n(encuentra PreviewView)"]
+            PR["PreviewRenderer\n(overlay ImageView)"]
+        end
+    end
+
+    CLI -->|adb| ADB
+    ADB -->|attach-agent| Agent
+    Agent --> DEX
+    DEX --> Hooks
+    Hooks --> IW
+    Hooks --> LC
+    LC --> VS
+    VS --> PR
+    IW -.->|hot-swap| PR
 ```
-camera start   → 37ms
-camera status  → ACTIVE, path: /data/.../autopilot-camera.jpg
-camera feed    → 28ms (nueva imagen)
-camera stop    → INACTIVE ✓
+
+El flujo: el agente nativo carga el DEX → `CameraHooks` registra `ActivityLifecycleCallbacks` → cuando una actividad hace `onResume`, `ViewScanner` busca el `PreviewView` en la jerarquía → `PreviewRenderer` coloca un `ImageView` con la imagen mock encima → `ImageWatcher` poll cada 500ms para hot-swap.
+
+**Resultado:**
+```
+camera start  → 737ms (deploy completo + inject)
+camera feed   → 135ms (solo push imagen, hot-swap)
+camera stop   → 201ms (force-stop app)
 ```
 
-### La comparación honesta
+**Tropiezos técnicos en el camino:**
 
-| | iOS | Android |
-|---|---|---|
-| Transparencia | Total — DYLD hookea sin tocar la app | Parcial — la app demo tiene código especial |
-| Funciona con apps de terceros | Sí (una vez con el flag de build) | No (sin root) |
-| Requiere recompilar la app | Una vez, con `ENABLE_DEBUG_DYLIB=YES` | No (la lógica está en la app demo) |
-| Latencia de start | ~45ms | ~37ms |
+| Problema | Causa | Solución |
+|----------|-------|----------|
+| kotlinc no ejecutable | macOS app bundle permisos | `java -jar kotlin-compiler.jar` |
+| SELinux bloquea .so | `shell_data_file` context | `run-as <pkg> cp` al data dir |
+| "Writable dex file" | Android security | `chmod 444` post-copy |
+| ClassNotFoundException Intrinsics | Compilado sin stdlib | Incluir kotlin-stdlib.jar en d8 |
+| Scoped storage bloquea /sdcard/ | Android 11+ | Copiar imagen via `run-as` |
 
-En iOS encontramos la manera de no modificar la app. En Android no encontramos esa manera — o no existe con las restricciones actuales, o existe pero requeriría root o una modificación al sistema.
+### La comparación honesta (actualizada)
 
-Guardamos los dos intentos fallidos en el repo (`agent/camera-mock-kotlin/`, `agent/camera-mock-native/`) en vez de borrarlos. Si alguien en el futuro tiene otra idea, tiene el contexto completo de qué se intentó.
+| | iOS | Android (cooperativo, PR #32) | Android (JVMTI, PR #35) |
+|---|---|---|---|
+| Transparencia | Total — DYLD hookea sin tocar la app | Parcial — app tiene código especial | **Total — inyecta en cualquier app** |
+| Funciona con apps de terceros | Sí | No | **Sí** (en emulador) |
+| Modifica la app | No | Sí (código cooperativo) | **No** |
+| Requiere | Simulador + Xcode | Agente + app cooperativa | **Emulador + NDK (build una vez)** |
+| Preview mock | ✓ | ✓ | **✓** |
+| Output mock (bytes captura) | ✓ | ✓ (la app controla) | **✗ — falta** |
+
+### Lo que falta: interceptar los bytes de captura
+
+La solución actual reemplaza lo que **se ve** en pantalla (preview). Pero **no intercepta los bytes reales** que la app recibe cuando toma una foto. Si la app hace `ImageCapture.takePicture()`, recibe los frames reales de la cámara (el tablero de ajedrez del emulador), no nuestra imagen.
+
+Para que el flujo completo funcione — la app toma la foto, la guarda, la convierte a base64, la sube a un servidor — necesitamos que reciba **nuestros bytes**. Esto requiere hookear `ImageReader.acquireLatestImage()` o el callback de `ImageCapture` via reflexión.
+
+Es el equivalente a: tenemos el preview, nos falta el output. El PR #35 documenta esta limitación explícitamente.
 
 ---
 
@@ -217,12 +235,13 @@ Solo Android:
 
 Diferencias de comportamiento:
   - clipboard read: iOS = sistema real. Android = cache del último set
-  - camera mock: iOS = transparente. Android = requiere app cooperativa
+  - camera mock preview: iOS = transparente ✓. Android = transparente ✓ (JVMTI)
+  - camera mock output: iOS = transparente ✓. Android = NO intercepta bytes ✗
   - index CLI: iOS = auto index. Android = solo disponible en editor
   - biometric: iOS = AppleScript. Android = emu finger + locksettings
 ```
 
-La brecha que queda no es de comandos faltantes — es de profundidad de implementación. iOS puede mockear cámara en cualquier app con una compilación; Android solo en la app demo. iOS lee el clipboard real; Android lee lo que él mismo escribió.
+La brecha de camera mock se cerró para el preview — ambas plataformas inyectan sin modificar la app. Pero la brecha de output (bytes de captura) sigue abierta: iOS reemplaza los bytes en `AVCapturePhotoOutput`, Android aún entrega los bytes reales de la cámara.
 
 ---
 
@@ -232,11 +251,13 @@ La brecha que queda no es de comandos faltantes — es de profundidad de impleme
 
 2. **Android 10+ cerró puertas de forma silenciosa.** `ClipboardManager.getPrimaryClip()` retornando `null` en background es el tipo de bug que aparece en producción, no en desarrollo. Los tests que pasaban en dev (agente en foreground) fallaban en CI (agente en background).
 
-3. **JVMTI tiene límites en apps modernas.** El approach nativo en C fue el más técnicamente ambicioso y el menos efectivo. CameraX/Camera2 en NDK no es interceptable por JVMTI. Documentamos el intento porque la idea es legítima para apps que usan APIs Java directamente.
+3. **JVMTI sí funciona — lo que importa es dónde hookeas.** Los primeros intentos fallaron porque intentamos hookear Camera2 API (clases finales, constructores privados) y escribir directo en el Surface (PUSH_BUFFERS). JVMTI como mecanismo de inyección es sólido — el error fue la estrategia de interceptación. La vista (overlay ImageView) resultó ser el punto correcto para el preview.
 
-4. **A veces la cooperación explícita es mejor que la transparencia forzada.** El mock de cámara iOS es elegante porque es invisible. El de Android es pragmático porque es lo que es posible. Ambos sirven para CI/CD.
+4. **Los intentos "fallidos" construyen hacia la solución.** Los 5 intentos que no funcionaron no fueron desperdicio: el `agent.c` del intento 1 se reusó en la solución final, el `ViewScanner` del intento 2 encontró el `PreviewView`, y la infraestructura de DEX loading fue la misma. Cada fracaso dejó una pieza reutilizable.
 
-5. **Compartir código entre plataformas requiere diseño previo.** `TargetResolverShared` y `ElementIndexShared` solo fueron posibles porque el árbol de accesibilidad de iOS y Android tiene el mismo formato JSON. Esa decisión de diseño del Capítulo 9 pagó dividendos aquí.
+5. **Transparencia tiene niveles.** El overlay es transparente para la app (no la modificamos), pero no transparente para los bytes (la app recibe frames reales al capturar). iOS logró ambos niveles. Android logró el primero. El segundo requiere hookear `ImageReader` — técnicamente posible, pero es otro capítulo.
+
+6. **Compartir código entre plataformas requiere diseño previo.** `TargetResolverShared` y `ElementIndexShared` solo fueron posibles porque el árbol de accesibilidad de iOS y Android tiene el mismo formato JSON. Esa decisión de diseño del Capítulo 9 pagó dividendos aquí.
 
 ---
 
