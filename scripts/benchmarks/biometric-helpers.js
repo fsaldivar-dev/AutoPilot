@@ -2,7 +2,7 @@
 // Maestro no tiene comandos nativos de biometric,
 // asi que usamos runScript con java.lang.Runtime
 
-const action = ENV.ACTION;
+const action = ACTION;
 
 if (action === 'unenroll') {
     java.lang.Runtime.getRuntime()

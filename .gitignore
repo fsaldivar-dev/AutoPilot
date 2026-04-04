@@ -44,3 +44,9 @@ local.properties
 
 # Compiled dylibs
 *.dylib
+
+# Benchmark suite (runtime artifacts)
+scripts/benchmark-suite/tools/
+!scripts/benchmark-suite/tools/.gitkeep
+scripts/benchmark-suite/evidence/
+scripts/benchmark-suite/benchmark-results/

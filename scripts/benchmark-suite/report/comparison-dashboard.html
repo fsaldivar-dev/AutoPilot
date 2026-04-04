@@ -1,0 +1,508 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AutoPilot Lab — Benchmark</title>
+<script src="https://cdn.tailwindcss.com"></script>
+<script src="https://unpkg.com/react@18/umd/react.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/react-dom@18/umd/react-dom.production.min.js" crossorigin></script>
+<script src="https://unpkg.com/htm@3/dist/htm.js" crossorigin></script>
+<style>
+  @import url('https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;700&family=Inter:wght@400;500;600;700;800;900&display=swap');
+  html{font-size:clamp(10px,0.85vw,16px)}
+  body{font-family:'Inter',-apple-system,system-ui,sans-serif;margin:0}
+  .mono{font-family:'JetBrains Mono',monospace}
+  .scr{overflow-y:auto;scrollbar-width:thin;scrollbar-color:#334155 transparent}
+  .scr::-webkit-scrollbar{width:5px}.scr::-webkit-scrollbar-thumb{background:#334155;border-radius:4px}
+  @keyframes fadeIn{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:translateY(0)}}
+  .fi{animation:fadeIn .4s ease-out}
+</style>
+</head>
+<body class="bg-slate-950 text-slate-200 h-screen flex flex-col overflow-hidden">
+<div id="root" class="h-full flex flex-col"></div>
+
+<script>
+const h = htm.bind(React.createElement);
+const {useState,useEffect,useRef} = React;
+
+/* ═══════════ DATA ═══════════ */
+
+const S = {
+  ap:{name:"AutoPilot",color:"#10b981",status:"IN DEV",login:10184,bio:7610,size:"~1 MB",deps:"0",loc:"32",protocol:"IPC Directa",runtime:"Swift Nativo",apiCount:22,
+    layers:["Capa CLI (Swift Nativo)","AXUIElement API (IPC)","CGEvent (Sintético)","Simulator Process"],
+    archDesc:"Comunicación directa con el proceso del Simulator via macOS Accessibility APIs. Sin servidor HTTP, sin serialización JSON.",
+    postTap:"Ninguna",search:"AX query (~60ms)",retry:"Solo waitFor",
+    why:"AXUIElement + CGEvent = IPC del sistema operativo. Sin HTTP, sin JSON, sin intermediarios."},
+  ma:{name:"Maestro",color:"#f59e0b",status:"STABLE",login:26067,bio:null,size:"398 MB",deps:"193 JARs",loc:"26",protocol:"gRPC",runtime:"JVM Embebido",apiCount:23,
+    layers:["Capa CLI (Java/JVM)","gRPC Handler","XCTest Driver (Sideloaded)","Apple Accessibility"],
+    archDesc:"Proceso Java se comunica via gRPC con un driver XCTest sideloaded. Cada comando viaja 4 capas.",
+    postTap:"Wait-idle 1-2s",search:"Retry loop 5s",retry:"Todos los cmds",
+    why:"Cada tapOn = retry loop + wait-for-idle + tap + wait. ~2s extra por interacción."},
+  wda:{name:"WDA",color:"#8b5cf6",status:"STABLE",login:11680,bio:10650,size:"48 MB",deps:"0",loc:"234",protocol:"HTTP/JSON",runtime:"XCUITest",apiCount:29,
+    layers:["Capa CLI (Node.js HTTP)","JSON / HTTP :8100","WDA Server (XCTest Runner)","XCUITest APIs"],
+    archDesc:"WDA corre como XCTest runner con HTTP server en :8100. Cada acción = request JSON.",
+    postTap:"Ninguna",search:"Predicate HTTP (~300ms)",retry:"Ninguno (manual)",
+    why:"2 HTTP round-trips por interacción (find + click). Sin retry pero con latencia HTTP."},
+};
+const TK=["ap","ma","wda"];
+const fm=ms=>!ms?"N/A":ms>=1000?(ms/1000).toFixed(1)+"s":ms+"ms";
+
+const CAPS = [
+  {n:"Tap por label/id",     c:"CONTROL",  ap:1,ma:1,wda:1},
+  {n:"Tap coordenadas (x,y)",c:"CONTROL",  ap:1,ma:1,wda:1},
+  {n:"Long press",           c:"CONTROL",  ap:1,ma:1,wda:1},
+  {n:"Double tap",           c:"CONTROL",  ap:1,ma:1,wda:1},
+  {n:"Swipe / Scroll",       c:"CONTROL",  ap:1,ma:1,wda:1},
+  {n:"Pinch / Rotate",       c:"CONTROL",  ap:0,ma:0,wda:1},
+  {n:"Force touch",          c:"CONTROL",  ap:0,ma:0,wda:1},
+  {n:"Drag & drop",          c:"CONTROL",  ap:0,ma:0,wda:1},
+  {n:"Type texto",           c:"INPUT",    ap:1,ma:1,wda:1},
+  {n:"Clear campo",          c:"INPUT",    ap:1,ma:1,wda:1},
+  {n:"Dismiss keyboard",     c:"INPUT",    ap:0,ma:1,wda:1},
+  {n:"Biometric enroll",     c:"SENSORS",  ap:1,ma:0,wda:0},
+  {n:"Biometric match/fail", c:"SENSORS",  ap:1,ma:0,wda:2},
+  {n:"Camera mock",          c:"SENSORS",  ap:1,ma:0,wda:0},
+  {n:"Location sim",         c:"SENSORS",  ap:0,ma:1,wda:1},
+  {n:"Screenshot",           c:"MEDIA",    ap:1,ma:1,wda:1},
+  {n:"Video recording",      c:"MEDIA",    ap:0,ma:1,wda:1},
+  {n:"Clipboard write",      c:"MEDIA",    ap:1,ma:1,wda:1},
+  {n:"Clipboard read",       c:"MEDIA",    ap:1,ma:2,wda:1},
+  {n:"Add media to library", c:"MEDIA",    ap:1,ma:0,wda:0},
+  {n:"Launch app",           c:"APP",      ap:1,ma:1,wda:1},
+  {n:"Terminate app",        c:"APP",      ap:1,ma:1,wda:1},
+  {n:"Install app",          c:"APP",      ap:1,ma:1,wda:0},
+  {n:"Open deep link / URL", c:"APP",      ap:1,ma:1,wda:1},
+  {n:"Accessibility tree",   c:"QUERIES",  ap:1,ma:0,wda:1},
+  {n:"Element search",       c:"QUERIES",  ap:1,ma:1,wda:1},
+  {n:"Predicate / XPath",    c:"QUERIES",  ap:0,ma:0,wda:1},
+  {n:"Wait for element",     c:"QUERIES",  ap:1,ma:1,wda:0},
+  {n:"Lock / Unlock",        c:"DEVICE",   ap:0,ma:0,wda:1},
+  {n:"Home button",          c:"DEVICE",   ap:0,ma:0,wda:1},
+  {n:"Alert handling",       c:"DEVICE",   ap:0,ma:2,wda:1},
+  {n:"Dark/Light mode",      c:"DEVICE",   ap:0,ma:0,wda:1},
+  {n:"DSL nativo (.auto)",   c:"SCRIPT",   ap:1,ma:0,wda:0},
+  {n:"YAML flows",           c:"SCRIPT",   ap:0,ma:1,wda:0},
+  {n:"JavaScript",           c:"SCRIPT",   ap:0,ma:1,wda:1},
+  {n:"Sub-flows",            c:"SCRIPT",   ap:0,ma:1,wda:0},
+  {n:"Variables / ENV",      c:"SCRIPT",   ap:0,ma:1,wda:1},
+];
+
+const TL_LOGIN = {
+  ap:[
+    {label:"Auth Screen",     time:"0.3s", img:"../evidence/autopilot-login-step1.png", detail:"Spawn directo via simctl"},
+    {label:"PIN Screen",      time:"0.9s", img:"../evidence/autopilot-login-step2.png", detail:"CGEvent tap 'Usar código'"},
+    {label:"Home (logged in)",time:"1.7s", img:"../evidence/autopilot-login-step3.png", detail:"PIN 1234 + Confirmar"},
+    {label:"Aventura",        time:"10.2s",img:"../evidence/autopilot-login-step4.png", detail:"Tap categoría + swipe up"},
+  ],
+  ma:[
+    {label:"Auth Screen",     time:"1.2s",  img:"../evidence/maestro-login-step1.png", detail:"gRPC → XCTest init"},
+    {label:"PIN Screen",      time:"6.0s",  img:"../evidence/maestro-login-step2.png", detail:"tapOn + wait-idle ~2s"},
+    {label:"Home (logged in)",time:"16s",   img:"../evidence/maestro-login-step3.png", detail:"5× retry+idle (~2s c/u)"},
+    {label:"Aventura",        time:"26.1s", img:"../evidence/maestro-login-step4.png", detail:"tapOn + scroll"},
+  ],
+  wda:[
+    {label:"Auth Screen",     time:"0.2s",  img:"../evidence/wda-login-step1.png", detail:"HTTP POST /session + launch"},
+    {label:"PIN Screen",      time:"2.9s",  img:"../evidence/wda-login-step2.png", detail:"findAndTap (2 HTTP)"},
+    {label:"Home (logged in)",time:"5.3s",  img:"../evidence/wda-login-step3.png", detail:"5× find+click (10 HTTP)"},
+    {label:"Aventura",        time:"11.7s", img:"../evidence/wda-login-step4.png", detail:"findAndTap + screenshot"},
+  ],
+};
+const TL_BIO = {
+  ap:[
+    {label:"Enroll Face ID",  time:"2.7s", img:"../evidence/autopilot-biometric-step1.png", detail:"AppleScript menu Enrolled"},
+    {label:"Home (bio match)",time:"7.6s", img:"../evidence/autopilot-biometric-step2.png", detail:"Tap + biometric match"},
+  ],
+  ma:[
+    {label:"No soportado",    time:"—",    img:null, detail:"Sandbox JS sin acceso a simctl"},
+  ],
+  wda:[
+    {label:"App lanzada",     time:"0.3s", img:"../evidence/wda-biometric-step1.png", detail:"HTTP POST /session + launch"},
+    {label:"Auth + Face ID",  time:"3.0s", img:"../evidence/wda-biometric-step2.png", detail:"AppleScript enroll + tap"},
+    {label:"Home (bio match)",time:"10.7s",img:"../evidence/wda-biometric-step3.png", detail:"simctl match + success"},
+  ],
+};
+
+const SCRIPTS = {
+  ap:{lang:"auto",code:"# Benchmark: Login + navegacion\n# Con screenshots como evidencia\n\nlaunch dev.autopilot.test.Explorea\nwaitFor \"Explorea\" 10\nscreenshot evidence/autopilot-login-step1.png\ntap \"Usar c\u00f3digo\"\nwaitFor \"Ingresa tu c\u00f3digo\" 5\nscreenshot evidence/autopilot-login-step2.png\ntap \"1\"\ntap \"2\"\ntap \"3\"\ntap \"4\"\ntap \"Confirmar\"\nwaitFor \"Inicio\" 5\nscreenshot evidence/autopilot-login-step3.png\ntap \"Aventura\"\nswipe up\nscreenshot evidence/autopilot-login-step4.png"},
+  ma:{lang:"yaml",code:"appId: dev.autopilot.test.Explorea\n---\n# Benchmark: Login + navegacion\n\n- launchApp\n\n- assertVisible: \"Explorea\"\n- takeScreenshot: evidence/maestro-login-step1\n\n- tapOn: \"Usar c\u00f3digo\"\n\n- assertVisible: \"Ingresa tu c\u00f3digo\"\n- takeScreenshot: evidence/maestro-login-step2\n\n- tapOn: \"1\"\n- tapOn: \"2\"\n- tapOn: \"3\"\n- tapOn: \"4\"\n- tapOn: \"Confirmar\"\n\n- assertVisible: \"Inicio\"\n- takeScreenshot: evidence/maestro-login-step3\n\n- tapOn: \"Aventura\"\n- scroll\n- takeScreenshot: evidence/maestro-login-step4"},
+  wda:{lang:"js",code:"const { createSession, deleteSession,\n  findAndTap, waitForElement,\n  saveScreenshot, terminateApp,\n  activateApp, sleep, EVIDENCE_DIR,\n} = require('./appium-helpers');\n\nasync function main() {\n  const sid = await createSession();\n  try {\n    await terminateApp(sid);\n    await sleep(500);\n    await activateApp(sid);\n    await waitForElement(sid, 'Explorea', 10000);\n    await saveScreenshot(sid, EVIDENCE_DIR+'/wda-login-step1.png');\n    await findAndTap(sid, 'Usar c\u00f3digo');\n    await waitForElement(sid, 'Ingresa tu c\u00f3digo', 5000);\n    await saveScreenshot(sid, EVIDENCE_DIR+'/wda-login-step2.png');\n    await findAndTap(sid, '1');\n    await findAndTap(sid, '2');\n    await findAndTap(sid, '3');\n    await findAndTap(sid, '4');\n    await findAndTap(sid, 'Confirmar');\n    await waitForElement(sid, 'Inicio', 5000);\n    await saveScreenshot(sid, EVIDENCE_DIR+'/wda-login-step3.png');\n    await findAndTap(sid, 'Aventura');\n    await sleep(500);\n    await saveScreenshot(sid, EVIDENCE_DIR+'/wda-login-step4.png');\n  } finally {\n    await deleteSession(sid);\n  }\n}\nmain().catch(err => {\n  console.error(err.message);\n  process.exit(1);\n});\n// + 150 LOC helper library (appium-helpers.js)"},
+};
+
+const ROAD = [
+  {title:"Video Recording",desc:"Captura de buffers de video sin pérdida de frames.",priority:"ALTA",difficulty:"MEDIA",status:"TODO"},
+  {title:"Location Simulation",desc:"Inyección de rutas GPS via CoreLocation.",priority:"MEDIA",difficulty:"BAJA",status:"TODO"},
+  {title:"Alert Handling",desc:"Manejo automático de system alerts y permisos.",priority:"ALTA",difficulty:"MEDIA",status:"TODO"},
+  {title:"Sub-flows",desc:"Composición de scripts .auto reutilizables.",priority:"ALTA",difficulty:"MEDIA",status:"TODO"},
+  {title:"Variables / ENV",desc:"Scripts parametrizados con variables de entorno.",priority:"MEDIA",difficulty:"BAJA",status:"TODO"},
+  {title:"Network Intercept",desc:"Mock de respuestas API directamente en el simulador.",priority:"CRÍTICA",difficulty:"ALTA",status:"IN PROGRESS"},
+  {title:"Pinch / Rotate",desc:"Gestos multi-touch para mapas y fotos.",priority:"BAJA",difficulty:"ALTA",status:"ARCHIVED"},
+  {title:"Siri Commands",desc:"Automatización de intenciones de voz.",priority:"BAJA",difficulty:"ALTA",status:"ARCHIVED"},
+];
+
+/* ═══════════ HELPERS ═══════════ */
+
+function Chk({v,c}){
+  if(v===1) return h`<div class="w-6 h-6 rounded-md flex items-center justify-center" style=${{background:c+'25'}}><span style=${{color:c}} class="font-black text-xs">✓</span></div>`;
+  if(v===2) return h`<div class="w-6 h-6 rounded-md bg-amber-500/15 flex items-center justify-center"><span class="text-amber-400 font-black text-[0.82rem]">~</span></div>`;
+  return h`<div class="w-6 h-6 rounded-md bg-slate-800/50 flex items-center justify-center"><span class="text-slate-700 text-xs">✗</span></div>`;
+}
+
+function Phone({img}){
+  if(!img) return h`<div class="w-full aspect-[9/19] bg-red-950 rounded-[2rem] border-[5px] border-slate-900 relative overflow-hidden shadow-2xl flex items-center justify-center">
+    <div class="absolute top-0 left-1/2 -translate-x-1/2 w-1/3 h-5 bg-black rounded-b-2xl z-20"/>
+    <div class="flex flex-col items-center gap-3"><div class="text-red-500 text-4xl">✗</div><p class="text-[0.82rem] text-red-400 font-black uppercase">No soportado</p></div>
+    <div class="absolute bottom-3 left-1/2 -translate-x-1/2 w-1/3 h-1 bg-white/10 rounded-full"/>
+  </div>`;
+  return h`<div class="w-full aspect-[9/19] bg-slate-900 rounded-[2rem] border-[5px] border-slate-900 relative overflow-hidden shadow-2xl transition-all duration-500">
+    <div class="absolute top-0 left-1/2 -translate-x-1/2 w-1/3 h-5 bg-black rounded-b-2xl z-20 flex items-center justify-center"><div class="w-8 h-1 bg-slate-800 rounded-full"/></div>
+    <img src=${img} class="w-full h-full object-cover" alt="screenshot" onerror="this.style.display='none'"/>
+    <div class="absolute bottom-3 left-1/2 -translate-x-1/2 w-1/3 h-1 bg-white/10 rounded-full"/>
+  </div>`;
+}
+
+function Syntax({code,lang}){
+  const esc = s => s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  // placeholder trick: mark strings before inserting any HTML tags, to avoid
+  // the string-regex matching inside already-inserted style="color:..." attributes
+  const markStrs = s => s.replace(/"([^"]+)"/g, (_,v)=>`\x01${v}\x01`);
+  const restStrs = s => s.replace(/\x01([^\x01]*)\x01/g, (_,v)=>`<span style='color:#38bdf8'>"${v}"</span>`);
+  const hl = line => {
+    const e = esc(line);
+    if(lang==='auto'){
+      if(e.startsWith('#')) return `<span style='color:#475569;font-style:italic'>${e}</span>`;
+      if(!e.trim()) return e;
+      let r = markStrs(e);
+      r = r.replace(/^(launch|waitFor|tap|swipe|screenshot|terminate|biometric|type|config|ping)/,
+          (_,c) => `<b style='color:#10b981'>${c}</b>`);
+      r = r.replace(/\b(up|down|left|right)\b/g, (_,k) => `<span style='color:#f59e0b'>${k}</span>`);
+      r = r.replace(/(\s)(\d+)(\s|$)/g, (_,a,n,b) => `${a}<span style='color:#f59e0b'>${n}</span>${b}`);
+      return restStrs(r);
+    }
+    if(lang==='yaml'){
+      if(e==='---') return `<span style='color:#475569'>---</span>`;
+      if(e.startsWith('#')) return `<span style='color:#475569;font-style:italic'>${e}</span>`;
+      if(!e.trim()) return e;
+      let r = markStrs(e);
+      r = r.replace(/^(- ?)(launchApp|assertVisible|tapOn|takeScreenshot|scroll)/,
+          (_,d,cmd) => `${d}<b style='color:#f59e0b'>${cmd}</b>`);
+      r = r.replace(/^(\w+)(:\s)/,
+          (_,k,c) => `<b style='color:#f59e0b'>${k}</b><span style='color:#64748b'>${c}</span>`);
+      r = r.replace(/: /g, `<span style='color:#64748b'>: </span>`);
+      return restStrs(r);
+    }
+    // JS: mark single-quoted strings before inserting any HTML tags (same collision-avoidance trick)
+    if(e.trim().startsWith('//')) return `<span style="color:#475569;font-style:italic">${e}</span>`;
+    let js = e.replace(/'([^']+)'/g, (_,s) => `\x01${s}\x01`);
+    js = js
+      .replace(/\b(await|const|async|try|finally|require)\b/g, (_,k) => `<b style="color:#8b5cf6">${k}</b>`)
+      .replace(/(\w+)\(/g, (_,fn) => `<span style="color:#10b981">${fn}</span>(`)
+      .replace(/\/\/ (.+)$/, (_,c) => `<span style="color:#475569;font-style:italic">// ${c}</span>`);
+    return js.replace(/\x01([^\x01]*)\x01/g, (_,s) => `<span style="color:#38bdf8">'${s}'</span>`);
+  };
+  return h`<pre class="text-[0.875rem] mono leading-relaxed">${code.split('\n').map((l,i)=>h`<div key=${i} dangerouslySetInnerHTML=${{__html:hl(l)||'&nbsp;'}}/>`)}</pre>`;
+}
+
+/* ═══════════ TABS ═══════════ */
+
+const TABS = [
+  {id:"overview",  label:"Overview",     icon:"📊"},
+  {id:"apis",      label:"APIs",         icon:"🔌"},
+  {id:"arch",      label:"Arquitectura", icon:"📦"},
+  {id:"timeline",  label:"Timeline",     icon:"⏱"},
+  {id:"scripts",   label:"Scripts",      icon:"</>"},
+  {id:"roadmap",   label:"Roadmap",      icon:"🎯"},
+];
+
+/* ── OVERVIEW ── */
+function POverview(){
+  return h`<div class="h-full flex flex-col gap-4 fi">
+    <div class="grid grid-cols-3 gap-5 shrink-0">
+      ${TK.map(k=>{const s=S[k];return h`<div key=${k} class="relative p-5 rounded-[2rem] border border-slate-800 bg-slate-900/40 hover:border-opacity-60 transition-all" style=${{borderColor:s.color+'30'}}>
+        <div class="absolute inset-0 rounded-[2rem] opacity-5" style=${{background:'linear-gradient(135deg,'+s.color+',transparent)'}}/>
+        <div class="relative">
+          <div class="flex items-center justify-between mb-4">
+            <div class="flex items-center gap-2"><div class="w-2.5 h-2.5 rounded-full" style=${{background:s.color,boxShadow:'0 0 12px '+s.color+'60'}}/><span class="text-xs font-black text-white uppercase tracking-widest italic">${s.name}</span></div>
+            <span class="text-[0.75rem] font-black px-2 py-1 rounded uppercase tracking-widest" style=${{background:s.color+'15',color:s.color,border:'1px solid '+s.color+'30'}}>${s.status}</span>
+          </div>
+          <div class="text-center mb-4"><span class="text-5xl font-black text-white tracking-tighter italic">${fm(s.login)}</span><p class="text-[0.82rem] text-slate-500 font-bold uppercase tracking-widest mt-1">Login Flow</p></div>
+          <div class="grid grid-cols-4 gap-2 pt-4 border-t border-slate-800/50">
+            ${[["Bio",fm(s.bio)],["Size",s.size],["Deps",s.deps],["LOC",s.loc]].map(([l,v])=>h`<div key=${l} class="text-center"><p class="text-[0.75rem] text-slate-500 font-bold uppercase mb-0.5">${l}</p><p class="text-[0.875rem] text-slate-300 mono font-bold">${v}</p></div>`)}
+          </div>
+        </div>
+      </div>`})}
+    </div>
+    <div class="grid grid-cols-12 gap-5 flex-1 min-h-0">
+      <div class="col-span-8 bg-slate-900/50 border border-slate-800 rounded-[2rem] overflow-hidden flex flex-col">
+        <div class="px-7 py-4 border-b border-slate-800 bg-slate-900/80 flex items-center justify-between shrink-0">
+          <h3 class="text-xs font-black text-white uppercase tracking-widest">Comparativa General</h3>
+          <div class="flex gap-2">${TK.map(k=>h`<div key=${k} class="w-2 h-2 rounded-full" style=${{background:S[k].color}}/>`)}</div>
+        </div>
+        <div class="flex-1 overflow-auto scr">
+          <table class="w-full text-[0.94rem]"><thead class="sticky top-0 bg-slate-900 z-10"><tr class="text-slate-500 border-b border-slate-800/50">
+            <th class="px-7 py-3 text-left uppercase font-black">Métrica</th>
+            ${TK.map(k=>h`<th key=${k} class="px-4 py-3 uppercase font-black italic" style=${{color:S[k].color}}>${S[k].name}</th>`)}
+          </tr></thead><tbody class="divide-y divide-slate-800/30">
+            ${[
+              ["Login Flow",fm(S.ap.login)+" ★",fm(S.ma.login),fm(S.wda.login)],
+              ["Biometría",fm(S.ap.bio)+" ★","✗ No soporta",fm(S.wda.bio)],
+              ["Runtime",S.ap.runtime,S.ma.runtime,S.wda.runtime],
+              ["Protocolo",S.ap.protocol,S.ma.protocol,S.wda.protocol],
+              ["Dependencies",S.ap.deps,S.ma.deps,S.wda.deps],
+              ["Tamaño total",S.ap.size,S.ma.size,S.wda.size],
+              ["LOC del test",S.ap.loc,S.ma.loc,S.wda.loc],
+              ["Scripting",".auto (DSL)","YAML","JavaScript"],
+              ["Post-tap",S.ap.postTap,S.ma.postTap,S.wda.postTap],
+              ["Retry",S.ap.retry,S.ma.retry,S.wda.retry],
+              ["APIs",String(S.ap.apiCount),String(S.ma.apiCount),String(S.wda.apiCount)],
+            ].map((r,i)=>h`<tr key=${i} class="hover:bg-slate-800/10 transition-colors">
+              <td class="px-7 py-2.5 font-bold text-slate-400">${r[0]}</td>
+              <td class="px-4 py-2.5 mono" style=${{color:S.ap.color}}>${r[1]}</td>
+              <td class="px-4 py-2.5 mono" style=${{color:S.ma.color}}>${r[2]}</td>
+              <td class="px-4 py-2.5 mono" style=${{color:S.wda.color}}>${r[3]}</td>
+            </tr>`)}
+          </tbody></table>
+        </div>
+      </div>
+      <div class="col-span-4 bg-slate-900/40 border border-slate-800 rounded-[2rem] p-6 flex flex-col">
+        <h3 class="text-xs font-black text-slate-400 uppercase tracking-widest mb-4 flex items-center gap-2">📈 Desempeño Visual</h3>
+        <div class="flex-1 flex flex-col justify-center space-y-6">
+          ${[{l:"Login Flow",vals:[["AP","ap",S.ap.color,S.ap.login],["WDA","wda",S.wda.color,S.wda.login],["MA","ma",S.ma.color,S.ma.login]],max:26100,err:false},
+             {l:"Biometría",vals:[["AP","ap",S.ap.color,S.ap.bio],["WDA","wda",S.wda.color,S.wda.bio],["MA","ma",S.ma.color,0]],max:12000,err:true}
+          ].map((c,ci)=>h`<div key=${ci}>
+            <p class="text-[0.82rem] text-slate-500 font-bold uppercase mb-3 tracking-widest">${c.l}</p>
+            <div class="space-y-3">
+              ${c.vals.map(([lbl,key,clr,val])=>h`<div key=${key} class="flex items-center gap-3">
+                <div class="w-8 text-[0.82rem] font-black text-slate-600 uppercase">${lbl}</div>
+                <div class="flex-1 h-1.5 bg-slate-800 rounded-full overflow-hidden relative">
+                  ${key==='ma'&&c.err
+                    ? h`<div class="absolute inset-0 bg-red-500/20 flex items-center justify-center"><span class="text-[0.94rem] text-red-500 font-black">UNSUPPORTED</span></div>`
+                    : h`<div class="h-full rounded-full transition-all duration-700" style=${{width:(val/c.max*100)+'%',background:clr,boxShadow:'0 0 8px '+clr+'60'}}/>`}
+                </div>
+                <div class="w-10 text-[0.82rem] mono text-white text-right font-bold">${val?fm(val):'ERR'}</div>
+              </div>`)}
+            </div>
+          </div>`)}
+        </div>
+      </div>
+    </div>
+  </div>`;
+}
+
+/* ── APIs ── */
+function PApis(){
+  const [filt,setFilt]=useState('TODAS');
+  const cats=['TODAS','CONTROL','INPUT','SENSORS','MEDIA','APP','QUERIES','DEVICE','SCRIPT'];
+  const list=filt==='TODAS'?CAPS:CAPS.filter(c=>c.c===filt);
+  return h`<div class="h-full flex flex-col gap-4 fi">
+    <div class="grid grid-cols-3 gap-5 shrink-0">
+      ${TK.map(k=>{const s=S[k];const cnt=CAPS.filter(c=>c[k]===1).length;const p=CAPS.filter(c=>c[k]===2).length;return h`<div key=${k} class="bg-slate-900/60 border border-slate-800 p-6 rounded-[2rem] relative overflow-hidden group">
+        <div class="absolute -right-4 -bottom-4 text-slate-800/20 text-8xl opacity-40 group-hover:scale-110 transition-transform">🔌</div>
+        <div class="relative z-10">
+          <p class="text-[0.82rem] font-black uppercase tracking-[0.2em] mb-1" style=${{color:s.color}}>${s.name} APIs</p>
+          <div class="flex items-baseline gap-2"><h3 class="text-5xl font-black text-white italic">${cnt}</h3>${p>0&&h`<span class="text-xl font-bold text-amber-400">+${p}</span>`}</div>
+          <p class="text-[0.875rem] text-slate-500 mt-2 font-medium italic">de ${CAPS.length} funciones evaluadas</p>
+        </div>
+      </div>`})}
+    </div>
+    <div class="flex-1 min-h-0 bg-slate-900/50 border border-slate-800 rounded-[2rem] overflow-hidden flex flex-col">
+      <div class="px-6 py-3 bg-slate-900 border-b border-slate-800 flex gap-2 flex-wrap shrink-0">
+        ${cats.map(f=>h`<button key=${f} onClick=${()=>setFilt(f)} class="${'px-3 py-1.5 rounded-xl text-[0.82rem] font-black uppercase tracking-tighter border transition-all '+(filt===f?'bg-indigo-600 border-indigo-500 text-white':'bg-slate-900 border-slate-800 text-slate-500 hover:text-slate-200')}">${f}</button>`)}
+      </div>
+      <div class="flex-1 overflow-auto scr">
+        <table class="w-full text-[0.94rem]"><thead class="sticky top-0 bg-slate-900/95 z-10 text-slate-500 uppercase font-black border-b border-slate-800/50">
+          <tr><th class="px-6 py-3 text-left">Capacidad API</th><th class="px-3 py-3 text-center w-14">AP</th><th class="px-3 py-3 text-center w-14">MA</th><th class="px-3 py-3 text-center w-14">WDA</th></tr>
+        </thead><tbody class="divide-y divide-slate-800/30">
+          ${list.map((r,i)=>h`<tr key=${i} class="hover:bg-slate-800/20 transition-colors">
+            <td class="px-6 py-2 font-bold text-slate-300">${r.n} <span class="text-[0.94rem] bg-slate-800 px-1.5 py-0.5 rounded text-slate-600 uppercase tracking-tighter ml-1">${r.c}</span></td>
+            <td class="px-3 py-2 text-center"><${Chk} v=${r.ap} c=${S.ap.color}/></td>
+            <td class="px-3 py-2 text-center"><${Chk} v=${r.ma} c=${S.ma.color}/></td>
+            <td class="px-3 py-2 text-center"><${Chk} v=${r.wda} c=${S.wda.color}/></td>
+          </tr>`)}
+        </tbody></table>
+      </div>
+    </div>
+  </div>`;
+}
+
+/* ── Architecture ── */
+function PArch(){
+  return h`<div class="h-full grid grid-cols-3 gap-6 fi">
+    ${TK.map(k=>{const s=S[k];return h`<div key=${k} class="bg-slate-900/40 border border-slate-800 rounded-[2rem] p-7 flex flex-col gap-5">
+      <div class="flex items-center gap-3 border-b border-slate-800 pb-4">
+        <div class="p-3 rounded-2xl shadow-xl" style=${{background:s.color+'15'}}>📦</div>
+        <div><h3 class="text-lg font-black text-white uppercase italic tracking-tighter leading-none">${s.name}</h3><p class="text-[0.82rem] text-slate-500 font-bold uppercase mt-1">${s.protocol}</p></div>
+      </div>
+      <p class="text-[0.94rem] text-slate-400 leading-relaxed">${s.archDesc}</p>
+      <div class="space-y-3 flex-1 flex flex-col justify-center">
+        ${s.layers.map((l,i)=>h`<div key=${i}>
+          <div class="p-4 bg-slate-950 border border-slate-800 rounded-xl text-[0.875rem] font-black uppercase text-slate-400 text-center hover:border-indigo-500/50 transition-colors">${l}</div>
+          ${i<s.layers.length-1&&h`<div class="flex justify-center"><div class="w-px h-3 bg-slate-800"/></div>`}
+        </div>`)}
+      </div>
+      <div class="space-y-2 pt-4 border-t border-slate-800">
+        ${[["Post-tap",s.postTap],["Búsqueda",s.search],["Retry",s.retry]].map(([l,v])=>h`<div key=${l} class="flex justify-between text-[0.82rem]"><span class="text-slate-600 font-bold uppercase">${l}</span><span class="text-slate-400 font-bold">${v}</span></div>`)}
+      </div>
+    </div>`})}
+  </div>`;
+}
+
+/* ── Timeline (RACE) ── */
+function PTimeline(){
+  const [flow,setFlow]=useState('login');
+  const [prog,setProg]=useState({ap:0,ma:0,wda:0});
+  const [racing,setRacing]=useState(false);
+  const raf=useRef(null);
+  const t0=useRef(null);
+
+  const speeds=flow==='login'?{ap:2.0,ma:0.85,wda:1.7}:{ap:2.8,ma:0,wda:2.0};
+
+  useEffect(()=>{
+    if(!racing)return;
+    t0.current=Date.now();
+    const tick=()=>{
+      const el=(Date.now()-t0.current)/1000;
+      const next={ap:Math.min(el*speeds.ap*10,100),ma:speeds.ma===0?100:Math.min(el*speeds.ma*10,100),wda:Math.min(el*speeds.wda*10,100)};
+      setProg(next);
+      if(el<12)raf.current=requestAnimationFrame(tick);else setRacing(false);
+    };
+    raf.current=requestAnimationFrame(tick);
+    return()=>{if(raf.current)cancelAnimationFrame(raf.current)};
+  },[racing]);
+
+  const startRace=()=>{setProg({ap:0,ma:0,wda:0});setTimeout(()=>setRacing(true),50)};
+  const switchFlow=(f)=>{setFlow(f);setProg({ap:0,ma:0,wda:0});setRacing(false)};
+
+  const steps=flow==='login'?TL_LOGIN:TL_BIO;
+
+  return h`<div class="h-full flex flex-col gap-4 fi">
+    <div class="flex justify-between items-center bg-slate-900/50 p-5 rounded-[2rem] border border-slate-800 shrink-0">
+      <div class="flex items-center gap-4">
+        <div class="p-3 bg-indigo-600/10 rounded-xl border border-indigo-600/20 text-indigo-400 text-xl">⏱</div>
+        <div>
+          <h2 class="text-lg font-black text-white uppercase italic tracking-tighter">Comparativa de Ejecución</h2>
+          <p class="text-[0.82rem] text-slate-500 font-bold uppercase tracking-widest italic">${flow==='login'?'Login Flow — PIN + Navegación':'Biometric Flow — Face ID'}</p>
+        </div>
+      </div>
+      <div class="flex items-center gap-3">
+        <div class="flex bg-slate-950 p-1 rounded-xl border border-slate-800">
+          <button onClick=${()=>switchFlow('login')} class="${'px-4 py-2 rounded-lg text-[0.875rem] font-black uppercase tracking-tighter transition-all '+(flow==='login'?'bg-indigo-600 text-white':'text-slate-500 hover:text-white')}">🔑 Login</button>
+          <button onClick=${()=>switchFlow('bio')} class="${'px-4 py-2 rounded-lg text-[0.875rem] font-black uppercase tracking-tighter transition-all '+(flow==='bio'?'bg-indigo-600 text-white':'text-slate-500 hover:text-white')}">🛡 Biometric</button>
+        </div>
+        <button onClick=${startRace} class="flex items-center gap-2 px-6 py-3 bg-emerald-600 hover:bg-emerald-500 text-white rounded-xl font-black uppercase text-xs transition-all shadow-xl active:scale-95">
+          ${prog.ap>0?'↺ REINICIAR':'▶ INICIAR CARRERA'}
+        </button>
+      </div>
+    </div>
+    <div class="flex-1 grid grid-cols-3 gap-6 min-h-0">
+      ${TK.map(k=>{
+        const s=S[k];const p=prog[k];const st=steps[k];
+        const idx=Math.min(st.length-1,Math.floor((p/100)*st.length));
+        const step=st[idx];
+        const total=flow==='login'?s.login:s.bio;
+        return h`<div key=${k} class="flex flex-col items-center gap-3 min-h-0">
+          <div class="w-full shrink-0">
+            <div class="flex justify-between items-center px-1 mb-1.5">
+              <span class="text-[0.875rem] font-black text-white uppercase italic tracking-widest">${s.name}</span>
+              <span class="text-[0.875rem] mono font-bold" style=${{color:s.color}}>${!total?'✗ N/A':p>=100?'✓ '+fm(total):p.toFixed(0)+'%'}</span>
+            </div>
+            <div class="h-1.5 w-full bg-slate-900 rounded-full overflow-hidden flex gap-0.5 p-0.5 border border-slate-800">
+              ${st.map((_,i)=>h`<div key=${i} class="h-full flex-1 rounded-full transition-all duration-300" style=${{background:p>(i/st.length)*100?(!total?'#ef4444':s.color):'#1e293b',boxShadow:p>(i/st.length)*100&&total?'0 0 8px '+s.color+'60':'none'}}/>`)}
+            </div>
+            <div class="flex justify-between items-center px-1 mt-1.5 h-5">
+              <span class="text-[0.82rem] font-black uppercase tracking-widest transition-all duration-300" style=${{color:!total?'#ef4444':s.color}}>${step.label}</span>
+              <span class="text-[0.82rem] mono text-slate-600 font-bold">${step.time}</span>
+            </div>
+          </div>
+          <div class="w-full max-w-[200px] relative flex-1 min-h-0 flex items-center">
+            <div class="w-full"><${Phone} img=${step.img}/></div>
+            <div class="absolute -right-2 top-1/4 bg-slate-900 border border-slate-800 p-3 rounded-xl shadow-2xl z-30 max-w-[130px] transition-all duration-300" style=${{borderColor:(!total?'#ef4444':s.color)+'30'}}>
+              <p class="text-[0.94rem] font-black uppercase tracking-widest mb-0.5" style=${{color:!total?'#ef4444':s.color}}>${step.label}</p>
+              <p class="text-[0.82rem] text-slate-300 font-bold leading-tight">${step.detail}</p>
+              <div class="mt-2 flex items-center justify-between text-[0.75rem] mono font-bold text-slate-600 uppercase border-t border-slate-800 pt-1.5"><span>Time</span><span>${step.time}</span></div>
+            </div>
+          </div>
+          <div class="text-center shrink-0">
+            <p class="text-xs font-black text-white uppercase italic">${total?fm(total)+' TOTAL':'N/A'}</p>
+            <p class="text-[0.75rem] text-slate-600 font-bold uppercase tracking-widest italic">${s.protocol}</p>
+          </div>
+        </div>`;
+      })}
+    </div>
+  </div>`;
+}
+
+/* ── Scripts ── */
+function PScripts(){
+  return h`<div class="h-full grid grid-cols-3 gap-5 fi">
+    ${TK.map(k=>{const s=S[k];const sc=SCRIPTS[k];return h`<div key=${k} class="bg-slate-900 border border-slate-800 rounded-[2rem] overflow-hidden flex flex-col shadow-2xl">
+      <div class="px-6 py-4 border-b border-slate-800 bg-slate-900/80 flex items-center justify-between shrink-0">
+        <div class="flex items-center gap-2"><div class="p-1.5 rounded-lg" style=${{background:s.color+'15'}}>📄</div><span class="text-xs font-black text-white uppercase italic tracking-tighter">${s.name} Logic</span></div>
+        <div class="px-2 py-0.5 bg-slate-950 border border-slate-800 rounded text-[0.82rem] mono text-slate-500 font-bold">${s.loc} LOC</div>
+      </div>
+      <div class="flex-1 p-5 bg-slate-950 overflow-auto scr"><${Syntax} code=${sc.code} lang=${sc.lang}/></div>
+      <div class="p-4 bg-slate-900 border-t border-slate-800 shrink-0">
+        <div class="flex gap-3">
+          <div class="flex-1 p-2.5 bg-slate-950/50 rounded-lg border border-slate-800"><p class="text-[0.94rem] text-slate-600 font-black uppercase mb-0.5">Paradigma</p><p class="text-[0.82rem] text-slate-400 font-bold italic">${k==='ap'?'Declarativo (Nativo)':k==='ma'?'YAML (Simulación)':'Imperativo (W3C)'}</p></div>
+          <div class="flex-1 p-2.5 bg-slate-950/50 rounded-lg border border-slate-800"><p class="text-[0.94rem] text-slate-600 font-black uppercase mb-0.5">Validación</p><p class="text-[0.82rem] text-slate-400 font-bold italic">${k==='ap'?'AX Memory Poll':k==='ma'?'Retry Tree Walk':'HTTP Predicate'}</p></div>
+        </div>
+      </div>
+    </div>`})}
+  </div>`;
+}
+
+/* ── Roadmap ── */
+function PRoad(){
+  return h`<div class="h-full fi">
+    <div class="h-full grid grid-cols-4 gap-4 overflow-auto scr">
+      ${ROAD.map((r,i)=>h`<div key=${i} class="${'bg-slate-900/40 border rounded-[1.5rem] p-6 flex flex-col group hover:border-indigo-500/50 transition-all shadow-xl '+(r.status==='ARCHIVED'?'border-slate-800 opacity-60':'border-slate-800')}">
+        <div class="flex justify-between items-start mb-4">
+          <div class="p-2 bg-indigo-500/10 text-indigo-500 rounded-xl group-hover:scale-110 transition-transform">🎯</div>
+          <span class="${'text-[0.94rem] font-black px-2 py-0.5 rounded uppercase tracking-widest '+(r.status==='IN PROGRESS'?'bg-emerald-500/10 text-emerald-400':'bg-slate-800 text-slate-400')}">${r.status}</span>
+        </div>
+        <h3 class="text-sm font-black text-white uppercase italic tracking-tighter mb-1">${r.title}</h3>
+        <p class="text-[0.875rem] text-slate-500 leading-relaxed mb-4 flex-1">${r.desc}</p>
+        <div class="space-y-2 pt-3 border-t border-slate-800/50">
+          <div class="flex justify-between text-[0.75rem] font-bold uppercase tracking-widest"><span class="text-slate-600">Prioridad</span><span class="${r.priority==='CRÍTICA'?'text-red-500':r.priority==='ALTA'?'text-amber-400':'text-slate-400'}">${r.priority}</span></div>
+          <div class="flex justify-between text-[0.75rem] font-bold uppercase tracking-widest"><span class="text-slate-600">Dificultad</span><span class="text-slate-400">${r.difficulty}</span></div>
+        </div>
+      </div>`)}
+    </div>
+  </div>`;
+}
+
+/* ═══════════ MAIN ═══════════ */
+
+function App(){
+  const [tab,setTab]=useState('overview');
+  const pages={overview:POverview,apis:PApis,arch:PArch,timeline:PTimeline,scripts:PScripts,roadmap:PRoad};
+  const Page=pages[tab];
+
+  return h`<div class="h-screen flex flex-col overflow-hidden">
+    <nav class="shrink-0 px-6 py-4 border-b border-slate-900 flex justify-between items-center">
+      <div class="flex items-center gap-4">
+        <div class="flex items-center gap-2"><span class="text-emerald-500 text-xl">⚡</span><h1 class="text-xl font-black text-white tracking-tighter uppercase italic">AutoPilot <span class="text-slate-700">Lab</span></h1></div>
+        <div class="h-4 w-px bg-slate-800"/>
+        <p class="text-[0.82rem] text-slate-500 font-bold uppercase tracking-widest italic hidden md:block">iPhone 16 Pro (iOS 26.3) — Real Data</p>
+        <div class="hidden md:flex gap-1.5">${TK.map(k=>h`<span key=${k} class="text-[0.94rem] font-black px-1.5 py-0.5 rounded border uppercase tracking-tighter" style=${{background:S[k].color+'08',borderColor:S[k].color+'25',color:S[k].color}}>${S[k].name} ${S[k].status}</span>`)}</div>
+      </div>
+      <div class="flex bg-slate-900/80 p-1 rounded-2xl border border-slate-800 overflow-hidden shadow-2xl">
+        ${TABS.map(t=>h`<button key=${t.id} onClick=${()=>setTab(t.id)} class="${'flex items-center gap-2 px-4 py-2.5 rounded-xl text-[0.875rem] font-black uppercase tracking-tighter transition-all '+(tab===t.id?'bg-indigo-600 text-white shadow-xl scale-105':'text-slate-500 hover:text-slate-300 hover:bg-slate-800')}"><span>${t.icon}</span> ${t.label}</button>`)}
+      </div>
+    </nav>
+    <main class="flex-1 p-5 min-h-0"><${Page}/></main>
+    <footer class="shrink-0 bg-slate-950/80 border-t border-slate-900 py-2 px-6 flex justify-between items-center">
+      <div class="flex items-center gap-6">
+        <div class="flex items-center gap-2"><div class="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" style=${{boxShadow:'0 0 10px rgba(16,185,129,.5)'}}/><span class="text-[0.875rem] font-black text-slate-300 uppercase tracking-widest italic">Engine: ONLINE</span></div>
+        <div class="h-3 w-px bg-slate-800"/>
+        <span class="text-[0.82rem] font-bold text-slate-600 uppercase tracking-widest">v3.1 stable</span>
+      </div>
+      <span class="text-[0.82rem] font-black text-slate-700 uppercase tracking-[0.2em] italic hidden md:block">AutoPilot Lab Benchmark — ${new Date().toISOString().split('T')[0]}</span>
+    </footer>
+  </div>`;
+}
+
+ReactDOM.createRoot(document.getElementById('root')).render(h`<${App}/>`);
+</script>
+</body>
+</html>
