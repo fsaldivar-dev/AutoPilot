@@ -1078,10 +1078,6 @@ fun CaptureView(appState: AppState, hasCameraPermission: Boolean, requestCameraP
         if (!hasCameraPermission) {
             requestCameraPermission()
         }
-        val mockQR = System.getProperty("AUTOPILOT_QR_CODE")
-        if (!mockQR.isNullOrBlank()) {
-            appState.addQR(mockQR)
-        }
     }
 
     Column(modifier = Modifier.fillMaxSize()) {
