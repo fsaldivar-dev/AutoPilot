@@ -363,6 +363,8 @@ func printUsage() {
       camera stop                       Stop virtual camera
       camera status                     Check camera status
       terminate <bundleId>              Kill app
+      logs [bundleId] [--lines N]       Get device logs (last 50 lines)
+      logs --system                     Get system logs
       config                             Show all config
       config <key> <value>              Set config value
       config <key>                      Get config value

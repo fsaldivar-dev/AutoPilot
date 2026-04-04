@@ -546,4 +546,16 @@ public final class AdbLegacyBridge: DeviceBridge {
         let output = try runAdb(["shell", "locksettings", "get-disabled"])
         return output.trimmingCharacters(in: .whitespacesAndNewlines) == "false"
     }
+
+    // MARK: - Logs
+
+    public func getLogs(bundleId: String?, lines: Int) throws -> String {
+        // adb logcat -d dumps current log buffer; -t N limits to last N lines
+        let output = try runAdb(["logcat", "-d", "-t", "\(lines)"])
+        guard let bundleId = bundleId else { return output }
+        let filtered = output.split(separator: "\n")
+            .filter { $0.contains(bundleId) }
+            .joined(separator: "\n")
+        return filtered.isEmpty ? output : filtered
+    }
 }

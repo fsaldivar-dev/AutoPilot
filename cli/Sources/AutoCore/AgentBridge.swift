@@ -367,4 +367,10 @@ public final class AgentBridge: DeviceBridge {
         recurse(tree)
         return best
     }
+
+    // MARK: - Logs
+
+    public func getLogs(bundleId: String?, lines: Int) throws -> String {
+        return try legacy.getLogs(bundleId: bundleId, lines: lines)
+    }
 }

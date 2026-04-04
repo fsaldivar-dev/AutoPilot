@@ -1099,4 +1099,25 @@ extension SimulatorBridge: DeviceBridge {
     public func tree() throws -> [[String: Any]] {
         return try tree(element: nil)
     }
+
+    public func getLogs(bundleId: String?, lines: Int) throws -> String {
+        let udid = try getBootedDeviceId()
+        var spawnArgs = ["simctl", "spawn", udid, "log", "show",
+                         "--last", "\(lines)", "--style", "compact"]
+        if let bundleId = bundleId {
+            let processName = bundleId.components(separatedBy: ".").last ?? bundleId
+            spawnArgs += ["--predicate",
+                          "process == \"\(processName)\" OR subsystem == \"\(bundleId)\""]
+        }
+        let process = Process()
+        let pipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
+        process.arguments = spawnArgs
+        process.standardOutput = pipe
+        try process.run()
+        process.waitUntilExit()
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        let output = String(data: data, encoding: .utf8) ?? ""
+        return output.isEmpty ? "(no logs found)" : output
+    }
 }

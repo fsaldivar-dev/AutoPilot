@@ -49,4 +49,8 @@ public protocol DeviceBridge {
     func biometricMatch() throws
     func biometricFail() throws
     func biometricIsEnrolled() throws -> Bool
+
+    // MARK: - Logs
+
+    func getLogs(bundleId: String?, lines: Int) throws -> String
 }
