@@ -350,6 +350,8 @@ func printUsage() {
       type [target] <text>              Type text
       scroll <id|label> <direction>     Scroll element
       swipe <up|down|left|right>        Swipe
+      drag <from> <to> [secs]            Drag between elements (default 0.5s)
+      drag x1,y1 x2,y2 [secs]           Drag between coordinates
       exists <id|title|label>           Check if element exists
       list                              List simulators
       boot <name|udid>                  Boot simulator

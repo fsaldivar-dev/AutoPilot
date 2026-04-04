@@ -599,4 +599,27 @@ public final class AdbLegacyBridge: DeviceBridge {
         }
         try runAdb(["shell", "settings", "put", "system", "user_rotation", rotation])
     }
+
+    // MARK: - Drag
+
+    public func drag(from: String, to: String, duration: Double) throws {
+        let tree = try dumpUITree()
+        guard let fromEl = findElement(in: tree, matching: from) else {
+            throw BridgeError.elementNotFound(from)
+        }
+        guard let toEl = findElement(in: tree, matching: to) else {
+            throw BridgeError.elementNotFound(to)
+        }
+        let fromCenter = try centerOf(fromEl)
+        let toCenter = try centerOf(toEl)
+        try dragCoordinates(x1: Double(fromCenter.x), y1: Double(fromCenter.y),
+                            x2: Double(toCenter.x), y2: Double(toCenter.y),
+                            duration: duration)
+    }
+
+    public func dragCoordinates(x1: Double, y1: Double, x2: Double, y2: Double, duration: Double) throws {
+        let durationMs = Int(duration * 1000)
+        try runAdb(["shell", "input", "swipe",
+                    "\(Int(x1))", "\(Int(y1))", "\(Int(x2))", "\(Int(y2))", "\(durationMs)"])
+    }
 }
