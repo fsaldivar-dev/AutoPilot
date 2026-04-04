@@ -350,6 +350,8 @@ func printUsage() {
       type [target] <text>              Type text
       scroll <id|label> <direction>     Scroll element
       swipe <up|down|left|right>        Swipe
+      drag <from> <to> [secs]            Drag between elements (default 0.5s)
+      drag x1,y1 x2,y2 [secs]           Drag between coordinates
       exists <id|title|label>           Check if element exists
       list                              List simulators
       boot <name|udid>                  Boot simulator
@@ -363,6 +365,10 @@ func printUsage() {
       camera stop                       Stop virtual camera
       camera status                     Check camera status
       terminate <bundleId>              Kill app
+      permission <grant|revoke|reset> <service> <bundleId>  Manage app permissions
+      logs [bundleId] [--lines N]       Get device logs (last 50 lines)
+      logs --system                     Get system logs
+      rotate <left|right|portrait|landscape>  Rotate device orientation
       config                             Show all config
       config <key> <value>              Set config value
       config <key>                      Get config value
