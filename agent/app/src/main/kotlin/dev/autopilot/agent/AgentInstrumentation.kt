@@ -30,7 +30,7 @@ class AgentInstrumentation : Instrumentation() {
         val uiAutomation: UiAutomation = uiAutomation
         Log.i(TAG, "UiAutomation acquired")
 
-        val server = SocketServer(uiAutomation)
+        val server = SocketServer(uiAutomation, targetContext)
         try {
             server.start() // bloquea indefinidamente
         } catch (e: Exception) {
