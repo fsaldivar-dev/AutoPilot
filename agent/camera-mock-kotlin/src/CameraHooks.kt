@@ -97,6 +97,8 @@ object CameraHooks {
                 try {
                     Thread.sleep(2_000)
                     if (!PreviewRenderer.isActive()) {
+                        // Overlay lost — Compose likely switched tabs/cameras
+                        Camera2Interceptor.requestRescan()
                         handler.post {
                             val activity = getCurrentActivity() ?: return@post
                             scanAndHook(activity)

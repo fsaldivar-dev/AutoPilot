@@ -60,6 +60,10 @@ object Camera2Interceptor {
     fun requestRescan() {
         rescanRequestedAt = System.currentTimeMillis()
         cachedImageCapture = null
+        // Clear tracked state so readers get re-wrapped with fresh listeners
+        originalListeners.clear()
+        trackedReaders.clear()
+        hasWrappedListener = false
     }
 
     /**
@@ -72,9 +76,10 @@ object Camera2Interceptor {
                 try {
                     val timeSinceRescan = System.currentTimeMillis() - rescanRequestedAt
                     val interval = when {
-                        timeSinceRescan < 5_000 -> 500L
-                        !hasWrappedListener -> 2_000L
-                        else -> 3_000L
+                        timeSinceRescan < 3_000 -> 200L   // Very fast right after tab/camera change
+                        timeSinceRescan < 8_000 -> 500L   // Fast for a few more seconds
+                        !hasWrappedListener -> 1_500L      // Initial search
+                        else -> 3_000L                     // Steady state
                     }
                     Thread.sleep(interval)
                     scanAndWrapListeners()
