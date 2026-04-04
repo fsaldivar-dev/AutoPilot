@@ -240,8 +240,6 @@ La brecha que queda no es de comandos faltantes — es de profundidad de impleme
 
 ---
 
-*Anterior: [Capítulo 9 — El agente Android](09-el-agente-android.md)*
-
-*Siguiente: [Capítulo 11 — El benchmark](11-el-benchmark.md)*
+*Anterior: [Capítulo 9 — El agente Android](09-el-agente-android.md) | Siguiente: [Capítulo 11 — El benchmark](11-el-benchmark.md)*
 
 *[Índice del libro](README.md)*
