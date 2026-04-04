@@ -83,3 +83,9 @@ El conocimiento se pudre cuando se guarda. Se mantiene vivo cuando se comparte.
 > *¿Te nos unirás?*
 >
 > — Aaron Swartz, Guerrilla Open Access Manifesto (2008)
+
+---
+
+*Anterior: [Capítulo 7 — Decisiones](07-decisiones.md) | Siguiente: [Capítulo 9 — El agente Android](09-el-agente-android.md)*
+
+*[Índice del libro](README.md)*

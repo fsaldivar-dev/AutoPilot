@@ -145,6 +145,76 @@ cd editor && ./setup.sh
 
 El script detecta qué falta (Node, Rust, Swift, ADB), instala lo necesario (Rust via `rustup` automaticamente), instala dependencias npm, y compila ambos binarios CLI. Después de correrlo, `npm run tauri dev` funciona sin configuración adicional.
 
+## Bugs que encontramos en producción
+
+### El bug de comillas en el Inspector
+
+El Inspector tenía un bug sutil: al hacer click en un elemento, insertaba el comando sin comillas cuando el label era multi-palabra.
+
+```
+# Label: "Usar código"
+# Inspector generaba:
+tap Usar código
+
+# CLI parseaba:
+tap "Usar"   ← argumento: "Usar", "código" se ignoraba
+```
+
+Un label de una palabra (`tap Login`) funcionaba porque el parser lo tomaba como un argumento. Pero `tap Usar código` llegaba al CLI como `tap` con argumento `Usar` — el resto de la línea se descartaba.
+
+El bug era invisible durante el desarrollo porque los elementos de prueba tenían labels simples. Apareció cuando alguien intentó tapear "Usar código" en una app real.
+
+**Fix:** El Inspector ahora envuelve el label en comillas dobles si contiene espacios:
+
+```typescript
+const command = label.includes(' ') ? `tap "${label}"` : `tap ${label}`
+```
+
+### Thread leak en timeout del Inspector
+
+Al revisar el código para el fix de comillas, encontramos un segundo problema: el thread de Rust que ejecutaba `inspect` no se cancelaba en timeout.
+
+El flujo original:
+
+```rust
+// lib.rs — ANTES
+async fn inspect(platform: String) -> Result<InspectResult> {
+    let result = tokio::spawn(async move {
+        // screenshot + tree, puede tardar varios segundos
+        run_inspect(platform)
+    }).await?;
+    result
+}
+```
+
+Si el Simulador no respondía, `run_inspect` colgaba. El frontend tenía un timeout de 5 segundos en JavaScript, pero el thread de Rust seguía corriendo. La siguiente llamada a Inspect lanzaba otro thread. Y otra. En una sesión de trabajo de 2 horas con Inspects frecuentes, el editor acumulaba decenas de threads colgados y se volvía lento.
+
+**Fix:** Cancelación explícita con `tokio::time::timeout`:
+
+```rust
+// lib.rs — DESPUÉS
+async fn inspect(platform: String) -> Result<InspectResult> {
+    tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        run_inspect(platform)
+    )
+    .await
+    .map_err(|_| "Inspect timeout".to_string())?
+}
+```
+
+Si el timeout dispara, el future se cancela y el thread se libera.
+
+### Autocomplete incompleto en Android
+
+El autocomplete del editor tiene listas de snippets por plataforma. `inspect` se agregó a la lista iOS pero no a la Android — un descuido simple que pasó desapercibido porque el test del editor siempre corría en iOS.
+
+El patrón es predecible: el editor se construyó con iOS primero. Android fue retroalimentado sobre esa base. Cada vez que se agrega un comando nuevo hay que actualizarlo en tres lugares: CLI, autocomplete del editor, y documentación. Fácil de olvidar el del medio.
+
+**Fix:** Una línea en `App.tsx` agregando `inspect` a la lista de snippets Android. El aprendizaje es que la lista debería ser compartida — mismo array para ambas plataformas, con excepciones explícitas — en vez de dos listas separadas que divergen con el tiempo.
+
+---
+
 ## Qué aprendimos
 
 1. **Monaco es absurdamente bueno.** Syntax highlighting, autocomplete con snippets, themes, multi-cursor — todo funciona out of the box. Implementar algo comparable en SwiftUI habría tomado meses.

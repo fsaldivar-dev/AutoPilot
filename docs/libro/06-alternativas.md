@@ -415,5 +415,4 @@ Cada herramienta eligio sus trade-offs. Nosotros elegimos los nuestros.
 
 ---
 
-*Anterior: [Capítulo 5 — El editor](05-el-editor.md)*
-*Siguiente: [Capítulo 7 — Decisiones](07-decisiónes.md)*
+*Anterior: [Capítulo 5 — El editor](05-el-editor.md) | Siguiente: [Capítulo 7 — Decisiones](07-decisiones.md)*

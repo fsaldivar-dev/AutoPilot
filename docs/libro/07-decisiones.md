@@ -331,6 +331,6 @@ La respuesta siempre está aquí.
 
 ---
 
-*Anterior: [Capítulo 6 — Alternativas](06-alternativas.md)*
+*Anterior: [Capítulo 6 — Alternativas](06-alternativas.md) | Siguiente: [Capítulo 8 — Por qué es libre](08-por-que-es-libre.md)*
 
-*[Indice del libro](README.md)*
+*[Índice del libro](README.md)*

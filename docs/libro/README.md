@@ -28,7 +28,8 @@ Documentamos todo el proceso — los errores, los callejones sin salida, las dec
 7. **[Decisiones](07-decisiones.md)** — ADRs 1-8: Swift puro, AX públicas, no YAML, dos binarios + DeviceBridge
 8. **[Por qué es libre](08-por-que-es-libre.md)** — La deuda con el open source, el problema de la IA privatizada, y por qué documentamos los fracasos
 9. **[El agente Android](09-el-agente-android.md)** — De 2100ms a 75ms: un APK de instrumentación que habla directo con UiAutomation
-10. **Paridad Android** *(pendiente)* — Se escribira despues de implementar paridad completa iOS/Android
+10. **[Paridad Android](10-paridad-android.md)** — Label[N], clipboard (y la restricción silenciosa de Android 10), y tres intentos de camera mock
+11. **[El benchmark](11-el-benchmark.md)** — AutoPilot vs Maestro vs WDA: metodología, resultados, y por qué Maestro es 2.5x más lento por diseño
 
 ### Apendices
 
@@ -53,6 +54,8 @@ Si quieres entender **por qué existe** AutoPilot, lee el [Capítulo 1](01-el-pr
 Si quieres entender **cómo funciona** por dentro, lee el [Capítulo 2](02-arquitectura.md).
 
 Si quieres ver **ingeniería inversa real** — intentos fallidos, ARM64 PAC, ObjC runtime hacks, descubrimientos que no estan documentados en ningún otro lugar — lee los Capítulos [3](03-la-camara-virtual.md) y [4](04-inyeccion-sin-recompilar.md).
+
+Si quieres ver **datos duros** de velocidad vs las alternativas, lee el [Capítulo 11](11-el-benchmark.md).
 
 Si quieres **usar** AutoPilot, ve al [README principal](../../README.md).
 
