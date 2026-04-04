@@ -217,12 +217,13 @@ Solo Android:
 
 Diferencias de comportamiento:
   - clipboard read: iOS = sistema real. Android = cache del último set
-  - camera mock: iOS = transparente. Android = requiere app cooperativa
+  - camera mock preview: iOS = transparente ✓. Android = transparente ✓ (JVMTI)
+  - camera mock output: iOS = transparente ✓. Android = NO intercepta bytes ✗
   - index CLI: iOS = auto index. Android = solo disponible en editor
   - biometric: iOS = AppleScript. Android = emu finger + locksettings
 ```
 
-La brecha que queda no es de comandos faltantes — es de profundidad de implementación. iOS puede mockear cámara en cualquier app con una compilación; Android solo en la app demo. iOS lee el clipboard real; Android lee lo que él mismo escribió.
+La brecha de camera mock se cerró para el preview — ambas plataformas inyectan sin modificar la app. Pero la brecha de output (bytes de captura) sigue abierta: iOS reemplaza los bytes en `AVCapturePhotoOutput`, Android aún entrega los bytes reales de la cámara.
 
 ---
 
@@ -232,11 +233,13 @@ La brecha que queda no es de comandos faltantes — es de profundidad de impleme
 
 2. **Android 10+ cerró puertas de forma silenciosa.** `ClipboardManager.getPrimaryClip()` retornando `null` en background es el tipo de bug que aparece en producción, no en desarrollo. Los tests que pasaban en dev (agente en foreground) fallaban en CI (agente en background).
 
-3. **JVMTI tiene límites en apps modernas.** El approach nativo en C fue el más técnicamente ambicioso y el menos efectivo. CameraX/Camera2 en NDK no es interceptable por JVMTI. Documentamos el intento porque la idea es legítima para apps que usan APIs Java directamente.
+3. **JVMTI sí funciona — lo que importa es dónde hookeas.** Los primeros intentos fallaron porque intentamos hookear Camera2 API (clases finales, constructores privados) y escribir directo en el Surface (PUSH_BUFFERS). JVMTI como mecanismo de inyección es sólido — el error fue la estrategia de interceptación. La vista (overlay ImageView) resultó ser el punto correcto para el preview.
 
-4. **A veces la cooperación explícita es mejor que la transparencia forzada.** El mock de cámara iOS es elegante porque es invisible. El de Android es pragmático porque es lo que es posible. Ambos sirven para CI/CD.
+4. **Los intentos "fallidos" construyen hacia la solución.** Los 5 intentos que no funcionaron no fueron desperdicio: el `agent.c` del intento 1 se reusó en la solución final, el `ViewScanner` del intento 2 encontró el `PreviewView`, y la infraestructura de DEX loading fue la misma. Cada fracaso dejó una pieza reutilizable.
 
-5. **Compartir código entre plataformas requiere diseño previo.** `TargetResolverShared` y `ElementIndexShared` solo fueron posibles porque el árbol de accesibilidad de iOS y Android tiene el mismo formato JSON. Esa decisión de diseño del Capítulo 9 pagó dividendos aquí.
+5. **Transparencia tiene niveles.** El overlay es transparente para la app (no la modificamos), pero no transparente para los bytes (la app recibe frames reales al capturar). iOS logró ambos niveles. Android logró el primero. El segundo requiere hookear `ImageReader` — técnicamente posible, pero es otro capítulo.
+
+6. **Compartir código entre plataformas requiere diseño previo.** `TargetResolverShared` y `ElementIndexShared` solo fueron posibles porque el árbol de accesibilidad de iOS y Android tiene el mismo formato JSON. Esa decisión de diseño del Capítulo 9 pagó dividendos aquí.
 
 ---
 
