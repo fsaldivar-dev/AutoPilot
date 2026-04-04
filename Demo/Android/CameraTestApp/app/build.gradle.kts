@@ -10,7 +10,7 @@ android {
 
     defaultConfig {
         applicationId = "dev.autopilot.test.CameraTestApp"
-        minSdk = 26
+        minSdk = 28
         targetSdk = 35
         versionCode = 1
         versionName = "1.0"
@@ -62,6 +62,11 @@ dependencies {
     implementation("androidx.camera:camera-camera2:$cameraXVersion")
     implementation("androidx.camera:camera-lifecycle:$cameraXVersion")
     implementation("androidx.camera:camera-view:$cameraXVersion")
+    implementation("androidx.camera:camera-mlkit-vision:$cameraXVersion")
+
+    // ML Kit (bundled models — no Google Play Services required)
+    implementation("com.google.mlkit:barcode-scanning:17.3.0")
+    implementation("com.google.mlkit:text-recognition:16.0.1")
 
     // Core
     implementation("androidx.core:core-ktx:1.15.0")
