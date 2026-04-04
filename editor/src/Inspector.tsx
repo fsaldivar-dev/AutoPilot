@@ -21,14 +21,14 @@ interface ParsedElement extends AXElement {
 function makeActions(label: string, suffix: string) {
   const ref = suffix ? `${label}${suffix}` : label;
   return [
-    { label: "tap", icon: "👆", cmd: `tap ${ref}` },
-    { label: "doubleTap", icon: "👆👆", cmd: `doubleTap ${ref}` },
-    { label: "longPress", icon: "✊", cmd: `longPress ${ref} 1` },
-    { label: "type", icon: "⌨️", cmd: `type ${ref} "text"` },
-    { label: "clear", icon: "🗑", cmd: `clear ${ref}` },
-    { label: "scroll", icon: "📜", cmd: `scroll ${ref} down` },
-    { label: "waitFor", icon: "⏳", cmd: `waitFor ${ref} 10` },
-    { label: "exists", icon: "❓", cmd: `exists ${ref}` },
+    { label: "tap", icon: "👆", cmd: `tap "${ref}"` },
+    { label: "doubleTap", icon: "👆👆", cmd: `doubleTap "${ref}"` },
+    { label: "longPress", icon: "✊", cmd: `longPress "${ref}" 1` },
+    { label: "type", icon: "⌨️", cmd: `type "${ref}" "text"` },
+    { label: "clear", icon: "🗑", cmd: `clear "${ref}"` },
+    { label: "scroll", icon: "📜", cmd: `scroll "${ref}" down` },
+    { label: "waitFor", icon: "⏳", cmd: `waitFor "${ref}" 10` },
+    { label: "exists", icon: "❓", cmd: `exists "${ref}"` },
   ];
 }
 
