@@ -552,4 +552,80 @@ public final class AdbLegacyBridge: DeviceBridge {
         let output = try runAdb(["shell", "locksettings", "get-disabled"])
         return output.trimmingCharacters(in: .whitespacesAndNewlines) == "false"
     }
+
+    // MARK: - Logs
+
+    public func getLogs(bundleId: String?, lines: Int) throws -> String {
+        let output = try runAdb(["logcat", "-d", "-t", "\(lines)"])
+        guard let bundleId = bundleId else { return output }
+        let filtered = output.split(separator: "\n")
+            .filter { $0.contains(bundleId) }
+            .joined(separator: "\n")
+        return filtered.isEmpty ? output : filtered
+    }
+
+    // MARK: - Permissions
+
+    public func setPermission(action: String, service: String, bundleId: String) throws {
+        let adbAction: String
+        switch action {
+        case "grant":   adbAction = "grant"
+        case "revoke":  adbAction = "revoke"
+        case "reset":
+            throw BridgeError.adbFailed("permission reset not supported on Android. Use 'revoke' or reset via Settings.")
+        default:
+            throw BridgeError.adbFailed("Invalid action: \(action)")
+        }
+        let androidPermission: String
+        switch service {
+        case "camera":        androidPermission = "android.permission.CAMERA"
+        case "microphone":    androidPermission = "android.permission.RECORD_AUDIO"
+        case "photos":        androidPermission = "android.permission.READ_MEDIA_IMAGES"
+        case "contacts":      androidPermission = "android.permission.READ_CONTACTS"
+        case "calendars":     androidPermission = "android.permission.READ_CALENDAR"
+        case "location":      androidPermission = "android.permission.ACCESS_FINE_LOCATION"
+        case "notifications": androidPermission = "android.permission.POST_NOTIFICATIONS"
+        default:
+            throw BridgeError.adbFailed("Service '\(service)' not mapped for Android. Use the full Android permission string.")
+        }
+        try runAdb(["shell", "pm", adbAction, bundleId, androidPermission])
+    }
+
+    // MARK: - Device Orientation
+
+    public func rotate(direction: String) throws {
+        try runAdb(["shell", "settings", "put", "system", "accelerometer_rotation", "0"])
+        let rotation: String
+        switch direction {
+        case "portrait":           rotation = "0"
+        case "landscape", "right": rotation = "1"
+        case "left":               rotation = "3"
+        default:
+            throw BridgeError.adbFailed("Invalid direction '\(direction)'. Use: left, right, portrait, landscape")
+        }
+        try runAdb(["shell", "settings", "put", "system", "user_rotation", rotation])
+    }
+
+    // MARK: - Drag
+
+    public func drag(from: String, to: String, duration: Double) throws {
+        let tree = try dumpUITree()
+        guard let fromEl = findElement(in: tree, matching: from) else {
+            throw BridgeError.elementNotFound(from)
+        }
+        guard let toEl = findElement(in: tree, matching: to) else {
+            throw BridgeError.elementNotFound(to)
+        }
+        let fromCenter = try centerOf(fromEl)
+        let toCenter = try centerOf(toEl)
+        try dragCoordinates(x1: Double(fromCenter.x), y1: Double(fromCenter.y),
+                            x2: Double(toCenter.x), y2: Double(toCenter.y),
+                            duration: duration)
+    }
+
+    public func dragCoordinates(x1: Double, y1: Double, x2: Double, y2: Double, duration: Double) throws {
+        let durationMs = Int(duration * 1000)
+        try runAdb(["shell", "input", "swipe",
+                    "\(Int(x1))", "\(Int(y1))", "\(Int(x2))", "\(Int(y2))", "\(durationMs)"])
+    }
 }

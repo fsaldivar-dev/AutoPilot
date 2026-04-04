@@ -15,6 +15,7 @@ public enum BridgeError: Error, CustomStringConvertible {
     case cameraImageNotFound(String)
     case adbNotFound
     case adbFailed(String)
+    case unknown(String)
 
     public var description: String {
         switch self {
@@ -32,6 +33,7 @@ public enum BridgeError: Error, CustomStringConvertible {
         case .cameraImageNotFound(let p): return "Image not found: '\(p)'"
         case .adbNotFound: return "ADB not found. Set ANDROID_HOME or add adb to PATH."
         case .adbFailed(let msg): return "ADB failed: \(msg)"
+        case .unknown(let msg): return msg
         }
     }
 }

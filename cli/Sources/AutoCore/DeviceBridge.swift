@@ -49,4 +49,21 @@ public protocol DeviceBridge {
     func biometricMatch() throws
     func biometricFail() throws
     func biometricIsEnrolled() throws -> Bool
+
+    // MARK: - Logs
+
+    func getLogs(bundleId: String?, lines: Int) throws -> String
+
+    // MARK: - Permissions
+
+    func setPermission(action: String, service: String, bundleId: String) throws
+
+    // MARK: - Device Orientation
+
+    func rotate(direction: String) throws
+
+    // MARK: - Drag
+
+    func drag(from: String, to: String, duration: Double) throws
+    func dragCoordinates(x1: Double, y1: Double, x2: Double, y2: Double, duration: Double) throws
 }

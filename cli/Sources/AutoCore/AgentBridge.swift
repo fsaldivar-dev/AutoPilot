@@ -241,6 +241,43 @@ public final class AgentBridge: DeviceBridge {
         throw BridgeError.adbFailed("Invalid clipboard response")
     }
 
+    // MARK: - Drag
+
+    public func drag(from: String, to: String, duration: Double) throws {
+        let currentTree = try tree()
+        guard let fromEl = findElement(in: currentTree, matching: from) else {
+            throw BridgeError.elementNotFound(from)
+        }
+        guard let toEl = findElement(in: currentTree, matching: to) else {
+            throw BridgeError.elementNotFound(to)
+        }
+        guard let fromFrame = fromEl["frame"] as? [String: Any],
+              let fx = (fromFrame["x"] as? Int).map(Double.init) ?? fromFrame["x"] as? Double,
+              let fy = (fromFrame["y"] as? Int).map(Double.init) ?? fromFrame["y"] as? Double,
+              let fw = (fromFrame["width"] as? Int).map(Double.init) ?? fromFrame["width"] as? Double,
+              let fh = (fromFrame["height"] as? Int).map(Double.init) ?? fromFrame["height"] as? Double else {
+            throw BridgeError.noFrame(from)
+        }
+        guard let toFrame = toEl["frame"] as? [String: Any],
+              let tx = (toFrame["x"] as? Int).map(Double.init) ?? toFrame["x"] as? Double,
+              let ty = (toFrame["y"] as? Int).map(Double.init) ?? toFrame["y"] as? Double,
+              let tw = (toFrame["width"] as? Int).map(Double.init) ?? toFrame["width"] as? Double,
+              let th = (toFrame["height"] as? Int).map(Double.init) ?? toFrame["height"] as? Double else {
+            throw BridgeError.noFrame(to)
+        }
+        try dragCoordinates(x1: fx + fw / 2, y1: fy + fh / 2,
+                            x2: tx + tw / 2, y2: ty + th / 2,
+                            duration: duration)
+    }
+
+    public func dragCoordinates(x1: Double, y1: Double, x2: Double, y2: Double, duration: Double) throws {
+        let _ = try sendCommand("swipe", params: [
+            "x1": Int(x1), "y1": Int(y1),
+            "x2": Int(x2), "y2": Int(y2),
+            "duration": Int(duration * 1000)
+        ])
+    }
+
     // MARK: - Camera mock (JVMTI agent injection)
 
     private static let deviceTmpDir = "/data/local/tmp"
@@ -390,6 +427,25 @@ public final class AgentBridge: DeviceBridge {
 
     public func biometricIsEnrolled() throws -> Bool {
         try legacy.biometricIsEnrolled()
+    }
+
+    // MARK: - Logs
+
+    public func getLogs(bundleId: String?, lines: Int) throws -> String {
+        try legacy.getLogs(bundleId: bundleId, lines: lines)
+    }
+
+    // MARK: - Permissions
+
+    public func setPermission(action: String, service: String, bundleId: String) throws {
+        try legacy.setPermission(action: action, service: service, bundleId: bundleId)
+    }
+
+
+    // MARK: - Device Orientation
+
+    public func rotate(direction: String) throws {
+        try legacy.rotate(direction: direction)
     }
 
     // MARK: - Helpers
