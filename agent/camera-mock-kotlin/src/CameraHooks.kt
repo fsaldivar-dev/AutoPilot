@@ -45,13 +45,20 @@ object CameraHooks {
         Camera1Interceptor.install()
         Log.d(TAG, "Capture interceptors installed")
 
-        // Monitor activity lifecycle to find camera preview views (visual overlay)
+        // Monitor activity lifecycle for preview overlay + Camera1 hooking
         app.registerActivityLifecycleCallbacks(object : Application.ActivityLifecycleCallbacks {
             override fun onActivityResumed(activity: Activity) {
+                // Force Camera2Interceptor to fast-scan for new ImageReaders
+                // (tab changes create new CameraX bindings with new ImageReaders)
+                Camera2Interceptor.requestRescan()
+
                 // Delay scan to let camera preview initialize
                 handler.postDelayed({ scanAndHook(activity) }, 1000)
                 handler.postDelayed({ scanAndHook(activity) }, 2000)
                 handler.postDelayed({ scanAndHook(activity) }, 3000)
+
+                // Scan for Camera1 instances in the activity's fields
+                handler.postDelayed({ Camera1Interceptor.onActivityResumed(activity) }, 1500)
             }
 
             override fun onActivityPaused(activity: Activity) {
@@ -73,7 +80,35 @@ object CameraHooks {
             }
         }, 500)
 
+        // Periodic overlay re-scan: Compose tab changes don't trigger lifecycle events,
+        // so we poll every 2s to detect when the preview view has been replaced.
+        startOverlayWatchdog()
+
         Log.d(TAG, "Lifecycle observer registered, waiting for camera views")
+    }
+
+    /**
+     * Periodically check if the overlay is still visible. Compose tab changes
+     * destroy and recreate PreviewView without triggering Activity lifecycle.
+     */
+    private fun startOverlayWatchdog() {
+        Thread {
+            while (true) {
+                try {
+                    Thread.sleep(2_000)
+                    if (!PreviewRenderer.isActive()) {
+                        handler.post {
+                            val activity = getCurrentActivity() ?: return@post
+                            scanAndHook(activity)
+                        }
+                    }
+                } catch (_: InterruptedException) { break }
+                catch (_: Exception) {}
+            }
+        }.apply {
+            isDaemon = true
+            name = "autopilot-overlay-watchdog"
+        }.start()
     }
 
     private fun scanAndHook(activity: Activity) {
