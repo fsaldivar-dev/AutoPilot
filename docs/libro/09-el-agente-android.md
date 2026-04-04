@@ -270,6 +270,8 @@ El agente cubre las operaciones de UI. Falta agregar `screenshot` y `launch` al 
 
 ---
 
-*Anterior: [Capítulo 8 — Por qué es libre](08-por-que-es-libre.md)*
+*Anterior: [Capítulo 8 — Por qué es libre](08-por-que-es-libre.md) | Siguiente: [Capítulo 10 — Paridad Android](10-paridad-android.md)*
+
+*[Índice del libro](README.md)*
 
 *[Índice del libro](README.md)*
