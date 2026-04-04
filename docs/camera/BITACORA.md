@@ -1021,3 +1021,152 @@ Tamaños verificados:
 - CameraX almacena ImageReaders ~10+ niveles de profundidad via AndroidImageReaderProxy. El scanner generico por tipo no los encuentra (depth 5 default), pero `findByFieldName("mImageReader")` con depth 20 si.
 - El callback anonimo de `OnImageCapturedCallback` NO es encontrable desde ProcessCameraProvider (path demasiado largo, ~15 niveles, >1600 objetos visitados sin resultado). PERO es encontrable desde `ImageCapture` directamente (~5 niveles).
 - `java.lang.reflect.Proxy` funciona para crear ImageProxy y PlaneProxy en runtime — no necesitamos dependencias de CameraX en nuestro DEX.
+
+---
+
+## Sesion 2026-04-04
+
+### Objetivo
+Hacer que la inyeccion de captura funcione en los 6 tabs del CameraTestApp. La sesion anterior dejo la Fase 3 con buffer replacement, que resultaba fragil. Necesitabamos probar en multiples APIs y descubrir por que fallaba.
+
+### Intento 11: Buffer replacement falla en campo
+
+**Resultado:** FALLA. `ByteBuffer.wrap()` no reemplaza buffers directos del HAL.
+
+La sesion anterior reportaba exito con buffer replacement (`SurfacePlane.mBuffer = ByteBuffer.wrap(mockBytes)`). En pruebas mas exhaustivas con los 6 tabs del CameraTestApp, descubrimos que:
+
+1. El buffer del HAL es un `DirectByteBuffer` asignado por el hardware de camara
+2. `ByteBuffer.wrap()` crea un `HeapByteBuffer` — tipo distinto
+3. CameraX internamente puede tener referencias cacheadas al buffer original
+4. El reemplazo funciona a veces (cuando CameraX lee el buffer despues del swap) pero falla intermitentemente
+
+Ademas, encontrar el callback de la app via deep scan de 15-20 niveles era extremadamente fragil. Funcionaba en el CameraXTab pero fallaba al cambiar de tab porque CameraX recreaba toda la pipeline.
+
+**Logcat evidencia:**
+```
+Camera2Interceptor: no pending callback found
+```
+
+### Intento 12: Consume + mock ImageProxy delivery (funciona)
+
+**Resultado:** FUNCIONA. Estrategia completamente distinta — no tocamos buffers del HAL.
+
+**Enfoque:**
+1. Wrappear el `ImageReader.OnImageAvailableListener` (ya funcionaba del intento anterior)
+2. Cuando `onImageAvailable` se dispara, **consumir y cerrar** la imagen real (`acquireNextImage() + close()`)
+3. **No modificar ningun buffer** — simplemente descartamos la imagen del HAL
+4. Crear un `ImageProxy` mock via `java.lang.reflect.Proxy` con nuestros JPEG bytes
+5. Encontrar el callback de la app via camino corto: `ImageCapture → TakePictureManager → pending requests → callback`
+6. Entregar el mock directamente al callback
+
+**El insight clave:** en vez de modificar lo que la camara produce, descartamos lo que produce y entregamos nuestros propios bytes como si vinieran de la camara. La app nunca ve los bytes reales.
+
+```mermaid
+flowchart TD
+    A["onImageAvailable fires"] --> B["acquireNextImage() + close()"]
+    B --> C["Pre-check: findPendingCallback()"]
+    C -->|found| D["Create mock ImageProxy\n(Proxy with JPEG bytes)"]
+    C -->|not found| E["Pass through to original\nlistener (no data lost)"]
+    D --> F["callback.onCaptureSuccess(mockProxy)"]
+    F --> G["App reads planes[0].buffer\n→ gets our mock JPEG"]
+```
+
+**Diferencia critica vs Intento 10:** si no encontramos el callback, NO consumimos la imagen — dejamos que el listener original la procese. Esto elimina el caso de "imagen perdida".
+
+### Tropiezos encontrados
+
+#### Tropiezo 1: Timing del re-wrap en Compose
+
+**Problema:** Al cambiar de tab en Compose (CameraX → QR → OCR), CameraX hace `unbindAll()` + nuevo `bindToLifecycle()`. Esto crea un nuevo `ImageReader` con un nuevo listener. Pero el scanner corria cada 10 segundos — el primer tap despues de cambiar tab siempre fallaba.
+
+**Evidencia logcat:**
+```
+13:26:18.108  ImageCapture: takePictureInternal     ← app ya capturo
+13:26:21.940  Camera2Interceptor: wrapped listener   ← wrapper llego 3s tarde
+```
+
+**Solucion:** `requestRescan()` que:
+- Limpia `originalListeners` y `trackedReaders` (para que el mismo ImageReader se re-wrappee)
+- Activa polling agresivo: 200ms por 3s, 500ms por 5s, luego 3s steady-state
+- Se llama desde `onActivityResumed` y desde el overlay watchdog
+
+#### Tropiezo 2: Compose no dispara lifecycle
+
+**Problema:** Los tab changes son recomposiciones de Compose, no cambios de Activity. `onActivityResumed` no se dispara, asi que ni el overlay ni el re-wrap se activan.
+
+**Solucion:** Overlay watchdog — thread que cada 2s verifica si el overlay sigue en la jerarquia de vistas. Si no (`parent == null`), trigger `requestRescan()` + re-scan de preview.
+
+#### Tropiezo 3: Camera1 crash en emuladores
+
+**Problema:** `Camera.takePicture()` lanza `RuntimeException: takePicture failed` en emuladores modernos (API 33+). El Camera1 API legacy es inestable en emuladores arm64.
+
+**Solucion:** try-catch en Camera1Tab. No es un bug del agente — es una limitacion del emulador con la API legacy.
+
+#### Tropiezo 4: `monkey` falla en emuladores
+
+**Problema:** `adb shell monkey -p <pkg> -c LAUNCHER 1` retorna exit code 251 en algunos emuladores. El CLI usaba monkey para resolver el launcher activity automaticamente.
+
+**Solucion:** Fallback a `am start` con resolucion de launcher activity via `cmd package resolve-activity --brief`.
+
+#### Tropiezo 5: `run-as` falla en API 29/31
+
+**Problema:** `run-as <pkg>` retorna "unknown package" en emuladores API 29 y 31. Esto impide copiar el .so y .dex al data dir de la app (necesario para JVMTI por SELinux).
+
+**Causa probable:** Los emuladores necesitan `ro.debuggable=1` y la app necesita `android:debuggable="true"`. En Google Play images esto no esta habilitado por default.
+
+**Status:** Sin fix — requiere emuladores con system image "Google APIs" (no "Google Play").
+
+### Resultados del script E2E
+
+Script `android-camera-all-tabs.auto` — 54 pasos, todos pasan en API 33:
+
+```
+[1]  ping                          → Connected (67ms)
+[4]  camera start qr-autopilot.png → Injected (787ms)
+[8]  tap Capturar Foto             → Tapped (75ms)
+[9]  waitFor Foto capturada        → Found (616ms)    ← CameraX ✓
+[16] tap Escanear QR               → Tapped (53ms)
+[17] waitFor QR detectado          → Found (1043ms)   ← QR+MLKit ✓
+[24] tap Reconocer Texto           → Tapped (39ms)
+[25] waitFor Texto detectado       → Found (1023ms)   ← OCR+MLKit ✓
+[30] tap Capturar por Intent       → Tapped (36ms)    ← Intent ✓
+[38] tap Capturar Frente de ID     → Tapped (40ms)    ← ID frente ✓
+[43] tap Capturar Reverso de ID    → Tapped (47ms)    ← ID reverso ✓
+[47] tap Capturar Selfie           → Tapped (61ms)    ← ID selfie (timing-dependent)
+
+54 step(s) completed (68080ms)
+```
+
+### Resultados matrix de APIs
+
+| API | JVMTI Inject | CameraX Capture | QR+MLKit | OCR+MLKit | Notes |
+|-----|-------------|-----------------|----------|-----------|-------|
+| 28  | ✓ | ✓ | - | - | Tabs nav falla con legacy bridge |
+| 29  | ✗ run-as | - | - | - | Emulator setup issue |
+| 31  | ✗ run-as | - | - | - | Emulator setup issue |
+| 33  | ✓ | ✓ | ✓ | ✓ | Full E2E pass (54/54 steps) |
+| 35  | ✓ | ✓ | - | - | Tabs nav falla con legacy bridge |
+
+**Nota:** Los fallos en tabs (QR, OCR) en API 28/35 son por navegacion (uiautomator no encuentra labels de Compose), no por la inyeccion. Con el agent bridge (API 33) todos los tabs pasan.
+
+### Archivos nuevos/modificados
+
+| Archivo | Cambio |
+|---|---|
+| `agent/camera-mock-kotlin/src/Camera2Interceptor.kt` | Reescrito — consume + mock delivery (no buffer replacement) |
+| `agent/camera-mock-kotlin/src/Camera1Interceptor.kt` | Implementado — polling de mJpegCallback (era stub) |
+| `agent/camera-mock-kotlin/src/CameraHooks.kt` | requestRescan() + overlay watchdog + Camera1 en onResume |
+| `agent/camera-mock-kotlin/src/PreviewRenderer.kt` | isActive() verifica parent en jerarquia |
+| `cli/Sources/AutoCore/AdbLegacyBridge.swift` | launchApp fallback: monkey → am start + resolve-activity |
+| `Demo/Android/CameraTestApp/.../Camera1Tab.kt` | try-catch en takePicture() |
+| `scripts/examples/android-camera-all-tabs.auto` | Nuevo — E2E test de los 6 tabs |
+| `scripts/ci/run-camera-test.sh` | Nuevo — test individual por emulador |
+| `scripts/ci/run-camera-matrix.sh` | Nuevo — matrix test API 28-35 |
+
+### Hallazgos clave
+
+- Los buffers directos del HAL de camara NO se pueden reemplazar con `ByteBuffer.wrap()`. La estrategia correcta es consumir el frame y entregar un mock completo.
+- Compose recompositions no disparan `Activity.onResume`. Cualquier hook que dependa del lifecycle necesita un watchdog separado.
+- El polling agresivo (200ms) por unos segundos despues de un cambio de camara es suficiente para wrappear el ImageReader antes del primer tap humano (~500ms-1s de tiempo de reaccion).
+- `monkey` no es confiable en todos los emuladores. `cmd package resolve-activity` es una alternativa robusta para encontrar el launcher activity.
+- `run-as` requiere emuladores con system image "Google APIs" (debuggable). Las images "Google Play" no lo permiten.

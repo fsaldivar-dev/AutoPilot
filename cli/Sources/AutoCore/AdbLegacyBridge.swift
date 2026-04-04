@@ -373,13 +373,25 @@ public final class AdbLegacyBridge: DeviceBridge {
     // MARK: - DeviceBridge: App Lifecycle
 
     public func launchApp(bundleId: String, envVars: [String: String]) throws {
-        // Use monkey to launch by package (resolves correct launcher activity)
-        // Then, if env vars needed, relaunch via am start with extras
         if envVars.isEmpty {
-            try runAdb(["shell", "monkey", "-p", bundleId,
-                        "-c", "android.intent.category.LAUNCHER", "1"])
+            // Try monkey first (resolves correct launcher activity), fall back to am start
+            do {
+                try runAdb(["shell", "monkey", "-p", bundleId,
+                            "-c", "android.intent.category.LAUNCHER", "1"])
+            } catch {
+                // monkey fails on some emulators — fall back to am start
+                // First try resolving launcher activity via pm dump
+                let launcherActivity = resolveLauncherActivity(bundleId)
+                if let activity = launcherActivity {
+                    try runAdb(["shell", "am", "start", "-n", "\(bundleId)/\(activity)"])
+                } else {
+                    try runAdb(["shell", "am", "start",
+                                "-a", "android.intent.action.MAIN",
+                                "-c", "android.intent.category.LAUNCHER",
+                                "-p", bundleId])
+                }
+            }
         } else {
-            // am start needs the package as -p flag, not positional arg
             var cmdArgs = ["shell", "am", "start",
                            "-a", "android.intent.action.MAIN",
                            "-c", "android.intent.category.LAUNCHER",
@@ -389,6 +401,25 @@ public final class AdbLegacyBridge: DeviceBridge {
             }
             try runAdb(cmdArgs)
         }
+    }
+
+    /// Resolve the launcher activity for a package via `cmd package resolve-activity`.
+    private func resolveLauncherActivity(_ bundleId: String) -> String? {
+        do {
+            let output = try runAdb(["shell", "cmd", "package", "resolve-activity",
+                                     "--brief", "-c", "android.intent.category.LAUNCHER",
+                                     "-a", "android.intent.action.MAIN", bundleId])
+            // Output format: "priority=0 preferredOrder=0 match=0x108000 specificIndex=-1 isDefault=true\ncom.pkg/.Activity"
+            let lines = output.split(separator: "\n")
+            if let last = lines.last, last.contains("/") {
+                let component = String(last).trimmingCharacters(in: .whitespacesAndNewlines)
+                let parts = component.split(separator: "/")
+                if parts.count == 2 {
+                    return String(parts[1])
+                }
+            }
+        } catch {}
+        return nil
     }
 
     public func terminateApp(bundleId: String) throws {
