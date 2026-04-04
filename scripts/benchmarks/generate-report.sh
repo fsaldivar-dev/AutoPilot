@@ -4,7 +4,7 @@ set -euo pipefail
 RESULTS_DIR="${RESULTS_DIR:-benchmark-results}"
 REPORT="$RESULTS_DIR/benchmark-report.md"
 
-python3 << 'PYEOF' "$RESULTS_DIR" "$REPORT"
+python3 /dev/stdin "$RESULTS_DIR" "$REPORT" << 'PYEOF'
 import json, sys, os, datetime
 from collections import defaultdict
 
