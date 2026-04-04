@@ -56,6 +56,12 @@ public final class AdbLegacyBridge: DeviceBridge {
         throw BridgeError.adbNotFound
     }
 
+    /// Public accessor for other bridges that need adb commands.
+    @discardableResult
+    public func runAdbPublic(_ arguments: [String]) throws -> String {
+        return try runAdb(arguments)
+    }
+
     @discardableResult
     private func runAdb(_ arguments: [String]) throws -> String {
         let process = Process()
