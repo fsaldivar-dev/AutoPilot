@@ -1,0 +1,30 @@
+# android-camera-capture-test.auto
+# Prueba E2E de intercepcion de captura en Android
+# Verifica que la app recibe nuestros bytes mock, no los de la camara real
+#
+# Requiere:
+#   - Emulador corriendo (adb devices)
+#   - CameraTestApp instalada
+#   - Agent instalado y corriendo
+#   - Socket forwarded (adb forward tcp:9008 localabstract:autopilot)
+#
+# Uso: auto-android run scripts/examples/android-camera-capture-test.auto
+
+ping
+launch dev.autopilot.test.CameraTestApp --inject scripts/demo-images/foto-1.jpg
+waitFor "Camara lista" 15
+screenshot screenshots/android-camera-preview.png
+
+# Capturar foto — la app debe recibir nuestros bytes mock
+tap "Capturar Foto"
+waitFor "Foto capturada" 10
+screenshot screenshots/android-camera-captured.png
+
+# Hot-swap: cambiar imagen y capturar de nuevo
+camera feed scripts/demo-images/foto-2.jpg
+wait 1
+tap "Capturar Foto"
+waitFor "Foto capturada" 10
+screenshot screenshots/android-camera-hotswap.png
+
+terminate dev.autopilot.test.CameraTestApp

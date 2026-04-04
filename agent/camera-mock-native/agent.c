@@ -79,13 +79,59 @@ JNIEXPORT jint JNICALL Agent_OnAttach(JavaVM *vm, char *options, void *reserved)
     LOGD("DEX path: %s, opt dir: %s", dexPath, optDir);
     (*env)->ReleaseStringUTFChars(env, jAppDir, appDir);
 
-    /* 1. Get system ClassLoader as parent for DexClassLoader */
-    jclass clClass = (*env)->FindClass(env, "java/lang/ClassLoader");
-    if (!clClass) { LOGE("ClassLoader not found"); return JNI_ERR; }
+    /* 1. Get app's ClassLoader as parent for DexClassLoader.
+     *    Using the app's classloader (not system) so our DEX can resolve
+     *    app dependencies like androidx.camera.* (CameraX) via reflection. */
+    jclass atClass2 = (*env)->FindClass(env, "android/app/ActivityThread");
+    jmethodID currentApp2 = (*env)->GetStaticMethodID(env, atClass2,
+        "currentApplication", "()Landroid/app/Application;");
+    jobject app = (*env)->CallStaticObjectMethod(env, atClass2, currentApp2);
 
-    jmethodID getSysCL = (*env)->GetStaticMethodID(env, clClass,
-        "getSystemClassLoader", "()Ljava/lang/ClassLoader;");
-    jobject parentCL = (*env)->CallStaticObjectMethod(env, clClass, getSysCL);
+    jobject parentCL;
+    if (app) {
+        jclass ctxClass2 = (*env)->FindClass(env, "android/content/Context");
+        jmethodID getCL = (*env)->GetMethodID(env, ctxClass2,
+            "getClassLoader", "()Ljava/lang/ClassLoader;");
+        parentCL = (*env)->CallObjectMethod(env, app, getCL);
+        LOGD("Using app classloader as DexClassLoader parent");
+    } else {
+        jclass clClass = (*env)->FindClass(env, "java/lang/ClassLoader");
+        jmethodID getSysCL = (*env)->GetStaticMethodID(env, clClass,
+            "getSystemClassLoader", "()Ljava/lang/ClassLoader;");
+        parentCL = (*env)->CallStaticObjectMethod(env, clClass, getSysCL);
+        LOGD("Falling back to system classloader");
+    }
+
+    /* 1b. Bypass hidden API restrictions (Android 9+).
+     *     Our Camera2Interceptor needs to access ImageReader.mListener which is
+     *     a hidden field blocked by default. VMRuntime.setHiddenApiExemptions(["L"])
+     *     exempts all classes — same approach as FreeReflection/VCAM. */
+    {
+        jclass vmRuntimeClass = (*env)->FindClass(env, "dalvik/system/VMRuntime");
+        if (vmRuntimeClass) {
+            jmethodID getRuntime = (*env)->GetStaticMethodID(env, vmRuntimeClass,
+                "getRuntime", "()Ldalvik/system/VMRuntime;");
+            if (getRuntime) {
+                jobject runtime = (*env)->CallStaticObjectMethod(env, vmRuntimeClass, getRuntime);
+                if (runtime) {
+                    jmethodID setExemptions = (*env)->GetMethodID(env, vmRuntimeClass,
+                        "setHiddenApiExemptions", "([Ljava/lang/String;)V");
+                    if (setExemptions) {
+                        jclass stringClass = (*env)->FindClass(env, "java/lang/String");
+                        jobjectArray exemptions = (*env)->NewObjectArray(env, 1, stringClass,
+                            (*env)->NewStringUTF(env, "L"));
+                        (*env)->CallVoidMethod(env, runtime, setExemptions, exemptions);
+                        LOGD("Hidden API exemptions set (all classes)");
+                    }
+                }
+            }
+        }
+        if ((*env)->ExceptionCheck(env)) {
+            (*env)->ExceptionDescribe(env);
+            (*env)->ExceptionClear(env);
+            LOGD("Hidden API bypass failed (non-fatal, may work on some devices)");
+        }
+    }
 
     /* 2. Create DexClassLoader to load our Kotlin hooks */
     jclass dexCLClass = (*env)->FindClass(env, "dalvik/system/DexClassLoader");
