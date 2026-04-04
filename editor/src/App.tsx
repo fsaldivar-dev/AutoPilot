@@ -68,6 +68,49 @@ const AUTO_COMMANDS = [
   // Build (iOS)
   { label: "build", detail: "Compilar con mock", insertText: "build -project ${1:App.xcodeproj} -scheme ${2:App}", platform: "ios" as const },
 
+  // Drag
+  { label: "drag", detail: "Arrastrar entre elementos", insertText: 'drag "${1:from}" "${2:to}"' },
+  { label: "drag (coords)", detail: "Arrastrar entre coordenadas", insertText: "drag ${1:x1},${2:y1} ${3:x2},${4:y2}" },
+
+  // Rotacion
+  { label: "rotate", detail: "Rotar dispositivo", insertText: "rotate ${1|left,right,portrait,landscape|}" },
+
+  // Teclado
+  { label: "pressKey", detail: "Presionar tecla", insertText: 'pressKey "${1|home,back,enter,delete,volumeUp,volumeDown,power,tab,escape|}"' },
+  { label: "hideKeyboard", detail: "Ocultar teclado" },
+  { label: "eraseText", detail: "Borrar N caracteres", insertText: "eraseText ${1:10}" },
+
+  // Texto
+  { label: "copyTextFrom", detail: "Leer texto de elemento", insertText: 'copyTextFrom "${1:elemento}"' },
+
+  // App Data
+  { label: "clearState", detail: "Borrar datos de app", insertText: 'clearState "${1:com.example.app}"' },
+  { label: "uninstall", detail: "Desinstalar app", insertText: 'uninstall "${1:com.example.app}"' },
+
+  // Scroll
+  { label: "scrollTo", detail: "Scroll hasta encontrar elemento", insertText: 'scrollTo "${1:elemento}"' },
+
+  // Grabacion
+  { label: "startRecording", detail: "Iniciar grabacion de pantalla" },
+  { label: "stopRecording", detail: "Detener grabacion", insertText: 'stopRecording "${1:video.mp4}"' },
+
+  // Entorno
+  { label: "setLocation", detail: "GPS simulado", insertText: "setLocation ${1:19.4326} ${2:-99.1332}" },
+  { label: "setAppearance", detail: "Modo oscuro/claro", insertText: 'setAppearance "${1|dark,light|}"' },
+  { label: "lockDevice", detail: "Bloquear pantalla" },
+  { label: "unlockDevice", detail: "Desbloquear pantalla" },
+
+  // Archivos
+  { label: "pushFile", detail: "Enviar archivo al dispositivo", insertText: 'pushFile "${1:local/path}" "${2:/remote/path}"' },
+  { label: "pullFile", detail: "Traer archivo del dispositivo", insertText: 'pullFile "${1:/remote/path}" "${2:local/path}"' },
+
+  // Permisos
+  { label: "permission", detail: "Permisos de app", insertText: 'permission ${1|grant,revoke,reset|} ${2|camera,photos,location,all|} ${3:com.example.app}' },
+
+  // Logs
+  { label: "logs", detail: "Ver logs de app", insertText: 'logs "${1:com.example.app}"' },
+  { label: "logs (system)", detail: "Logs del sistema", insertText: "logs --system" },
+
   // Media y datos
   { label: "media", detail: "Inyectar foto a galeria", insertText: "media ${1:photo.jpg}" },
   { label: "paste", detail: "Portapapeles", insertText: 'paste "${1:text}"' },

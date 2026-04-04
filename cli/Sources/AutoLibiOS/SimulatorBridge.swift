@@ -9,6 +9,8 @@ import AutoCore
 public final class SimulatorBridge {
 
     private var simulatorPID: pid_t?
+    private var recordingProcess: Process?
+    private var recordingTempPath: String?
 
     public init() {}
 
@@ -1215,6 +1217,356 @@ extension SimulatorBridge: DeviceBridge {
         if !result.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             print(result)
         }
+    }
+
+    // MARK: - Key Press
+
+    public func pressKey(key: String) throws {
+        let deviceId = try getBootedDeviceId()
+
+        switch key.lowercased() {
+        case "home":
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
+            process.arguments = ["simctl", "io", deviceId, "sendButtonPress", "home"]
+            try process.run()
+            process.waitUntilExit()
+            guard process.terminationStatus == 0 else {
+                throw BridgeError.simctlFailed("sendButtonPress home failed")
+            }
+
+        case "lockbutton", "power":
+            let process = Process()
+            process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
+            process.arguments = ["simctl", "io", deviceId, "sendButtonPress", "lock"]
+            try process.run()
+            process.waitUntilExit()
+            guard process.terminationStatus == 0 else {
+                throw BridgeError.simctlFailed("sendButtonPress lock failed")
+            }
+
+        case "back":
+            throw BridgeError.unknown("'back' key is not applicable on iOS")
+
+        case "enter", "delete", "tab", "escape", "volumeup", "volumedown":
+            guard let pid = simulatorPID ?? findSimulatorPID() else {
+                throw BridgeError.simulatorNotRunning
+            }
+            let keyCode: CGKeyCode
+            switch key.lowercased() {
+            case "enter":      keyCode = 36
+            case "delete":     keyCode = 51
+            case "tab":        keyCode = 48
+            case "escape":     keyCode = 53
+            case "volumeup":   keyCode = 72
+            case "volumedown": keyCode = 73
+            default:           keyCode = 53
+            }
+            let src = CGEventSource(stateID: .combinedSessionState)
+            let keyDown = CGEvent(keyboardEventSource: src, virtualKey: keyCode, keyDown: true)
+            let keyUp = CGEvent(keyboardEventSource: src, virtualKey: keyCode, keyDown: false)
+            keyDown?.postToPid(pid)
+            keyUp?.postToPid(pid)
+
+        default:
+            throw BridgeError.unknown("Unknown key: '\(key)'")
+        }
+    }
+
+    // MARK: - Hide Keyboard
+
+    public func hideKeyboard() throws {
+        guard let pid = simulatorPID ?? findSimulatorPID() else {
+            throw BridgeError.simulatorNotRunning
+        }
+        let src = CGEventSource(stateID: .combinedSessionState)
+        let keyDown = CGEvent(keyboardEventSource: src, virtualKey: 53, keyDown: true)
+        let keyUp = CGEvent(keyboardEventSource: src, virtualKey: 53, keyDown: false)
+        keyDown?.postToPid(pid)
+        keyUp?.postToPid(pid)
+    }
+
+    // MARK: - Erase Text
+
+    public func eraseText(count: Int) throws {
+        guard let pid = simulatorPID ?? findSimulatorPID() else {
+            throw BridgeError.simulatorNotRunning
+        }
+        let src = CGEventSource(stateID: .combinedSessionState)
+        for _ in 0..<count {
+            let keyDown = CGEvent(keyboardEventSource: src, virtualKey: 51, keyDown: true)
+            let keyUp = CGEvent(keyboardEventSource: src, virtualKey: 51, keyDown: false)
+            keyDown?.postToPid(pid)
+            keyUp?.postToPid(pid)
+            usleep(30_000)
+        }
+    }
+
+    // MARK: - Copy Text From Element
+
+    public func copyTextFrom(target: String) throws -> String {
+        let root = try findSimulatorContent()
+        guard let axElement = findAXElement(in: root, matching: target, depth: 0, maxDepth: 20) else {
+            throw BridgeError.elementNotFound(target)
+        }
+
+        // Try kAXValueAttribute first
+        var value: CFTypeRef?
+        AXUIElementCopyAttributeValue(axElement, kAXValueAttribute as CFString, &value)
+        if let str = value as? String, !str.isEmpty {
+            return str
+        }
+
+        // Fallback to kAXTitleAttribute
+        var title: CFTypeRef?
+        AXUIElementCopyAttributeValue(axElement, kAXTitleAttribute as CFString, &title)
+        if let str = title as? String, !str.isEmpty {
+            return str
+        }
+
+        throw BridgeError.unknown("No text value found for element '\(target)'")
+    }
+
+    // MARK: - Clear State
+
+    public func clearState(bundleId: String) throws {
+        let deviceId = try getBootedDeviceId()
+
+        // Reset privacy permissions
+        let resetProcess = Process()
+        resetProcess.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
+        resetProcess.arguments = ["simctl", "privacy", deviceId, "reset", "all", bundleId]
+        try resetProcess.run()
+        resetProcess.waitUntilExit()
+
+        // Get app data container and delete its contents
+        let containerProcess = Process()
+        let pipe = Pipe()
+        containerProcess.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
+        containerProcess.arguments = ["simctl", "get_app_container", deviceId, bundleId, "data"]
+        containerProcess.standardOutput = pipe
+        containerProcess.standardError = Pipe()
+        try containerProcess.run()
+        containerProcess.waitUntilExit()
+
+        if containerProcess.terminationStatus == 0 {
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            let containerPath = String(data: data, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if !containerPath.isEmpty {
+                let fm = FileManager.default
+                if let contents = try? fm.contentsOfDirectory(atPath: containerPath) {
+                    for item in contents {
+                        try? fm.removeItem(atPath: containerPath + "/" + item)
+                    }
+                }
+            }
+        }
+    }
+
+    // MARK: - Uninstall App
+
+    public func uninstallApp(bundleId: String) throws {
+        let deviceId = try getBootedDeviceId()
+        let process = Process()
+        let errPipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
+        process.arguments = ["simctl", "uninstall", deviceId, bundleId]
+        process.standardError = errPipe
+        try process.run()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
+            let errMsg = String(data: errData, encoding: .utf8) ?? "Unknown error"
+            throw BridgeError.simctlFailed(errMsg)
+        }
+    }
+
+    // MARK: - Scroll To Element
+
+    public func scrollTo(target: String, direction: String, maxAttempts: Int) throws {
+        for _ in 0..<maxAttempts {
+            let results = try search(query: target)
+            if !results.isEmpty {
+                return
+            }
+            // Use swipe to scroll the whole screen
+            try swipe(direction: direction)
+            usleep(500_000)
+        }
+        throw BridgeError.elementNotFound("Could not find '\(target)' after \(maxAttempts) scroll attempts")
+    }
+
+    // MARK: - Screen Recording
+
+    public func startRecording() throws {
+        let deviceId = try getBootedDeviceId()
+        let tempPath = NSTemporaryDirectory() + "autopilot-recording-\(ProcessInfo.processInfo.globallyUniqueString).mp4"
+        recordingTempPath = tempPath
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
+        process.arguments = ["simctl", "io", deviceId, "recordVideo", "--codec=h264", tempPath]
+        process.standardOutput = Pipe()
+        process.standardError = Pipe()
+        try process.run()
+        recordingProcess = process
+    }
+
+    public func stopRecording(outputPath: String) throws {
+        guard let process = recordingProcess else {
+            throw BridgeError.unknown("No recording in progress")
+        }
+
+        // Send SIGINT to stop recording gracefully
+        process.interrupt()
+        process.waitUntilExit()
+
+        guard let tempPath = recordingTempPath else {
+            throw BridgeError.unknown("No recording temp path found")
+        }
+
+        let fm = FileManager.default
+        if fm.fileExists(atPath: outputPath) {
+            try fm.removeItem(atPath: outputPath)
+        }
+        try fm.moveItem(atPath: tempPath, toPath: outputPath)
+
+        recordingProcess = nil
+        recordingTempPath = nil
+    }
+
+    // MARK: - Location
+
+    public func setLocation(latitude: Double, longitude: Double) throws {
+        let deviceId = try getBootedDeviceId()
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
+        process.arguments = ["simctl", "location", deviceId, "set", "\(latitude),\(longitude)"]
+        try process.run()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            throw BridgeError.simctlFailed("Failed to set location")
+        }
+    }
+
+    // MARK: - Appearance
+
+    public func setAppearance(mode: String) throws {
+        let deviceId = try getBootedDeviceId()
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
+        process.arguments = ["simctl", "ui", deviceId, "appearance", mode]
+        try process.run()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            throw BridgeError.simctlFailed("Failed to set appearance to '\(mode)'")
+        }
+    }
+
+    // MARK: - Lock / Unlock
+
+    public func lockDevice() throws {
+        let deviceId = try getBootedDeviceId()
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
+        process.arguments = ["simctl", "io", deviceId, "sendButtonPress", "lock"]
+        try process.run()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            throw BridgeError.simctlFailed("sendButtonPress lock failed")
+        }
+    }
+
+    public func unlockDevice() throws {
+        let deviceId = try getBootedDeviceId()
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
+        process.arguments = ["simctl", "io", deviceId, "sendButtonPress", "home"]
+        try process.run()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            throw BridgeError.simctlFailed("sendButtonPress home failed")
+        }
+    }
+
+    // MARK: - Push / Pull File
+
+    public func pushFile(localPath: String, remotePath: String) throws {
+        let fm = FileManager.default
+        guard fm.fileExists(atPath: localPath) else {
+            throw BridgeError.unknown("Local file not found: '\(localPath)'")
+        }
+
+        var destPath = remotePath
+        if !remotePath.hasPrefix("/") {
+            let deviceId = try getBootedDeviceId()
+            let containerProcess = Process()
+            let pipe = Pipe()
+            containerProcess.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
+            containerProcess.arguments = ["simctl", "get_app_container", deviceId,
+                                          remotePath.components(separatedBy: "/").first ?? "", "data"]
+            containerProcess.standardOutput = pipe
+            containerProcess.standardError = Pipe()
+            try containerProcess.run()
+            containerProcess.waitUntilExit()
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            let container = String(data: data, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if container.isEmpty {
+                throw BridgeError.simctlFailed("Could not resolve app container for remotePath")
+            }
+            destPath = container + "/" + remotePath
+        }
+
+        if fm.fileExists(atPath: destPath) {
+            try fm.removeItem(atPath: destPath)
+        }
+
+        // Ensure parent directory exists
+        let parentDir = (destPath as NSString).deletingLastPathComponent
+        try fm.createDirectory(atPath: parentDir, withIntermediateDirectories: true)
+
+        try fm.copyItem(atPath: localPath, toPath: destPath)
+    }
+
+    public func pullFile(remotePath: String, localPath: String) throws {
+        let fm = FileManager.default
+
+        var srcPath = remotePath
+        if !remotePath.hasPrefix("/") {
+            let deviceId = try getBootedDeviceId()
+            let containerProcess = Process()
+            let pipe = Pipe()
+            containerProcess.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
+            containerProcess.arguments = ["simctl", "get_app_container", deviceId,
+                                          remotePath.components(separatedBy: "/").first ?? "", "data"]
+            containerProcess.standardOutput = pipe
+            containerProcess.standardError = Pipe()
+            try containerProcess.run()
+            containerProcess.waitUntilExit()
+            let data = pipe.fileHandleForReading.readDataToEndOfFile()
+            let container = String(data: data, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if container.isEmpty {
+                throw BridgeError.simctlFailed("Could not resolve app container for remotePath")
+            }
+            srcPath = container + "/" + remotePath
+        }
+
+        guard fm.fileExists(atPath: srcPath) else {
+            throw BridgeError.unknown("Remote file not found: '\(srcPath)'")
+        }
+
+        if fm.fileExists(atPath: localPath) {
+            try fm.removeItem(atPath: localPath)
+        }
+
+        // Ensure parent directory exists
+        let parentDir = (localPath as NSString).deletingLastPathComponent
+        try fm.createDirectory(atPath: parentDir, withIntermediateDirectories: true)
+
+        try fm.copyItem(atPath: srcPath, toPath: localPath)
     }
 
     public func rotate(direction: String) throws {

@@ -6,6 +6,7 @@ public final class AdbLegacyBridge: DeviceBridge {
 
     private var selectedDeviceId: String?
     private var cachedAdbPath: String?
+    private var recordingProcess: Process?
 
     public init(deviceId: String? = nil) {
         self.selectedDeviceId = deviceId
@@ -662,5 +663,168 @@ public final class AdbLegacyBridge: DeviceBridge {
         let durationMs = Int(duration * 1000)
         try runAdb(["shell", "input", "swipe",
                     "\(Int(x1))", "\(Int(y1))", "\(Int(x2))", "\(Int(y2))", "\(durationMs)"])
+    }
+
+    // MARK: - Keyboard
+
+    public func pressKey(key: String) throws {
+        let keycodes: [String: String] = [
+            "home": "3", "back": "4", "enter": "66", "delete": "67",
+            "tab": "61", "escape": "111", "volumeUp": "24", "volumeDown": "25",
+            "power": "26"
+        ]
+        guard let code = keycodes[key] else {
+            throw BridgeError.adbFailed("Unknown key: \(key)")
+        }
+        try runAdb(["shell", "input", "keyevent", code])
+    }
+
+    public func hideKeyboard() throws {
+        try runAdb(["shell", "input", "keyevent", "111"]) // KEYCODE_ESCAPE
+    }
+
+    public func eraseText(count: Int) throws {
+        for _ in 0..<count {
+            try runAdb(["shell", "input", "keyevent", "67"]) // KEYCODE_DEL
+        }
+    }
+
+    // MARK: - Text Extraction
+
+    public func copyTextFrom(target: String) throws -> String {
+        let tree = try dumpUITree()
+        guard let element = findElement(in: tree, matching: target) else {
+            throw BridgeError.elementNotFound(target)
+        }
+        // Return text or value attribute from the element
+        if let text = element["title"] as? String, !text.isEmpty {
+            return text
+        }
+        if let value = element["value"] as? String, !value.isEmpty {
+            return value
+        }
+        if let label = element["label"] as? String, !label.isEmpty {
+            return label
+        }
+        throw BridgeError.adbFailed("Element '\(target)' has no text content")
+    }
+
+    // MARK: - App Data
+
+    public func clearState(bundleId: String) throws {
+        try runAdb(["shell", "pm", "clear", bundleId])
+    }
+
+    public func uninstallApp(bundleId: String) throws {
+        try runAdb(["uninstall", bundleId])
+    }
+
+    // MARK: - Scroll Search
+
+    public func scrollTo(target: String, direction: String, maxAttempts: Int) throws {
+        let screen = try getScreenSize()
+        let cx = screen.width / 2
+        let cy = screen.height / 2
+        let scrollDistance = screen.height * 30 / 100
+
+        let (x1, y1, x2, y2): (Int, Int, Int, Int)
+        switch direction.lowercased() {
+        case "up":    (x1, y1, x2, y2) = (cx, cy - scrollDistance / 2, cx, cy + scrollDistance / 2)
+        case "down":  (x1, y1, x2, y2) = (cx, cy + scrollDistance / 2, cx, cy - scrollDistance / 2)
+        case "left":  (x1, y1, x2, y2) = (cx - scrollDistance / 2, cy, cx + scrollDistance / 2, cy)
+        case "right": (x1, y1, x2, y2) = (cx + scrollDistance / 2, cy, cx - scrollDistance / 2, cy)
+        default:
+            throw BridgeError.invalidDirection(direction)
+        }
+
+        for attempt in 0..<maxAttempts {
+            let tree = try dumpUITree()
+            if findElement(in: tree, matching: target) != nil {
+                return
+            }
+            if attempt < maxAttempts - 1 {
+                try runAdb(["shell", "input", "swipe", "\(x1)", "\(y1)", "\(x2)", "\(y2)", "300"])
+                usleep(500_000) // Wait for scroll animation
+            }
+        }
+        throw BridgeError.elementNotFound(target)
+    }
+
+    // MARK: - Screen Recording
+
+    public func startRecording() throws {
+        if recordingProcess != nil {
+            throw BridgeError.adbFailed("Recording already in progress")
+        }
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: try adbPath())
+
+        var args = ["shell", "screenrecord", "/sdcard/autopilot-recording.mp4"]
+        if let deviceId = selectedDeviceId {
+            args = ["-s", deviceId] + args
+        }
+        process.arguments = args
+        process.standardOutput = Pipe()
+        process.standardError = Pipe()
+
+        try process.run()
+        recordingProcess = process
+    }
+
+    public func stopRecording(outputPath: String) throws {
+        guard let process = recordingProcess else {
+            throw BridgeError.adbFailed("No recording in progress")
+        }
+
+        // Send SIGINT to stop recording gracefully
+        process.interrupt()
+        process.waitUntilExit()
+        recordingProcess = nil
+
+        // Wait for file to be finalized
+        usleep(1_000_000)
+
+        // Pull the recording file
+        try runAdb(["pull", "/sdcard/autopilot-recording.mp4", outputPath])
+        try runAdb(["shell", "rm", "/sdcard/autopilot-recording.mp4"])
+    }
+
+    // MARK: - Device Environment
+
+    public func setLocation(latitude: Double, longitude: Double) throws {
+        // NOTE: adb emu geo fix takes LONGITUDE first, then latitude
+        try runAdb(["emu", "geo", "fix", "\(longitude)", "\(latitude)"])
+    }
+
+    public func setAppearance(mode: String) throws {
+        switch mode.lowercased() {
+        case "dark":
+            try runAdb(["shell", "cmd", "uimode", "night", "yes"])
+        case "light":
+            try runAdb(["shell", "cmd", "uimode", "night", "no"])
+        default:
+            throw BridgeError.adbFailed("Invalid appearance mode: \(mode). Use 'dark' or 'light'")
+        }
+    }
+
+    public func lockDevice() throws {
+        try runAdb(["shell", "input", "keyevent", "26"]) // KEYCODE_POWER
+    }
+
+    public func unlockDevice() throws {
+        try runAdb(["shell", "input", "keyevent", "82"]) // KEYCODE_MENU
+        usleep(500_000)
+        try runAdb(["shell", "input", "swipe", "540", "2000", "540", "800", "300"])
+    }
+
+    // MARK: - File Transfer
+
+    public func pushFile(localPath: String, remotePath: String) throws {
+        try runAdb(["push", localPath, remotePath])
+    }
+
+    public func pullFile(remotePath: String, localPath: String) throws {
+        try runAdb(["pull", remotePath, localPath])
     }
 }

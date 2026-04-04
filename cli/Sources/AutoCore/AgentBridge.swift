@@ -532,4 +532,88 @@ public final class AgentBridge: DeviceBridge {
         recurse(tree)
         return best
     }
+
+    // MARK: - DeviceBridge: Keyboard & Text (via adb)
+
+    public func pressKey(key: String) throws {
+        try legacy.pressKey(key: key)
+    }
+
+    public func hideKeyboard() throws {
+        try legacy.hideKeyboard()
+    }
+
+    public func eraseText(count: Int) throws {
+        try legacy.eraseText(count: count)
+    }
+
+    public func copyTextFrom(target: String) throws -> String {
+        let currentTree = try tree()
+        guard let element = findElement(in: currentTree, matching: target) else {
+            throw BridgeError.elementNotFound(target)
+        }
+        return element["text"] as? String ?? element["label"] as? String ?? ""
+    }
+
+    // MARK: - DeviceBridge: App Lifecycle (via adb)
+
+    public func clearState(bundleId: String) throws {
+        try legacy.clearState(bundleId: bundleId)
+    }
+
+    public func uninstallApp(bundleId: String) throws {
+        try legacy.uninstallApp(bundleId: bundleId)
+    }
+
+    // MARK: - DeviceBridge: Scroll To (via agent + adb)
+
+    public func scrollTo(target: String, direction: String, maxAttempts: Int) throws {
+        for _ in 0..<maxAttempts {
+            let results = try search(query: target)
+            if !results.isEmpty {
+                return
+            }
+            try scroll(target: "", direction: direction)
+            usleep(500_000)
+        }
+        throw BridgeError.elementNotFound("'\(target)' not found after \(maxAttempts) scroll attempts")
+    }
+
+    // MARK: - DeviceBridge: Recording (via adb)
+
+    public func startRecording() throws {
+        try legacy.startRecording()
+    }
+
+    public func stopRecording(outputPath: String) throws {
+        try legacy.stopRecording(outputPath: outputPath)
+    }
+
+    // MARK: - DeviceBridge: Device Settings (via adb)
+
+    public func setLocation(latitude: Double, longitude: Double) throws {
+        try legacy.setLocation(latitude: latitude, longitude: longitude)
+    }
+
+    public func setAppearance(mode: String) throws {
+        try legacy.setAppearance(mode: mode)
+    }
+
+    public func lockDevice() throws {
+        try legacy.lockDevice()
+    }
+
+    public func unlockDevice() throws {
+        try legacy.unlockDevice()
+    }
+
+    // MARK: - DeviceBridge: File Transfer (via adb)
+
+    public func pushFile(localPath: String, remotePath: String) throws {
+        try legacy.pushFile(localPath: localPath, remotePath: remotePath)
+    }
+
+    public func pullFile(remotePath: String, localPath: String) throws {
+        try legacy.pullFile(remotePath: remotePath, localPath: localPath)
+    }
 }
