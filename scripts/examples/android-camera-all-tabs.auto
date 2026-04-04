@@ -1,0 +1,107 @@
+# android-camera-all-tabs.auto
+# Prueba E2E de inyeccion de camara en los 6 tabs del CameraTestApp
+#
+# Verifica que cada tab recibe la imagen mock correcta:
+#   1. CameraX   — captura basica con ImageCapture
+#   2. QR        — ML Kit Barcode Scanner decodifica QR mock
+#   3. OCR       — ML Kit Text Recognition lee texto mock
+#   4. Intent    — ACTION_IMAGE_CAPTURE interceptado
+#   5. Camera1   — legacy android.hardware.Camera (puede fallar en emuladores)
+#   6. ID        — flujo KYC multi-paso (frente + reverso + selfie)
+#
+# Requiere:
+#   - Emulador Android corriendo (adb devices)
+#   - CameraTestApp instalada
+#   - Agent compilado (agent/camera-mock-kotlin/build.sh + native/build.sh)
+#
+# Uso: auto-android run scripts/examples/android-camera-all-tabs.auto
+#
+# Para matrix de APIs: correr en emuladores API 28, 30, 33, 34, 35
+
+# === SETUP ===
+ping
+launch dev.autopilot.test.CameraTestApp --inject scripts/demo-images/qr-autopilot.png
+waitFor "Camara lista" 15
+
+# === TEST 1: CameraX Tab ===
+# Ya estamos en CameraX tab (default)
+wait 3
+screenshot screenshots/01-camerax-preview.png
+tap "Capturar Foto"
+waitFor "Foto capturada" 10
+screenshot screenshots/01-camerax-captured.png
+
+# === TEST 2: QR Tab ===
+# Hot-swap a imagen con QR code
+camera feed scripts/demo-images/qr-autopilot.png
+wait 1
+tap "QR"
+wait 4
+screenshot screenshots/02-qr-preview.png
+tap "Escanear QR"
+waitFor "QR detectado" 10
+screenshot screenshots/02-qr-detected.png
+
+# === TEST 3: OCR Tab ===
+# Hot-swap a imagen con texto
+camera feed scripts/demo-images/ocr-test.png
+wait 1
+tap "OCR"
+wait 4
+screenshot screenshots/03-ocr-preview.png
+tap "Reconocer Texto"
+waitFor "Texto detectado" 10
+screenshot screenshots/03-ocr-detected.png
+
+# === TEST 4: Intent Tab ===
+tap "Intent"
+wait 3
+screenshot screenshots/04-intent-preview.png
+tap "Capturar por Intent"
+wait 5
+screenshot screenshots/04-intent-captured.png
+
+# === TEST 5: Camera1 Tab ===
+# Camera1 puede crashear en emuladores modernos — skip si falla
+tap "Cam"
+wait 3
+screenshot screenshots/05-camera1-preview.png
+tap "Capturar (Camera1)"
+wait 5
+screenshot screenshots/05-camera1-result.png
+
+# === TEST 6: ID Tab ===
+# Flujo multi-paso: frente → reverso → selfie
+# Hot-swap imagen para cada paso
+
+# Paso 1: Frente de ID
+camera feed scripts/demo-images/id-frente.png
+wait 1
+tap "ID"
+wait 4
+screenshot screenshots/06-id-step1-preview.png
+tap "Capturar Frente de ID"
+wait 5
+screenshot screenshots/06-id-step1-captured.png
+
+# Paso 2: Reverso de ID
+camera feed scripts/demo-images/id-reverso.png
+wait 3
+tap "Capturar Reverso de ID"
+wait 5
+screenshot screenshots/06-id-step2-captured.png
+
+# Paso 3: Selfie (camara frontal — necesita re-wrap del ImageReader)
+wait 4
+tap "Capturar Selfie"
+wait 5
+screenshot screenshots/06-id-step3-captured.png
+
+# Si selfie fallo por timing, intentar de nuevo
+tap "Capturar Selfie"
+wait 5
+screenshot screenshots/06-id-selfie-retry.png
+
+# === CLEANUP ===
+screenshot screenshots/07-final-state.png
+terminate dev.autopilot.test.CameraTestApp
