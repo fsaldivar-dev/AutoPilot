@@ -165,6 +165,8 @@ function App() {
     setRunning(true);
     abortRef.current = false;
     setOutput("");
+    const editor = editorRef.current;
+    let decorations: string[] = [];
     const lines = script.split("\n");
     let stepNum = 0;
     for (let i = 0; i < lines.length; i++) {
@@ -173,6 +175,15 @@ function App() {
       if (!trimmed || trimmed.startsWith("#")) continue;
       stepNum++;
       setCurrentStep(i);
+      // Highlight active line in editor
+      if (editor) {
+        const lineNum = i + 1;
+        decorations = editor.deltaDecorations(decorations, [{
+          range: { startLineNumber: lineNum, startColumn: 1, endLineNumber: lineNum, endColumn: 1 },
+          options: { isWholeLine: true, className: "active-step-line" },
+        }]);
+        editor.revealLineInCenter(lineNum);
+      }
       appendOutput(`[${stepNum}] ${trimmed}`);
       try {
         const args = parseCommand(trimmed);
@@ -183,6 +194,8 @@ function App() {
         break;
       }
     }
+    // Clear highlight
+    if (editor) editor.deltaDecorations(decorations, []);
     appendOutput(`\n${stepNum} step(s) completed`);
     setCurrentStep(-1);
     setRunning(false);
@@ -322,6 +335,28 @@ function App() {
       },
     });
     monaco.editor.setTheme("autopilot");
+
+    // Cmd+Enter to run script
+    editor.addAction({
+      id: "run-script",
+      label: "Run Script",
+      keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter],
+      run: () => {
+        const runBtn = document.querySelector(".btn-play") as HTMLButtonElement;
+        if (runBtn && !runBtn.disabled) runBtn.click();
+      },
+    });
+
+    // Cmd+I to inspect
+    editor.addAction({
+      id: "inspect-ui",
+      label: "Inspect UI",
+      keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyI],
+      run: () => {
+        const inspectBtn = document.querySelector(".btn-tree") as HTMLButtonElement;
+        if (inspectBtn && !inspectBtn.disabled) inspectBtn.click();
+      },
+    });
   };
 
   return (
@@ -345,15 +380,15 @@ function App() {
               disabled={running}
             >Android</button>
           </div>
-          <button className="btn btn-tree" onClick={refreshTree} disabled={running}>
+          <button className="btn btn-tree" onClick={refreshTree} disabled={running} title="Inspect Simulator UI (⌘I)">
             <span className="btn-icon">🌳</span> Inspect
           </button>
           {!running ? (
-            <button className="btn btn-play" onClick={runScript}>
+            <button className="btn btn-play" onClick={runScript} title="Run script (⌘↵)">
               <span className="btn-icon">▶</span> Play
             </button>
           ) : (
-            <button className="btn btn-stop" onClick={stopScript}>
+            <button className="btn btn-stop" onClick={stopScript} title="Stop execution">
               <span className="btn-icon">■</span> Stop
             </button>
           )}
@@ -408,7 +443,7 @@ function App() {
               }}>📂 Screenshots</button>
               <button className="btn-clear" onClick={() => setOutput("")}>Clear</button>
             </div>
-            <pre className="terminal-content">
+            <pre className="terminal-content" ref={(el) => { if (el) el.scrollTop = el.scrollHeight; }}>
               {output || "$ auto run script.auto\nReady..."}
             </pre>
           </section>

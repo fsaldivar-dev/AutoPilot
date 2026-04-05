@@ -5,27 +5,69 @@ use std::time::Duration;
 use serde_json::Value;
 
 fn find_binary(name: &str) -> PathBuf {
+    // 1. Next to the Tauri executable (release builds)
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
             let candidate = dir.join(name);
-            if candidate.exists() { return candidate; }
+            if candidate.exists() {
+                eprintln!("[find_binary] found at exe dir: {}", candidate.display());
+                return candidate;
+            }
         }
     }
 
+    // 2. Relative paths from cwd
     if let Ok(cwd) = std::env::current_dir() {
-        for path in [
-            cwd.join(name),
-            cwd.join(format!("../{}", name)),
-            cwd.join(format!("../../{}", name)),
-            cwd.join(format!("../../cli/.build/debug/{}", name)),
-            cwd.join(format!("../../cli/.build/release/{}", name)),
-            cwd.join(format!("../cli/.build/debug/{}", name)),
-            cwd.join(format!("../cli/.build/release/{}", name)),
+        eprintln!("[find_binary] cwd = {}", cwd.display());
+
+        for rel in [
+            name.to_string(),
+            format!("../{}", name),
+            format!("../../{}", name),
+            format!("../../cli/.build/debug/{}", name),
+            format!("../../cli/.build/release/{}", name),
+            format!("../cli/.build/debug/{}", name),
+            format!("../cli/.build/release/{}", name),
         ] {
-            if path.exists() { return path; }
+            let path = cwd.join(&rel);
+            if path.exists() {
+                eprintln!("[find_binary] found at relative: {}", path.display());
+                return path;
+            }
+        }
+
+        // 3. Scan cli/.build/*/debug/ for any architecture
+        for base in ["../../cli/.build", "../cli/.build", "cli/.build"] {
+            let build_dir = cwd.join(base);
+            eprintln!("[find_binary] scanning: {}", build_dir.display());
+            if let Ok(entries) = std::fs::read_dir(&build_dir) {
+                for entry in entries.flatten() {
+                    if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                        for profile in ["debug", "release"] {
+                            let candidate = entry.path().join(profile).join(name);
+                            if candidate.exists() {
+                                eprintln!("[find_binary] found via scan: {}", candidate.display());
+                                return candidate;
+                            }
+                        }
+                    }
+                }
+            }
         }
     }
 
+    // 4. Search system PATH via `which`
+    if let Ok(output) = Command::new("which").arg(name).output() {
+        if output.status.success() {
+            let path_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !path_str.is_empty() {
+                eprintln!("[find_binary] found via which: {}", path_str);
+                return PathBuf::from(path_str);
+            }
+        }
+    }
+
+    eprintln!("[find_binary] NOT FOUND: {}", name);
     PathBuf::from(name)
 }
 
@@ -36,12 +78,27 @@ fn auto_binary(platform: &str) -> PathBuf {
     }
 }
 
+/// Extended PATH for subprocess execution (Tauri may not inherit full shell PATH)
+fn extended_path() -> String {
+    let path = std::env::var("PATH").unwrap_or_default();
+    format!("{path}:/usr/bin:/usr/local/bin:/opt/homebrew/bin")
+}
+
 /// Run a CLI command and return stdout
 fn run_cli(bin: &PathBuf, args: &[&str]) -> Result<String, String> {
+    let extended_path = extended_path();
+
     let output = Command::new(bin)
         .args(args)
+        .env("PATH", &extended_path)
         .output()
-        .map_err(|e| format!("Failed to run {}: {}", bin.display(), e))?;
+        .map_err(|e| {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                format!("Binary '{}' not found. Run 'cd cli && swift build' first.", bin.display())
+            } else {
+                format!("Failed to run {}: {}", bin.display(), e)
+            }
+        })?;
 
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
@@ -262,6 +319,7 @@ fn take_screenshot(bin: &PathBuf) -> String {
 
     let _ = Command::new(bin)
         .args(["screenshot", &tmp_str])
+        .env("PATH", extended_path())
         .output();
 
     if tmp.exists() {
