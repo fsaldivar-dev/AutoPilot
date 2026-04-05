@@ -1169,4 +1169,87 @@ Script `android-camera-all-tabs.auto` — 54 pasos, todos pasan en API 33:
 - Compose recompositions no disparan `Activity.onResume`. Cualquier hook que dependa del lifecycle necesita un watchdog separado.
 - El polling agresivo (200ms) por unos segundos despues de un cambio de camara es suficiente para wrappear el ImageReader antes del primer tap humano (~500ms-1s de tiempo de reaccion).
 - `monkey` no es confiable en todos los emuladores. `cmd package resolve-activity` es una alternativa robusta para encontrar el launcher activity.
+
+---
+
+## Sesion 2026-04-05 — Permisos de accesibilidad y limpieza de ramas
+
+### Objetivo
+
+Investigar por que el Inspector del editor dejo de funcionar en iOS. El boton "Inspect" no retornaba arbol ni screenshot. El CLI (`./auto tree`) si funcionaba desde terminal.
+
+### Contexto
+
+El usuario reportaba: "no podemos agregar binarios a los permisos de accesibilidad". Esto sugeria un problema fundamental con el modelo de permisos de macOS.
+
+### Investigacion (3 agentes en paralelo)
+
+**Agente 1 — Regresion historica:**
+- Reconstruyo la timeline completa del editor desde el primer commit (e6242d9, 1 abril)
+- La version original usaba `Command::new("./auto")` sin `.env()` — heredaba todo del padre
+- Funciono porque se corria desde Terminal.app que ya tenia permisos AX
+- El binary bundling (PR #41, 4 abril) cambio la dinamica: `find_binary()` se reescribio, PATH y env vars dejaron de heredarse correctamente
+
+**Agente 2 — Modelo de permisos macOS:**
+- macOS TCC solo acepta app bundles (.app con Bundle ID) en la lista de Accessibility
+- Binarios sueltos (como `auto`) son ignorados por System Settings
+- El mecanismo real es herencia: hijo hereda permisos TCC del padre
+- Terminal.app → Tauri → auto = funciona si Terminal tiene permisos
+
+**Agente 3 — Auditoria end-to-end:**
+- Trazo completo: App.tsx → invoke("inspect") → lib.rs → Command::new(auto) → SimulatorBridge.findSimulatorContent() → AXUIElementCreateApplication(pid)
+- 7 puntos de falla identificados: binary resolution, env vars, AX permissions, activation timing, timeout, screenshot silent failure, tree parsing
+- Diferencia clave CLI vs Editor: CLI hereda shell environment completo, Editor (subprocess Tauri) no
+
+### Causa raiz
+
+**El usuario cambio de Terminal.app a Cursor como entorno de desarrollo.** Cursor no tenia permisos de Accessibility en System Settings. La cadena de herencia se rompio:
+
+```
+Terminal.app (tiene AX) → tauri dev → auto tree → funciona ✓
+Cursor.app (sin AX)     → tauri dev → auto tree → falla silenciosamente ✗
+```
+
+`AXUIElementCopyAttributeValue` no lanza error — retorna `nil`. El arbol queda vacio, `findSimulatorContent()` no encuentra ventana con hijos, y despues de 15 reintentos (3s) lanza `BridgeError.noWindow`. El mensaje "No simulator window found" era tecnico pero engañoso.
+
+### Solucion
+
+Agregar **Cursor.app** a System Settings > Privacy & Security > Accessibility. El Inspector funciono inmediatamente.
+
+No fue necesario agregar ningun binario — solo la aplicacion que ejecuta el editor.
+
+### Fixes ya aplicados (PRs #40/#42, ya en main)
+
+Los fixes de codigo que se habian aplicado antes de esta sesion eran correctos:
+
+1. **PATH extendido** — `extended_path()` inyecta `/usr/bin:/opt/homebrew/bin` en subprocesos
+2. **Activacion mejorada** — `.activate(options: .activateIgnoringOtherApps)` para subprocesos sin ventana
+3. **Deteccion de permisos** — `AXIsProcessTrusted()` check con error descriptivo: "Add Terminal (or the app running this command)"
+
+### Limpieza de ramas
+
+Antes de la investigacion, limpiamos 5 ramas ya integradas en main:
+
+| Rama | PRs integrados | Accion |
+|---|---|---|
+| `claude/brave-dijkstra` | #35-#42 | Borrada (local + remota) |
+| `feat/device-control-commands-editor` | #35-#42 (mismo SHA) | Borrada (local + remota) |
+| `claude/optimistic-kowalevski` | #37, #38 | Borrada (local + remota) |
+| `claude/pedantic-kare` | #40, #42 | Borrada (local + remota) |
+| `feat/ios-parity-suite` | #36 | Borrada (local + remota) |
+
+3 worktrees removidos. `main` actualizado a `b81a92f`.
+
+### Documentacion
+
+- Capitulo 12 del libro tecnico: "Permisos de accesibilidad" — documenta el modelo TCC, herencia de permisos, por que fallo, alternativas investigadas, y los 3 fixes
+- Entrada de bitacora (esta)
+
+### Hallazgos clave
+
+- Los permisos AX se heredan por cadena de procesos, no se asignan por binario
+- Cambiar de terminal/IDE rompe permisos silenciosamente — no hay warning
+- `AXUIElementCopyAttributeValue` retorna `nil` sin error cuando no hay permisos
+- La tabla de "que agregar a Accessibility" depende del contexto: Terminal, Cursor, VS Code, iTerm2, o el .app instalado
+- No hay alternativa practica a AXUIElement que mantenga datos semanticos completos sin requerir permisos
 - `run-as` requiere emuladores con system image "Google APIs" (debuggable). Las images "Google Play" no lo permiten.
