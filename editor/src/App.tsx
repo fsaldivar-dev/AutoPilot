@@ -26,9 +26,13 @@ const AUTO_COMMANDS = [
   { label: "elementAt", detail: "Elemento en coordenada", insertText: "elementAt ${1:x} ${2:y}" },
   { label: "index", detail: "Listar elementos con $N" },
   { label: "inspect", detail: "Inspeccionar elemento", insertText: 'inspect "${1:query}"' },
+  { label: "inspect --context", detail: "Parent chain + within suggestions", insertText: 'inspect "${1:query}" --context' },
 
   // Interacción
   { label: "tap", detail: "Tap en elemento", insertText: 'tap "${1:element}"' },
+  { label: "tap[role]", detail: "Tap con role verification", insertText: 'tap[${1|button,textField,textArea,checkBox,slider,tab|}] "${2:element}"' },
+  { label: "tap within", detail: "Tap con scope", insertText: 'tap "${1:element}" within "${2:scope}"' },
+  { label: "tap[role] within", detail: "Tap con role + scope", insertText: 'tap[${1|button,textField,textArea|}] "${2:element}" within "${3:scope}"' },
   { label: "tap (multi)", detail: "Tap varios elementos", insertText: "tap ${1:a,b,c}" },
   { label: "doubleTap", detail: "Doble tap", insertText: 'doubleTap "${1:element}"' },
   { label: "longPress", detail: "Presion larga", insertText: 'longPress "${1:element}" ${2:1}' },
@@ -245,34 +249,84 @@ function App() {
         "power", "tab", "escape", "grant", "revoke", "reset",
         "portrait", "landscape",
       ],
+      contextKeywords: ["within"],
+      roles: ["button", "textField", "textArea", "checkBox", "slider", "tab", "image", "switch"],
       tokenizer: {
         root: [
           [/#.*$/, "comment"],
           [/"[^"]*"/, "string"],
           [/'[^']*'/, "string"],
+          [/\[/, { token: "delimiter.bracket", next: "@role" }],
           [/--\w+/, "annotation"],
           [/\d+(\.\d+)?/, "number"],
           [/[a-zA-Z]\w*/, {
             cases: {
               "@keywords": "keyword",
+              "@contextKeywords": "keyword.context",
               "@subcommands": "type",
               "@default": "identifier",
             },
           }],
         ],
+        role: [
+          [/[a-zA-Z]\w*/, {
+            cases: {
+              "@roles": "type.role",
+              "@default": "identifier",
+            },
+          }],
+          [/\]/, { token: "delimiter.bracket", next: "@pop" }],
+        ],
       },
     });
 
     monaco.languages.registerCompletionItemProvider("auto", {
-      triggerCharacters: [" "],
-      provideCompletionItems: () => {
+      triggerCharacters: [" ", "["],
+      provideCompletionItems: (model: any, position: any) => {
+        const line = model.getLineContent(position.lineNumber);
+        const textBefore = line.substring(0, position.column - 1);
+
+        // Context: inside [...] → suggest roles
+        if (/\w+\[[^\]]*$/.test(textBefore)) {
+          const roles = ["button", "textField", "textArea", "checkBox", "slider", "tab", "image", "switch"];
+          return {
+            suggestions: roles.map(r => ({
+              label: r,
+              kind: monaco.languages.CompletionItemKind.TypeParameter,
+              detail: `Role: AX${r.charAt(0).toUpperCase() + r.slice(1)}`,
+              insertText: r,
+              sortText: `0_${r}`,
+            })),
+          };
+        }
+
+        // Context: after "within" → suggest parent elements from tree
+        if (/\bwithin\s+$/.test(textBefore)) {
+          const currentIndexed = indexedRef.current;
+          const containers = currentIndexed.filter((el: any) => {
+            const r = (el.role || "").toLowerCase();
+            return r.includes("group") || r.includes("toolbar") || r.includes("list") ||
+                   r.includes("scrollarea") || r.includes("table") || r.includes("navigationbar") ||
+                   r.includes("tabbar");
+          });
+          return {
+            suggestions: containers.map((el: any) => ({
+              label: el.label || el.role,
+              kind: monaco.languages.CompletionItemKind.Module,
+              detail: `${el.role} ${el.frame}`,
+              insertText: `"${el.label || el.role}"`,
+              sortText: `0_${el.label}`,
+            })),
+          };
+        }
+
         const currentIndexed = indexedRef.current;
         const suggestions: any[] = [];
 
         // 1. Commands (filtered by platform)
         const currentPlatform = platformRef.current;
         for (const cmd of AUTO_COMMANDS) {
-          if (cmd.platform && cmd.platform !== currentPlatform) continue;
+          if ((cmd as any).platform && (cmd as any).platform !== currentPlatform) continue;
           suggestions.push({
             label: cmd.label,
             kind: monaco.languages.CompletionItemKind.Function,
@@ -285,13 +339,30 @@ function App() {
           });
         }
 
-        // 2. Indexed UI elements (with [N] for duplicates)
+        // 2. Indexed UI elements (with [N] for duplicates + role tag)
+        const roleTagMap: Record<string, string> = {
+          Button: "button", TextField: "textField", TextArea: "textArea",
+          CheckBox: "checkBox", Slider: "slider", Tab: "tab",
+          Image: "image", Switch: "switch",
+        };
+        const getRoleTag = (role: string): string | null => {
+          for (const [key, tag] of Object.entries(roleTagMap)) {
+            if (role.includes(key)) return tag;
+          }
+          return null;
+        };
+
         const byLabel: Record<string, any[]> = {};
         for (const el of currentIndexed) {
           const key = el.label || el.role;
           if (!byLabel[key]) byLabel[key] = [];
           byLabel[key].push(el);
         }
+
+        // Detect if we're after a command keyword (e.g. "tap ")
+        const afterCommand = /^\s*(tap|doubleTap|longPress|clear|scroll|type|waitFor|exists|copyTextFrom|scrollTo)\s+$/i.test(textBefore);
+        // Detect if we're after a command with role (e.g. "tap[button] ")
+        const afterCommandWithRole = /^\s*\w+\[\w+\]\s+$/.test(textBefore);
 
         for (const el of currentIndexed) {
           const displayLabel = el.label || el.role;
@@ -301,12 +372,25 @@ function App() {
           const occurrence = hasMultiple ? group.indexOf(el) + 1 : 0;
           const suffix = hasMultiple ? `[${occurrence}]` : "";
           const ref = `${displayLabel}${suffix}`;
+          const tag = getRoleTag(el.role || "");
+
+          // Build insertText based on context
+          let insert: string;
+          if (afterCommand && tag) {
+            // After "tap " → replace command and insert with role: backspace + tap[button] "Camera"
+            // Can't backspace, so just insert quoted ref — the role tag comes from command suggestions
+            insert = `"${ref}"`;
+          } else if (afterCommand || afterCommandWithRole) {
+            insert = `"${ref}"`;
+          } else {
+            insert = ref;
+          }
 
           suggestions.push({
-            label: ref,
+            label: `${ref} ${el.role?.replace("AX", "") || ""}`,
             kind: monaco.languages.CompletionItemKind.Variable,
             detail: `${el.role}  ${el.frame}`,
-            insertText: ref,
+            insertText: insert,
             sortText: `0_${displayLabel}_${String(occurrence).padStart(2, "0")}`,
           });
         }
@@ -320,9 +404,12 @@ function App() {
       inherit: true,
       rules: [
         { token: "keyword", foreground: "FF6B6B", fontStyle: "bold" },
+        { token: "keyword.context", foreground: "C678DD", fontStyle: "bold" },
         { token: "string", foreground: "98C379" },
         { token: "comment", foreground: "5C6370", fontStyle: "italic" },
         { token: "type", foreground: "61AFEF" },
+        { token: "type.role", foreground: "E5C07B", fontStyle: "italic" },
+        { token: "delimiter.bracket", foreground: "ABB2BF" },
         { token: "annotation", foreground: "E5C07B" },
         { token: "number", foreground: "D19A66" },
       ],

@@ -3,7 +3,15 @@ import Foundation
 /// Handles platform-agnostic commands via any DeviceBridge.
 /// Returns true if the command was handled, false if unrecognized (for platform-specific fallthrough).
 public func executeSharedCommand(_ args: [String], bridge: any DeviceBridge) throws -> Bool {
-    guard let cmd = args.first else { return false }
+    guard let rawCmd = args.first else { return false }
+
+    // Strip [role] suffix for switch matching: "tap[button]" → "tap"
+    let cmd: String
+    if let bracket = rawCmd.firstIndex(of: "[") {
+        cmd = String(rawCmd[rawCmd.startIndex..<bracket])
+    } else {
+        cmd = rawCmd
+    }
 
     let start = CFAbsoluteTimeGetCurrent()
 
