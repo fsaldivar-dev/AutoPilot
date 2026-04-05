@@ -212,15 +212,40 @@ function App() {
 
     monaco.languages.register({ id: "auto" });
     monaco.languages.setMonarchTokensProvider("auto", {
+      keywords: [
+        "ping", "tree", "tap", "doubleTap", "longPress", "type", "clear",
+        "swipe", "scroll", "tapAt", "elementAt", "exists", "waitFor", "wait",
+        "sleep", "screenshot", "launch", "terminate", "install", "biometric",
+        "faceid", "paste", "openurl", "media", "build", "camera", "inject",
+        "index", "inspect", "config", "run", "boot", "shutdown", "list",
+        "drag", "rotate", "permission", "logs",
+        "pressKey", "hideKeyboard", "eraseText", "copyTextFrom",
+        "clearState", "uninstall", "scrollTo",
+        "startRecording", "stopRecording",
+        "setLocation", "setAppearance", "lockDevice", "unlockDevice",
+        "pushFile", "pullFile",
+      ],
+      subcommands: [
+        "enroll", "match", "fail", "status", "start", "feed", "stop",
+        "up", "down", "left", "right", "dark", "light",
+        "home", "back", "enter", "delete", "volumeUp", "volumeDown",
+        "power", "tab", "escape", "grant", "revoke", "reset",
+        "portrait", "landscape",
+      ],
       tokenizer: {
         root: [
           [/#.*$/, "comment"],
           [/"[^"]*"/, "string"],
           [/'[^']*'/, "string"],
-          [/\b(ping|tree|tap|doubleTap|longPress|type|clear|swipe|scroll|tapAt|elementAt|exists|waitFor|wait|sleep|screenshot|launch|terminate|install|biometric|faceid|paste|openurl|media|build|camera|inject|index|inspect|config|run|boot|shutdown|list)\b/, "keyword"],
-          [/\b(enroll|match|fail|status|start|feed|stop|up|down|left|right)\b/, "type"],
-          [/--env\b/, "annotation"],
-          [/\b\d+\b/, "number"],
+          [/--\w+/, "annotation"],
+          [/\d+(\.\d+)?/, "number"],
+          [/[a-zA-Z]\w*/, {
+            cases: {
+              "@keywords": "keyword",
+              "@subcommands": "type",
+              "@default": "identifier",
+            },
+          }],
         ],
       },
     });
