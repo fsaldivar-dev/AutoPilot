@@ -87,17 +87,22 @@ fn extended_path() -> String {
 /// Run a CLI command and return stdout
 fn run_cli(bin: &PathBuf, args: &[&str]) -> Result<String, String> {
     let extended_path = extended_path();
+    let cwd = std::env::current_dir().unwrap_or_default();
 
     let output = Command::new(bin)
         .args(args)
         .env("PATH", &extended_path)
         .output()
         .map_err(|e| {
-            if e.kind() == std::io::ErrorKind::NotFound {
-                format!("Binary '{}' not found. Run 'cd cli && swift build' first.", bin.display())
-            } else {
-                format!("Failed to run {}: {}", bin.display(), e)
-            }
+            format!(
+                "Failed to run {}\n  cwd: {}\n  exists: {}\n  PATH: {}\n  error: {} (kind: {:?})",
+                bin.display(),
+                cwd.display(),
+                bin.exists(),
+                extended_path,
+                e,
+                e.kind()
+            )
         })?;
 
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
@@ -114,6 +119,7 @@ fn run_cli(bin: &PathBuf, args: &[&str]) -> Result<String, String> {
 fn run_auto(args: Vec<String>, platform: Option<String>) -> Result<String, String> {
     let plat = platform.as_deref().unwrap_or("ios");
     let bin = auto_binary(plat);
+    eprintln!("[run_auto] bin={} exists={} platform={}", bin.display(), bin.exists(), plat);
     let args_ref: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
     run_cli(&bin, &args_ref)
 }
