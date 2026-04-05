@@ -82,7 +82,16 @@ fn auto_binary(platform: &str) -> PathBuf {
 /// Extended PATH for subprocess execution (Tauri may not inherit full shell PATH)
 fn extended_path() -> String {
     let path = std::env::var("PATH").unwrap_or_default();
-    format!("{path}:/usr/bin:/usr/local/bin:/opt/homebrew/bin")
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/Users/".to_string());
+    format!("{path}:/usr/bin:/usr/local/bin:/opt/homebrew/bin:{home}/Library/Android/sdk/platform-tools")
+}
+
+/// Resolve ANDROID_HOME — Tauri apps don't inherit shell env vars
+fn android_home() -> String {
+    std::env::var("ANDROID_HOME").unwrap_or_else(|_| {
+        let home = std::env::var("HOME").unwrap_or_else(|_| "/Users/".to_string());
+        format!("{home}/Library/Android/sdk")
+    })
 }
 
 /// Run a CLI command and return stdout
@@ -93,6 +102,7 @@ fn run_cli(bin: &PathBuf, args: &[&str]) -> Result<String, String> {
     let output = Command::new(bin)
         .args(args)
         .env("PATH", &extended_path)
+        .env("ANDROID_HOME", android_home())
         .output()
         .map_err(|e| {
             format!(
@@ -329,6 +339,7 @@ fn take_screenshot(bin: &PathBuf) -> String {
     let _ = Command::new(bin)
         .args(["screenshot", &tmp_str])
         .env("PATH", extended_path())
+        .env("ANDROID_HOME", android_home())
         .output();
 
     if tmp.exists() {
