@@ -131,8 +131,8 @@ class SocketServer(
     }
 
     private fun handleTree(): String {
-        val root = uiAutomation.rootInActiveWindow
-            ?: return errorResponse("No active window")
+        val root = getRoot()
+            ?: return errorResponse("No active window — is an app open? Try restarting the agent.")
 
         val tree = TreeSerializer.serialize(root)
         root.recycle()
@@ -204,7 +204,7 @@ class SocketServer(
         val direction = params?.optString("direction", "") ?: return errorResponse("Missing direction")
 
         // Get screen size from root window bounds
-        val root = uiAutomation.rootInActiveWindow ?: return errorResponse("No active window")
+        val root = getRoot() ?: return errorResponse("No active window")
         val bounds = Rect()
         root.getBoundsInScreen(bounds)
         root.recycle()
@@ -386,9 +386,19 @@ class SocketServer(
 
     // ── Helpers ──────────────────────────────────────────
 
+    /** Gets rootInActiveWindow with retries (UiAutomation can temporarily lose connection). */
+    private fun getRoot(): AccessibilityNodeInfo? {
+        for (i in 0 until 5) {
+            val root = uiAutomation.rootInActiveWindow
+            if (root != null) return root
+            Thread.sleep(200)
+        }
+        return null
+    }
+
     /** Busca un nodo por text, content-desc, o resource-id. Recursivo. */
     private fun findNode(query: String): AccessibilityNodeInfo? {
-        val root = uiAutomation.rootInActiveWindow ?: return null
+        val root = getRoot() ?: return null
         val q = query.lowercase()
 
         // First pass: exact match
