@@ -47,7 +47,15 @@ func runScript(path: String) throws {
 }
 
 func executeCommand(_ args: [String]) throws {
-    guard let cmd = args.first else { return }
+    guard let rawCmd = args.first else { return }
+
+    // Strip [role] suffix for switch matching: "tap[button]" → "tap"
+    let cmd: String
+    if let bracket = rawCmd.firstIndex(of: "[") {
+        cmd = String(rawCmd[rawCmd.startIndex..<bracket])
+    } else {
+        cmd = rawCmd
+    }
 
     let start = CFAbsoluteTimeGetCurrent()
 
