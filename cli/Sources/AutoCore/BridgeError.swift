@@ -3,6 +3,7 @@ import Foundation
 public enum BridgeError: Error, CustomStringConvertible {
     case simulatorNotRunning
     case noWindow
+    case accessibilityNotTrusted
     case elementNotFound(String)
     case noFrame(String)
     case noBootedDevice
@@ -20,7 +21,8 @@ public enum BridgeError: Error, CustomStringConvertible {
     public var description: String {
         switch self {
         case .simulatorNotRunning: return "Simulator is not running. Open it first."
-        case .noWindow: return "No simulator window found"
+        case .noWindow: return "No simulator window found. Is the Simulator open?"
+        case .accessibilityNotTrusted: return "Accessibility permission denied. Grant access in: System Settings → Privacy & Security → Accessibility. Add Terminal (or the app running this command)."
         case .elementNotFound(let t): return "Element not found: '\(t)'"
         case .noFrame(let t): return "Element '\(t)' has no frame"
         case .noBootedDevice: return "No booted simulator. Run: xcrun simctl boot <device>"

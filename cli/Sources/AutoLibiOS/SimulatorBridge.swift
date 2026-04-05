@@ -649,8 +649,9 @@ public final class SimulatorBridge {
 
         simulatorPID = simRunning.processIdentifier
 
-        // Activate to make AX tree available
-        simRunning.activate()
+        // Activate to make AX tree available (ignoring other apps ensures
+        // it works even when launched from editor/Tauri subprocesses)
+        simRunning.activate(options: .activateIgnoringOtherApps)
 
         let app = AXUIElementCreateApplication(simRunning.processIdentifier)
 
@@ -665,6 +666,10 @@ public final class SimulatorBridge {
             usleep(200_000)
         }
 
+        // If we got here, check if it's a permissions issue
+        if !AXIsProcessTrusted() {
+            throw BridgeError.accessibilityNotTrusted
+        }
         throw BridgeError.noWindow
     }
 
