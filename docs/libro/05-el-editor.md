@@ -229,4 +229,10 @@ El patrón es predecible: el editor se construyó con iOS primero. Android fue r
 
 ---
 
+### Permisos de accesibilidad
+
+El Inspector depende de la API `AXUIElement` de macOS, que requiere permisos de Accesibilidad. El binario `auto` no se puede agregar directamente a la lista de Accessibility (macOS requiere app bundles con Bundle ID). Los permisos se heredan del proceso padre: Terminal.app, Cursor, VS Code, o el `.app` instalado del editor. Si cambias de terminal o IDE, necesitas agregar el nuevo a System Settings > Accessibility. Documentado en detalle en [Capitulo 12](12-permisos-accesibilidad.md).
+
+---
+
 *Anterior: [Capítulo 4 — Inyección sin recompilar](04-inyeccion-sin-recompilar.md) | Siguiente: [Capítulo 6 — Alternativas](06-alternativas.md)*
