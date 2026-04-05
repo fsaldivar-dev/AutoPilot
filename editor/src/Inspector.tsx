@@ -17,16 +17,32 @@ interface ParsedElement extends AXElement {
   h: number;
 }
 
+// Map AX roles to short role tags for [role] syntax
+function roleTag(axRole: string): string | null {
+  if (axRole.includes("Button")) return "button";
+  if (axRole.includes("TextField")) return "textField";
+  if (axRole.includes("TextArea")) return "textArea";
+  if (axRole.includes("CheckBox")) return "checkBox";
+  if (axRole.includes("Slider")) return "slider";
+  if (axRole.includes("Tab")) return "tab";
+  if (axRole.includes("Image")) return "image";
+  if (axRole.includes("Switch")) return "switch";
+  return null;
+}
+
 // Actions use label[N] for duplicates, plain label otherwise
-function makeActions(label: string, suffix: string) {
+// role: the AX role of the element (e.g. "AXButton") — used for [role] tag
+function makeActions(label: string, suffix: string, role?: string) {
   const ref = suffix ? `${label}${suffix}` : label;
+  const tag = role ? roleTag(role) : null;
+  const cmdPrefix = tag ? `[${tag}]` : "";
   return [
-    { label: "tap", icon: "👆", cmd: `tap "${ref}"` },
-    { label: "doubleTap", icon: "👆👆", cmd: `doubleTap "${ref}"` },
-    { label: "longPress", icon: "✊", cmd: `longPress "${ref}" 1` },
-    { label: "type", icon: "⌨️", cmd: `type "${ref}" "text"` },
-    { label: "clear", icon: "🗑", cmd: `clear "${ref}"` },
-    { label: "scroll", icon: "📜", cmd: `scroll "${ref}" down` },
+    { label: "tap", icon: "👆", cmd: `tap${cmdPrefix} "${ref}"` },
+    { label: "doubleTap", icon: "👆👆", cmd: `doubleTap${cmdPrefix} "${ref}"` },
+    { label: "longPress", icon: "✊", cmd: `longPress${cmdPrefix} "${ref}" 1` },
+    { label: "type", icon: "⌨️", cmd: `type${cmdPrefix} "${ref}" "text"` },
+    { label: "clear", icon: "🗑", cmd: `clear${cmdPrefix} "${ref}"` },
+    { label: "scroll", icon: "📜", cmd: `scroll${cmdPrefix} "${ref}" down` },
     { label: "waitFor", icon: "⏳", cmd: `waitFor "${ref}" 10` },
     { label: "exists", icon: "❓", cmd: `exists "${ref}"` },
   ];
@@ -220,7 +236,7 @@ export default function Inspector({ elements, indexed, screenshot, onInsert, onC
           const pos = dupes.findIndex(e => e.index === activeIndex);
           if (pos >= 0) suffix = `[${pos + 1}]`;
         }
-        const actions = makeActions(activeDisplay, suffix);
+        const actions = makeActions(activeDisplay, suffix, activeElement.role);
         return (
           <div className="inspector-actions">
             <div className="actions-info">
