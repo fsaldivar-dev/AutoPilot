@@ -72,9 +72,11 @@ else
 fi
 
 # ── ADB (para Android) ──────────────────────────────
+ANDROID_HOME="${ANDROID_HOME:-$HOME/Library/Android/sdk}"
 if command -v adb &>/dev/null || [ -f "$ANDROID_HOME/platform-tools/adb" ]; then
     ADB_PATH=$(command -v adb 2>/dev/null || echo "$ANDROID_HOME/platform-tools/adb")
     ok "ADB $($ADB_PATH version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')"
+    ok "ANDROID_HOME=$ANDROID_HOME"
 else
     warn "ADB no encontrado — necesario solo para auto-android"
     echo "  Instalar Android SDK o: brew install android-platform-tools"
@@ -116,13 +118,18 @@ cp .build/debug/auto-android "../editor/src-tauri/binaries/auto-android-${TARGET
 ok "Binarios copiados para editor (dev + build)"
 cd ../editor
 
+# ── Build editor (optional) ──────────────────────────
 echo ""
 echo "========================"
 ok "Setup completo"
 echo ""
-echo "Para iniciar el editor:"
+echo "Para iniciar en modo desarrollo:"
 echo "  npm run tauri dev"
 echo ""
-echo "Para compilar release:"
+echo "Para compilar e instalar:"
 echo "  npm run tauri build"
+echo "  cp src-tauri/target/release/bundle/macos/AutoPilot\\ Editor.app /Applications/"
+echo ""
+echo "Nota: el editor instalado busca auto/auto-android dentro del .app bundle."
+echo "      Si recompilas el CLI, corre ./setup.sh de nuevo para actualizar los binarios."
 echo ""
