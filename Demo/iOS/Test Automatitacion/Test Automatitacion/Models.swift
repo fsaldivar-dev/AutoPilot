@@ -5,7 +5,7 @@ import CoreLocation
 
 enum TravelCategory: String, CaseIterable, Identifiable, Codable {
     case adventure = "Aventura"
-    case food = "Gastronomía"
+    case food = "Gastronomia"
     case culture = "Cultura"
     case nature = "Naturaleza"
     case nightlife = "Vida Nocturna"
