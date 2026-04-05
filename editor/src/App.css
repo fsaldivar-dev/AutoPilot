@@ -35,7 +35,7 @@ html, body, #root { height: 100%; overflow: hidden; }
   user-select: none;
 }
 .toolbar-left { display: flex; align-items: center; gap: 12px; }
-.toolbar-right { display: flex; gap: 8px; -webkit-app-region: no-drag; }
+.toolbar-right { display: flex; gap: 8px; -webkit-app-region: no-drag; flex-shrink: 0; }
 .logo { font-size: 14px; font-weight: 700; color: var(--accent); letter-spacing: 0.5px; }
 .separator { width: 1px; height: 16px; background: var(--border); }
 .filename { font-size: 13px; color: var(--fg-dim); font-family: 'SF Mono', monospace; }
@@ -60,7 +60,7 @@ html, body, #root { height: 100%; overflow: hidden; }
 
 /* Platform toggle */
 .platform-toggle {
-  display: flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden;
+  display: flex; border: 1px solid var(--border); border-radius: 6px; overflow: hidden; flex-shrink: 0;
 }
 .platform-btn {
   padding: 5px 12px; border: none; background: var(--bg-lighter); color: var(--fg-dim);
@@ -71,6 +71,9 @@ html, body, #root { height: 100%; overflow: hidden; }
 .platform-btn.active { background: var(--accent); color: #fff; }
 .platform-btn:hover:not(.active) { background: var(--border); }
 .platform-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
+/* Active step highlight during script execution */
+.active-step-line { background: rgba(158, 206, 106, 0.1) !important; }
 
 /* Main layout: Inspector | Editor+Terminal */
 .main-area {
