@@ -9,12 +9,24 @@
 /* Begin PBXBuildFile section */
 		029D5D73550E8A4B083DB8E7 /* CameraTestApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC49076B15E1EE3B46900F66 /* CameraTestApp.swift */; };
 		0E0686F9EA963C1C30E5623F /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63471613E35AA8CD614CF1F5 /* ContentView.swift */; };
+		A1B2C3D4E5F60001 /* CameraXTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F61001 /* CameraXTab.swift */; };
+		A1B2C3D4E5F60002 /* QrScanTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F61002 /* QrScanTab.swift */; };
+		A1B2C3D4E5F60003 /* OcrTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F61003 /* OcrTab.swift */; };
+		A1B2C3D4E5F60004 /* IntentCaptureTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F61004 /* IntentCaptureTab.swift */; };
+		A1B2C3D4E5F60005 /* Camera1Tab.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F61005 /* Camera1Tab.swift */; };
+		A1B2C3D4E5F60006 /* IdCaptureTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F61006 /* IdCaptureTab.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		04777FCB607FCB684963BC08 /* CameraTestApp.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = CameraTestApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		63471613E35AA8CD614CF1F5 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
 		FC49076B15E1EE3B46900F66 /* CameraTestApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraTestApp.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F61001 /* CameraXTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraXTab.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F61002 /* QrScanTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QrScanTab.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F61003 /* OcrTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OcrTab.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F61004 /* IntentCaptureTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntentCaptureTab.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F61005 /* Camera1Tab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Camera1Tab.swift; sourceTree = "<group>"; };
+		A1B2C3D4E5F61006 /* IdCaptureTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IdCaptureTab.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -31,6 +43,12 @@
 			children = (
 				FC49076B15E1EE3B46900F66 /* CameraTestApp.swift */,
 				63471613E35AA8CD614CF1F5 /* ContentView.swift */,
+				A1B2C3D4E5F61001 /* CameraXTab.swift */,
+				A1B2C3D4E5F61002 /* QrScanTab.swift */,
+				A1B2C3D4E5F61003 /* OcrTab.swift */,
+				A1B2C3D4E5F61004 /* IntentCaptureTab.swift */,
+				A1B2C3D4E5F61005 /* Camera1Tab.swift */,
+				A1B2C3D4E5F61006 /* IdCaptureTab.swift */,
 			);
 			path = CameraTestApp;
 			sourceTree = "<group>";
@@ -100,6 +118,12 @@
 			files = (
 				029D5D73550E8A4B083DB8E7 /* CameraTestApp.swift in Sources */,
 				0E0686F9EA963C1C30E5623F /* ContentView.swift in Sources */,
+				A1B2C3D4E5F60001 /* CameraXTab.swift in Sources */,
+				A1B2C3D4E5F60002 /* QrScanTab.swift in Sources */,
+				A1B2C3D4E5F60003 /* OcrTab.swift in Sources */,
+				A1B2C3D4E5F60004 /* IntentCaptureTab.swift in Sources */,
+				A1B2C3D4E5F60005 /* Camera1Tab.swift in Sources */,
+				A1B2C3D4E5F60006 /* IdCaptureTab.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};
