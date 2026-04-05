@@ -61,7 +61,15 @@ func runScript(path: String) throws {
 }
 
 func executeCommand(_ args: [String]) throws {
-    guard let cmd = args.first else { return }
+    guard let rawCmd = args.first else { return }
+
+    // Strip [role] suffix for switch matching: "tap[button]" → "tap"
+    let cmd: String
+    if let bracket = rawCmd.firstIndex(of: "[") {
+        cmd = String(rawCmd[rawCmd.startIndex..<bracket])
+    } else {
+        cmd = rawCmd
+    }
 
     let start = CFAbsoluteTimeGetCurrent()
 
@@ -95,14 +103,31 @@ func executeCommand(_ args: [String]) throws {
         print("\n\(elementIndex.count) elements indexed (\(ms)ms)")
 
     case "tap":
-        // iOS-enhanced tap: supports $N index and label[N] occurrence syntax
+        // iOS-enhanced tap: supports $N, label[N], tap[role], within
         guard args.count >= 2 else {
             print("Usage: auto tap <label>")
-            print("       auto tap Camera[2]  (second Camera)")
-            print("       auto tap $N         (by index)")
-            print("       auto tap a,b,c      (multiple)")
+            print("       auto tap Camera[2]           (second Camera)")
+            print("       auto tap $N                  (by index)")
+            print("       auto tap a,b,c               (multiple)")
+            print("       auto tap[button] \"label\"      (role verification)")
+            print("       auto tap \"label\" within \"scope\"  (scoped search)")
             return
         }
+
+        // New path: role and/or within syntax
+        if let parsed = parseCommand(args), (parsed.role != nil || parsed.within != nil) {
+            let element = try bridge.findAXElementScoped(
+                target: parsed.target, role: parsed.role, within: parsed.within
+            )
+            bridge.tapElement(element)
+            var desc = "Tapped '\(parsed.target)'"
+            if let role = parsed.role { desc += " [\(role)]" }
+            if let within = parsed.within { desc += " within '\(within)'" }
+            print("\(desc) (\(elapsedMs(start))ms)")
+            break
+        }
+
+        // Existing path: $N, label[N], comma-separated
         let targets = args[1].split(separator: ",").map(String.init)
         for target in targets {
             // $N syntax — resolve by element index
@@ -304,19 +329,27 @@ func executeCommand(_ args: [String]) throws {
     case "inspect":
         guard args.count >= 2 else {
             print("Usage: auto inspect <query>")
+            print("       auto inspect <query> --context   (parent chain + within suggestions)")
             return
         }
-        let app = try bridge.findSimulator()
-        let result = AXDebug.inspect(root: app, query: args[1])
-        if result.isEmpty {
-            print("No matches in AX tree for '\(args[1])'")
-            print("Trying full attribute dump...")
-            let full = AXDebug.inspect(root: app, query: "", maxDepth: 5)
-            let filtered = full.split(separator: "\n").filter { $0.lowercased().contains(args[1].lowercased()) }
-            for line in filtered { print(line) }
-            if filtered.isEmpty { print("Not found anywhere in AX tree.") }
-        } else {
+
+        if args.contains("--context") {
+            let root = try bridge.findSimulatorContent()
+            let result = AXDebug.inspectWithContext(root: root, query: args[1])
             print(result)
+        } else {
+            let app = try bridge.findSimulator()
+            let result = AXDebug.inspect(root: app, query: args[1])
+            if result.isEmpty {
+                print("No matches in AX tree for '\(args[1])'")
+                print("Trying full attribute dump...")
+                let full = AXDebug.inspect(root: app, query: "", maxDepth: 5)
+                let filtered = full.split(separator: "\n").filter { $0.lowercased().contains(args[1].lowercased()) }
+                for line in filtered { print(line) }
+                if filtered.isEmpty { print("Not found anywhere in AX tree.") }
+            } else {
+                print(result)
+            }
         }
 
     case "help", "--help", "-h":
@@ -344,6 +377,7 @@ func printUsage() {
       tree -s "query"                   Search elements
       launch <bundleId> [--inject img]   Launch app (--inject for camera mock)
       tap <id|title|label>              Tap element
+      tap[role] "label" within "scope"  Tap with role verification + scoped search
       longPress <id|title|label> [secs]  Long press element
       doubleTap <id|title|label>        Double tap element
       clear <id|title|label>            Clear text field
@@ -359,6 +393,7 @@ func printUsage() {
       install <path/to/app.app>        Install app on simulator
       elementAt <x> <y>                 Element at coordinate
       screenshot [filename.png]         Screenshot (via simctl)
+      inspect <query> --context           Parent chain + within suggestions
       inject <image.jpg>                 Change mock camera image (hot-swap)
       camera start <image>              Start virtual camera feed
       camera feed <image>               Update camera image
@@ -402,6 +437,10 @@ func printUsage() {
     Examples:
       auto launch com.apple.Preferences
       auto tap "General"
+      auto tap[button] "Login"
+      auto tap "Camera" within "Toolbar"
+      auto tap[button] "Camera[2]" within "Toolbar"
+      auto inspect "Camera" --context
       auto tree -s "Información"
       auto swipe down
       auto run test-flow.auto
