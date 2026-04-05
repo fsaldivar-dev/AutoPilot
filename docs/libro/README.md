@@ -30,6 +30,7 @@ Documentamos todo el proceso — los errores, los callejones sin salida, las dec
 9. **[El agente Android](09-el-agente-android.md)** — De 2100ms a 75ms: un APK de instrumentación que habla directo con UiAutomation
 10. **[Paridad Android](10-paridad-android.md)** — Label[N], clipboard (y la restricción silenciosa de Android 10), y tres intentos de camera mock
 11. **[El benchmark](11-el-benchmark.md)** — AutoPilot vs Maestro vs WDA: metodología, resultados, y por qué Maestro es 2.5x más lento por diseño
+12. **[Permisos de accesibilidad](12-permisos-accesibilidad.md)** — Por qué el Inspector dejó de funcionar, cómo macOS hereda permisos TCC, y por qué no hay alternativa a AXUIElement
 
 ### Apendices
 
