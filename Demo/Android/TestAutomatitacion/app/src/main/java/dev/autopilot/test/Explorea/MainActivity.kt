@@ -150,9 +150,9 @@ class AppState {
             return listOf(
                 JournalEntry(
                     title = "Atardecer en Santorini",
-                    description = "Un atardecer inolvidable desde Oia, con los techos azules y el mar Egeo de fondo. La luz dorada pintaba todo de naranja y rosa.",
+                    description = "El cielo se pinto de naranja y rosa mientras el sol se hundia en el mar Egeo. Las casas blancas de Oia brillaban con la ultima luz del dia. Un momento magico que quedara grabado para siempre.",
                     date = cal.apply { add(Calendar.DAY_OF_YEAR, -2) }.time,
-                    category = TravelCategory.ADVENTURE,
+                    category = TravelCategory.NATURE,
                     mood = 5,
                     isFavorite = true,
                     locationName = "Santorini, Grecia",
@@ -160,20 +160,20 @@ class AppState {
                     longitude = 25.4615
                 ),
                 JournalEntry(
-                    title = "Tacos al Pastor en CDMX",
-                    description = "Los mejores tacos al pastor que he probado, en un puesto callejero cerca del Zocalo. La salsa verde era perfecta.",
-                    date = cal.apply { add(Calendar.DAY_OF_YEAR, -3) }.time,
+                    title = "Tacos al pastor en CDMX",
+                    description = "Encontre el mejor puesto de tacos en la Roma Norte. El trompo giraba hipnoticamente mientras el taquero cortaba la carne con precision quirurgica. La salsa verde era perfecta.",
+                    date = cal.apply { add(Calendar.DAY_OF_YEAR, -5) }.time,
                     category = TravelCategory.FOOD,
-                    mood = 5,
+                    mood = 4,
                     isFavorite = true,
                     locationName = "Ciudad de Mexico, Mexico",
-                    latitude = 19.4326,
-                    longitude = -99.1332
+                    latitude = 19.4194,
+                    longitude = -99.1626
                 ),
                 JournalEntry(
                     title = "Museo del Louvre",
-                    description = "Tres horas no fueron suficientes. La Mona Lisa es mas pequena de lo esperado, pero la Victoria de Samotracia me dejo sin palabras.",
-                    date = cal.apply { add(Calendar.DAY_OF_YEAR, -5) }.time,
+                    description = "Tres horas no fueron suficientes. La Mona Lisa es mas pequena de lo esperado, pero la Victoria de Samotracia me dejo sin aliento. Las galerias de arte egipcio son subestimadas.",
+                    date = cal.apply { add(Calendar.DAY_OF_YEAR, -10) }.time,
                     category = TravelCategory.CULTURE,
                     mood = 4,
                     isFavorite = false,
@@ -182,48 +182,48 @@ class AppState {
                     longitude = 2.3376
                 ),
                 JournalEntry(
-                    title = "Cruce de Shibuya",
-                    description = "El caos ordenado de Shibuya al anochecer. Miles de personas cruzando al mismo tiempo, las luces de neon reflejandose en el asfalto mojado.",
-                    date = cal.apply { add(Calendar.DAY_OF_YEAR, -7) }.time,
+                    title = "Noche en Shibuya",
+                    description = "El cruce mas famoso del mundo no decepciona. Las luces de neon, el ruido constante, la energia de miles de personas cruzando al mismo tiempo. Despues cenamos ramen en un local diminuto con 8 asientos.",
+                    date = cal.apply { add(Calendar.DAY_OF_YEAR, -15) }.time,
                     category = TravelCategory.NIGHTLIFE,
-                    mood = 4,
-                    isFavorite = false,
+                    mood = 5,
+                    isFavorite = true,
                     locationName = "Tokio, Japon",
                     latitude = 35.6595,
                     longitude = 139.7004
                 ),
                 JournalEntry(
                     title = "Senderismo en los Alpes",
-                    description = "Ruta de 12 km por los Alpes suizos. El aire fresco, las montanas nevadas y el sonido de las campanas de las vacas.",
-                    date = cal.apply { add(Calendar.DAY_OF_YEAR, -10) }.time,
-                    category = TravelCategory.NATURE,
-                    mood = 5,
-                    isFavorite = true,
-                    locationName = "Interlaken, Suiza",
-                    latitude = 46.6863,
-                    longitude = 7.8632
+                    description = "Ruta de 12km por el sendero del Eiger. El aire fresco de montana, las vacas con cencerros, y las vistas del Jungfrau. Mis piernas me odiaron al dia siguiente pero valio cada paso.",
+                    date = cal.apply { add(Calendar.DAY_OF_YEAR, -20) }.time,
+                    category = TravelCategory.ADVENTURE,
+                    mood = 4,
+                    isFavorite = false,
+                    locationName = "Grindelwald, Suiza",
+                    latitude = 46.6244,
+                    longitude = 8.0413
                 ),
                 JournalEntry(
                     title = "Spa en Bali",
-                    description = "Un dia completo de spa balines: masaje con aceites esenciales, bano de flores y meditacion al atardecer.",
-                    date = cal.apply { add(Calendar.DAY_OF_YEAR, -14) }.time,
+                    description = "Un masaje balines de 90 minutos con vista al arrozal. Despues, bano de flores y te de jengibre. El sonido del agua y los pajaros crearon la banda sonora perfecta para desconectar.",
+                    date = cal.apply { add(Calendar.DAY_OF_YEAR, -25) }.time,
                     category = TravelCategory.RELAXATION,
                     mood = 5,
-                    isFavorite = false,
+                    isFavorite = true,
                     locationName = "Ubud, Bali",
                     latitude = -8.5069,
                     longitude = 115.2625
                 ),
                 JournalEntry(
                     title = "Gran Bazar de Estambul",
-                    description = "Perderse en los pasillos del Gran Bazar es una experiencia unica. Regatear por lamparas turcas y probar el te de manzana.",
-                    date = cal.apply { add(Calendar.DAY_OF_YEAR, -18) }.time,
+                    description = "Me perdi tres veces en los 4,000 puestos del bazar. Compre especias, un farol de mosaico y una alfombra que no necesitaba pero no pude resistir. El arte de regatear es toda una experiencia.",
+                    date = cal.apply { add(Calendar.DAY_OF_YEAR, -30) }.time,
                     category = TravelCategory.SHOPPING,
                     mood = 3,
                     isFavorite = false,
                     locationName = "Estambul, Turquia",
                     latitude = 41.0106,
-                    longitude = 28.9684
+                    longitude = 28.9680
                 )
             )
         }
@@ -487,14 +487,6 @@ fun AuthScreen(onAuthenticated: () -> Unit) {
                                                     if (pin.isNotEmpty()) pin = pin.dropLast(1)
                                                 } else if (pin.length < 4) {
                                                     pin += key
-                                                    if (pin.length == 4) {
-                                                        if (pin == "1234") {
-                                                            onAuthenticated()
-                                                        } else {
-                                                            pinError = true
-                                                            pin = ""
-                                                        }
-                                                    }
                                                 }
                                             },
                                         contentAlignment = Alignment.Center
@@ -522,6 +514,39 @@ fun AuthScreen(onAuthenticated: () -> Unit) {
                 }
 
                 Spacer(Modifier.height(16.dp))
+
+                // Confirm button
+                Button(
+                    onClick = {
+                        if (pin.length == 4) {
+                            if (pin == "1234") {
+                                onAuthenticated()
+                            } else {
+                                pinError = true
+                                pin = ""
+                            }
+                        }
+                    },
+                    enabled = pin.length == 4,
+                    colors = ButtonDefaults.buttonColors(
+                        containerColor = Color.White,
+                        contentColor = AppColors.Primary,
+                        disabledContainerColor = Color.White.copy(alpha = 0.3f),
+                        disabledContentColor = Color.White.copy(alpha = 0.5f)
+                    ),
+                    shape = RoundedCornerShape(16.dp),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(52.dp)
+                ) {
+                    Text(
+                        "Confirmar",
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.SemiBold
+                    )
+                }
+
+                Spacer(Modifier.height(8.dp))
                 if (biometricAvailable) {
                     TextButton(onClick = {
                         showPIN = false
@@ -845,7 +870,7 @@ fun EmptyState() {
         )
         Spacer(Modifier.height(8.dp))
         Text(
-            "Comienza a registrar tus aventuras",
+            "Empieza a documentar tus aventuras",
             fontSize = 14.sp,
             color = AppColors.LightText
         )
@@ -1410,7 +1435,7 @@ fun QRScannerView(appState: AppState) {
 
         Spacer(Modifier.height(16.dp))
         Text(
-            "Apunta la camara al codigo QR",
+            "Apunta la camara hacia un codigo QR",
             fontSize = 14.sp,
             color = AppColors.LightText
         )
@@ -1724,8 +1749,8 @@ fun ProfileView(appState: AppState, onLogout: () -> Unit) {
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
-                ProfileStat("Entradas", "${appState.entries.size}")
-                ProfileStat("Ciudades", "$cityCount")
+                ProfileStat("Total de entradas", "${appState.entries.size}")
+                ProfileStat("Ciudades visitadas", "$cityCount")
                 ProfileStat("Favoritos", "$favoriteCount")
             }
             Spacer(Modifier.height(12.dp))
@@ -1733,9 +1758,9 @@ fun ProfileView(appState: AppState, onLogout: () -> Unit) {
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.SpaceEvenly
             ) {
-                ProfileStat("Fotos", "${appState.entries.sumOf { it.photos.size }}")
+                ProfileStat("Fotos capturadas", "${appState.entries.sumOf { it.photos.size }}")
                 if (topCategory != null) {
-                    ProfileStat("Top", topCategory.label)
+                    ProfileStat("Categoria favorita", topCategory.label)
                 }
             }
         }
@@ -1762,8 +1787,31 @@ fun ProfileView(appState: AppState, onLogout: () -> Unit) {
             }
         }
 
-        // Actions
-        ProfileSection("Acciones") {
+        // Account
+        var showLogoutDialog by remember { mutableStateOf(false) }
+
+        if (showLogoutDialog) {
+            AlertDialog(
+                onDismissRequest = { showLogoutDialog = false },
+                title = { Text("Cerrar sesion") },
+                text = { Text("Tendras que autenticarte de nuevo con biometria o tu codigo para acceder a tu diario.") },
+                confirmButton = {
+                    TextButton(onClick = {
+                        showLogoutDialog = false
+                        onLogout()
+                    }) {
+                        Text("Cerrar sesion", color = Color(0xFFE74C3C))
+                    }
+                },
+                dismissButton = {
+                    TextButton(onClick = { showLogoutDialog = false }) {
+                        Text("Cancelar")
+                    }
+                }
+            )
+        }
+
+        ProfileSection("Cuenta") {
             OutlinedButton(
                 onClick = {
                     Toast.makeText(context, "Datos exportados", Toast.LENGTH_SHORT).show()
@@ -1774,11 +1822,11 @@ fun ProfileView(appState: AppState, onLogout: () -> Unit) {
             ) {
                 Icon(Icons.Default.FileDownload, contentDescription = null, tint = AppColors.Primary)
                 Spacer(Modifier.width(8.dp))
-                Text("Exportar datos", color = AppColors.Primary)
+                Text("Exportar mis datos", color = AppColors.Primary)
             }
             Spacer(Modifier.height(8.dp))
             Button(
-                onClick = onLogout,
+                onClick = { showLogoutDialog = true },
                 colors = ButtonDefaults.buttonColors(containerColor = Color(0xFFE74C3C)),
                 shape = RoundedCornerShape(12.dp),
                 modifier = Modifier.fillMaxWidth()
@@ -1910,9 +1958,32 @@ fun EntryDetailView(
 ) {
     val context = LocalContext.current
     var currentEntry by remember { mutableStateOf(entry) }
+    var showDeleteDialog by remember { mutableStateOf(false) }
 
     LaunchedEffect(appState.entries) {
         appState.entries.find { it.id == entry.id }?.let { currentEntry = it }
+    }
+
+    if (showDeleteDialog) {
+        AlertDialog(
+            onDismissRequest = { showDeleteDialog = false },
+            title = { Text("Eliminar entrada") },
+            text = { Text("Esta accion no se puede deshacer. Se eliminara permanentemente esta entrada de tu diario.") },
+            confirmButton = {
+                TextButton(onClick = {
+                    showDeleteDialog = false
+                    appState.deleteEntry(currentEntry.id)
+                    navController.popBackStack()
+                }) {
+                    Text("Eliminar", color = Color(0xFFE74C3C))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { showDeleteDialog = false }) {
+                    Text("Cancelar")
+                }
+            }
+        )
     }
 
     Column(
@@ -2103,8 +2174,10 @@ fun EntryDetailView(
                 )
                 Spacer(Modifier.width(4.dp))
                 Text(
-                    if (currentEntry.isFavorite) "Favorito" else "Agregar",
-                    color = if (currentEntry.isFavorite) AppColors.Primary else AppColors.LightText
+                    if (currentEntry.isFavorite) "Quitar de favoritos" else "Agregar a favoritos",
+                    color = if (currentEntry.isFavorite) AppColors.Primary else AppColors.LightText,
+                    fontSize = 11.sp,
+                    maxLines = 1
                 )
             }
 
@@ -2130,14 +2203,11 @@ fun EntryDetailView(
                     tint = AppColors.LightText
                 )
                 Spacer(Modifier.width(4.dp))
-                Text("Copiar", color = AppColors.LightText)
+                Text("Copiar al portapapeles", color = AppColors.LightText, fontSize = 11.sp, maxLines = 1)
             }
 
             OutlinedButton(
-                onClick = {
-                    appState.deleteEntry(currentEntry.id)
-                    navController.popBackStack()
-                },
+                onClick = { showDeleteDialog = true },
                 shape = RoundedCornerShape(12.dp),
                 border = BorderStroke(1.dp, Color(0xFFE74C3C)),
                 modifier = Modifier.weight(1f)
@@ -2148,7 +2218,7 @@ fun EntryDetailView(
                     tint = Color(0xFFE74C3C)
                 )
                 Spacer(Modifier.width(4.dp))
-                Text("Eliminar", color = Color(0xFFE74C3C))
+                Text("Eliminar entrada", color = Color(0xFFE74C3C), fontSize = 11.sp, maxLines = 1)
             }
         }
 
