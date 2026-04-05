@@ -1030,6 +1030,96 @@ public final class SimulatorBridge {
         return best
     }
 
+    // MARK: - Tap Element (raw AXUIElement)
+
+    /// Tap a resolved AXUIElement directly (AXPress with click fallback).
+    public func tapElement(_ element: AXUIElement) {
+        let result = AXUIElementPerformAction(element, kAXPressAction as CFString)
+        if result != .success {
+            if let pos = getPosition(of: element), let size = getSize(of: element) {
+                let center = CGPoint(x: pos.x + size.width / 2, y: pos.y + size.height / 2)
+                try? click(at: center)
+            }
+        }
+    }
+
+    // MARK: - Scoped Element Search (role + within)
+
+    /// Find element with optional role filtering and scope.
+    /// Fallback chain: role+scope → scope only → global → error
+    public func findAXElementScoped(target: String, role: String? = nil, within: String? = nil) throws -> AXUIElement {
+        let root = try findSimulatorContent()
+
+        // Resolve scope element
+        var scopeElement: AXUIElement? = nil
+        if let within {
+            scopeElement = findAXElement(in: root, matching: within, depth: 0, maxDepth: 20)
+            if scopeElement == nil {
+                fputs("[within] '\(within)' not found, searching globally\n", stderr)
+            }
+        }
+
+        // Parse label[N] from target
+        let (label, occurrence) = TargetResolver.parse(target)
+
+        // Search with role + scope
+        let matches = TargetResolver.findAll(in: root, matching: label, scope: scopeElement, requiredRole: role)
+
+        if let occurrence {
+            if occurrence >= 1 && occurrence <= matches.count {
+                return matches[occurrence - 1].element
+            }
+            // Fallback: without role
+            if role != nil {
+                fputs("[role] no \(role!) matching '\(label)[\(occurrence)]', trying without role\n", stderr)
+                let fallback = TargetResolver.findAll(in: root, matching: label, scope: scopeElement, requiredRole: nil)
+                if occurrence >= 1 && occurrence <= fallback.count {
+                    return fallback[occurrence - 1].element
+                }
+            }
+            // Fallback: without scope
+            if scopeElement != nil {
+                fputs("[within] '\(label)[\(occurrence)]' not found in '\(within!)', searching globally\n", stderr)
+                let global = TargetResolver.findAll(in: root, matching: label, scope: nil, requiredRole: nil)
+                if occurrence >= 1 && occurrence <= global.count {
+                    return global[occurrence - 1].element
+                }
+            }
+            throw BridgeError.elementNotFound(target)
+        }
+
+        // No occurrence specified — return first match
+        if let first = matches.first {
+            return first.element
+        }
+
+        // Fallback: without role
+        if role != nil {
+            fputs("[role] no \(role!) matching '\(label)', trying without role filter\n", stderr)
+            let fallback = TargetResolver.findAll(in: root, matching: label, scope: scopeElement, requiredRole: nil)
+            if let first = fallback.first { return first.element }
+        }
+
+        // Fallback: without scope
+        if scopeElement != nil {
+            fputs("[within] '\(label)' not found in '\(within!)', searching globally\n", stderr)
+            let global = TargetResolver.findAll(in: root, matching: label, scope: nil, requiredRole: nil)
+            if let first = global.first { return first.element }
+        }
+
+        throw BridgeError.elementNotFound(target)
+    }
+
+    /// Get parent of an AX element.
+    public func getParent(of element: AXUIElement) -> AXUIElement? {
+        getAttribute(element, kAXParentAttribute) as! AXUIElement?
+    }
+
+    /// Get role of an AX element.
+    public func getRole(of element: AXUIElement) -> String? {
+        getAttribute(element, kAXRoleAttribute) as? String
+    }
+
     // MARK: - Private: AX helpers
 
     private func getAttribute(_ element: AXUIElement, _ attribute: String) -> CFTypeRef? {

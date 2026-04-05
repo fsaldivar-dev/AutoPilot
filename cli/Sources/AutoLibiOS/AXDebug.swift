@@ -11,6 +11,141 @@ public struct AXDebug {
         return output
     }
 
+    /// Show parent chain and within candidates for matched elements.
+    /// Useful for understanding scope and crafting `within` selectors.
+    public static func inspectWithContext(root: AXUIElement, query: String) -> String {
+        var output = ""
+        let matches = TargetResolver.findAll(in: root, matching: query)
+
+        if matches.isEmpty {
+            output += "No matches for '\(query)'\n"
+            return output
+        }
+
+        output += "\(matches.count) match(es) for '\(query)':\n\n"
+
+        for (element, occurrence) in matches {
+            let info = elementInfo(element)
+
+            // Check if it has an identifier
+            var identRef: CFTypeRef?
+            AXUIElementCopyAttributeValue(element, kAXIdentifierAttribute as CFString, &identRef)
+            let hasId = ((identRef as? String) ?? "").isEmpty == false
+
+            output += "  [\(occurrence)] \(info)"
+            if hasId {
+                output += "  \u{2705}"
+            } else {
+                output += "  \u{26A0}\u{FE0F}  no accessibilityIdentifier"
+            }
+            output += "\n"
+
+            // Walk parent chain
+            output += "      Parent chain:\n"
+            var current: AXUIElement = element
+            var depth = 0
+            while let parent = axGetParent(of: current), depth < 8 {
+                let parentInfo = elementInfo(parent)
+                let parentHasId = axHasIdentifier(parent)
+                let parentRole = axGetRole(of: parent)
+                let isContainer = isContainerRole(parentRole)
+
+                var marker = "   "
+                if parentHasId { marker = " \u{2605} " }          // star — has identifier, best within
+                else if isContainer { marker = " \u{25C6} " }     // diamond — container, ok within
+
+                output += "       \(marker) \(parentInfo)\n"
+                current = parent
+                depth += 1
+            }
+
+            output += "\n"
+        }
+
+        // Suggest within if multiple matches
+        if matches.count > 1 {
+            output += "  \u{26A0}\u{FE0F}  \(matches.count) matches \u{2014} consider using 'within' to scope:\n\n"
+
+            for (element, occurrence) in matches {
+                if let ancestor = findBestAncestor(of: element) {
+                    output += "      [\(occurrence)] tap \"\(query)\" within \"\(ancestor)\"\n"
+                } else {
+                    output += "      [\(occurrence)] tap \"\(query)[\(occurrence)]\"  (no good ancestor found)\n"
+                }
+            }
+            output += "\n"
+        }
+
+        return output
+    }
+
+    // MARK: - Context helpers
+
+    private static func axGetParent(of element: AXUIElement) -> AXUIElement? {
+        var ref: CFTypeRef?
+        AXUIElementCopyAttributeValue(element, kAXParentAttribute as CFString, &ref)
+        return ref as! AXUIElement?
+    }
+
+    private static func axGetRole(of element: AXUIElement) -> String? {
+        var ref: CFTypeRef?
+        AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &ref)
+        return ref as? String
+    }
+
+    private static func axHasIdentifier(_ element: AXUIElement) -> Bool {
+        var ref: CFTypeRef?
+        AXUIElementCopyAttributeValue(element, kAXIdentifierAttribute as CFString, &ref)
+        return ((ref as? String) ?? "").isEmpty == false
+    }
+
+    private static func isContainerRole(_ role: String?) -> Bool {
+        guard let role else { return false }
+        let containers = ["AXToolbar", "AXNavigationBar", "AXTabBar", "AXTable",
+                          "AXScrollArea", "AXGroup", "AXList", "AXOutline",
+                          "AXSheet", "AXWindow"]
+        return containers.contains(role)
+    }
+
+    /// Walk parent chain and find the best ancestor for a `within` clause.
+    /// Prefers ancestors with accessibilityIdentifier, then named containers.
+    private static func findBestAncestor(of element: AXUIElement) -> String? {
+        var current: AXUIElement = element
+        var bestLabel: String? = nil
+        var bestScore = 0
+        var depth = 0
+
+        while let parent = axGetParent(of: current), depth < 10 {
+            var score = 0
+            if axHasIdentifier(parent) { score += 10 }
+            if isContainerRole(axGetRole(of: parent)) { score += 5 }
+
+            // Get label for this ancestor
+            var identRef: CFTypeRef?
+            AXUIElementCopyAttributeValue(parent, kAXIdentifierAttribute as CFString, &identRef)
+            var titleRef: CFTypeRef?
+            AXUIElementCopyAttributeValue(parent, kAXTitleAttribute as CFString, &titleRef)
+            var descRef: CFTypeRef?
+            AXUIElementCopyAttributeValue(parent, kAXDescriptionAttribute as CFString, &descRef)
+
+            let label = (identRef as? String).flatMap({ $0.isEmpty ? nil : $0 })
+                     ?? (titleRef as? String).flatMap({ $0.isEmpty ? nil : $0 })
+                     ?? (descRef as? String).flatMap({ $0.isEmpty ? nil : $0 })
+
+            if let label, score > bestScore {
+                bestScore = score
+                bestLabel = label
+            }
+
+            current = parent
+            depth += 1
+        }
+
+        return bestLabel
+    }
+
+    // MARK: - Inspect (original)
+
     private static func inspectRecursive(element: AXUIElement, query: String, depth: Int, maxDepth: Int, output: inout String) {
         guard depth < maxDepth else { return }
 
