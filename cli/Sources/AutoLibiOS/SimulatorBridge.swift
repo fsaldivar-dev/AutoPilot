@@ -1226,24 +1226,15 @@ extension SimulatorBridge: DeviceBridge {
 
         switch key.lowercased() {
         case "home":
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
-            process.arguments = ["simctl", "io", deviceId, "sendButtonPress", "home"]
-            try process.run()
-            process.waitUntilExit()
-            guard process.terminationStatus == 0 else {
-                throw BridgeError.simctlFailed("sendButtonPress home failed")
-            }
+            // Use AppleScript — simctl sendButtonPress removed in Xcode 26
+            try clickSimulatorMenu("""
+            tell application "System Events" to tell process "Simulator" to click menu item "Home" of menu "Device" of menu bar 1
+            """)
 
         case "lockbutton", "power":
-            let process = Process()
-            process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
-            process.arguments = ["simctl", "io", deviceId, "sendButtonPress", "lock"]
-            try process.run()
-            process.waitUntilExit()
-            guard process.terminationStatus == 0 else {
-                throw BridgeError.simctlFailed("sendButtonPress lock failed")
-            }
+            try clickSimulatorMenu("""
+            tell application "System Events" to tell process "Simulator" to click menu item "Lock" of menu "Device" of menu bar 1
+            """)
 
         case "back":
             throw BridgeError.unknown("'back' key is not applicable on iOS")
@@ -1467,27 +1458,16 @@ extension SimulatorBridge: DeviceBridge {
     // MARK: - Lock / Unlock
 
     public func lockDevice() throws {
-        let deviceId = try getBootedDeviceId()
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
-        process.arguments = ["simctl", "io", deviceId, "sendButtonPress", "lock"]
-        try process.run()
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else {
-            throw BridgeError.simctlFailed("sendButtonPress lock failed")
-        }
+        // Use AppleScript — simctl sendButtonPress removed in Xcode 26
+        try clickSimulatorMenu("""
+        tell application "System Events" to tell process "Simulator" to click menu item "Lock" of menu "Device" of menu bar 1
+        """)
     }
 
     public func unlockDevice() throws {
-        let deviceId = try getBootedDeviceId()
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
-        process.arguments = ["simctl", "io", deviceId, "sendButtonPress", "home"]
-        try process.run()
-        process.waitUntilExit()
-        guard process.terminationStatus == 0 else {
-            throw BridgeError.simctlFailed("sendButtonPress home failed")
-        }
+        try clickSimulatorMenu("""
+        tell application "System Events" to tell process "Simulator" to click menu item "Home" of menu "Device" of menu bar 1
+        """)
     }
 
     // MARK: - Push / Pull File
