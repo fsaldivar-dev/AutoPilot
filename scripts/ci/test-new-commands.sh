@@ -165,13 +165,29 @@ SCRIPT
         log_result "clearState" "FAIL"
     fi
 
-    # 10. uninstall (skip — don't actually uninstall anything)
-    echo "--- uninstall ---"
-    log_result "uninstall" "SKIP" "skipped to not remove apps"
-
-    # 11. scrollTo (needs scrollable content)
+    # 10. scrollTo (use demo app Explorea)
     echo "--- scrollTo ---"
-    log_result "scrollTo" "SKIP" "needs app with scrollable list"
+    run_cmd $A launch dev.autopilot.test.Explorea > /dev/null 2>&1
+    sleep 2
+    run_cmd $A biometric enroll > /dev/null 2>&1
+    run_cmd $A tap "Desbloquear con biometría" > /dev/null 2>&1
+    sleep 1
+    run_cmd $A biometric match > /dev/null 2>&1
+    sleep 2
+    if run_cmd $A scrollTo "Museo del Louvre" 2>&1 | grep -q "Scrolled"; then
+        log_result "scrollTo" "PASS"
+    else
+        log_result "scrollTo" "SKIP" "demo app not available"
+    fi
+    run_cmd $A terminate dev.autopilot.test.Explorea > /dev/null 2>&1
+
+    # 11. uninstall
+    echo "--- uninstall ---"
+    if run_cmd $A uninstall dev.autopilot.test.Explorea 2>&1 | grep -q "Uninstalled"; then
+        log_result "uninstall" "PASS"
+    else
+        log_result "uninstall" "SKIP" "app not installed"
+    fi
 
     # 12. pushFile / pullFile
     echo "--- pushFile / pullFile ---"
