@@ -102,8 +102,18 @@ cd ../cli
 swift build 2>&1 | tail -1
 ok "auto (iOS) compilado"
 ok "auto-android compilado"
+
+# Copy for tauri dev (relative path resolution)
 cp .build/debug/auto ../auto 2>/dev/null || true
 cp .build/debug/auto-android ../auto-android 2>/dev/null || true
+
+# Copy for tauri build (externalBin with target triple)
+TARGET=$(rustc -vV 2>/dev/null | grep "host:" | awk '{print $2}')
+TARGET=${TARGET:-aarch64-apple-darwin}
+mkdir -p ../editor/src-tauri/binaries
+cp .build/debug/auto "../editor/src-tauri/binaries/auto-${TARGET}"
+cp .build/debug/auto-android "../editor/src-tauri/binaries/auto-android-${TARGET}"
+ok "Binarios copiados para editor (dev + build)"
 cd ../editor
 
 echo ""

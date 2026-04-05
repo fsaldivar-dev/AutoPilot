@@ -1,0 +1,3 @@
+# Compiled CLI binaries (copied by setup.sh for Tauri externalBin)
+auto-*
+!.gitignore

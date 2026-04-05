@@ -5,21 +5,31 @@ use std::time::Duration;
 use serde_json::Value;
 
 fn find_binary(name: &str) -> PathBuf {
-    // 1. Next to the Tauri executable (release builds)
+    // 1. Inside the .app bundle (Tauri externalBin — production builds)
+    //    Tauri places externalBin at: App.app/Contents/MacOS/<name>
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
+            // Tauri appends target triple, check both with and without
             let candidate = dir.join(name);
-            if candidate.exists() {
-                eprintln!("[find_binary] found at exe dir: {}", candidate.display());
-                return candidate;
+            if candidate.exists() { return candidate; }
+
+            // Also check with target triple suffix
+            let target = std::env::consts::ARCH;
+            let os = std::env::consts::OS;
+            let triple = match (target, os) {
+                ("aarch64", "macos") => "aarch64-apple-darwin",
+                ("x86_64", "macos") => "x86_64-apple-darwin",
+                _ => "",
+            };
+            if !triple.is_empty() {
+                let candidate = dir.join(format!("{}-{}", name, triple));
+                if candidate.exists() { return candidate; }
             }
         }
     }
 
-    // 2. Relative paths from cwd
+    // 2. Relative paths from cwd (tauri dev — repo checkout)
     if let Ok(cwd) = std::env::current_dir() {
-        eprintln!("[find_binary] cwd = {}", cwd.display());
-
         for rel in [
             name.to_string(),
             format!("../{}", name),
@@ -30,25 +40,18 @@ fn find_binary(name: &str) -> PathBuf {
             format!("../cli/.build/release/{}", name),
         ] {
             let path = cwd.join(&rel);
-            if path.exists() {
-                eprintln!("[find_binary] found at relative: {}", path.display());
-                return path;
-            }
+            if path.exists() { return path; }
         }
 
         // 3. Scan cli/.build/*/debug/ for any architecture
         for base in ["../../cli/.build", "../cli/.build", "cli/.build"] {
             let build_dir = cwd.join(base);
-            eprintln!("[find_binary] scanning: {}", build_dir.display());
             if let Ok(entries) = std::fs::read_dir(&build_dir) {
                 for entry in entries.flatten() {
                     if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
                         for profile in ["debug", "release"] {
                             let candidate = entry.path().join(profile).join(name);
-                            if candidate.exists() {
-                                eprintln!("[find_binary] found via scan: {}", candidate.display());
-                                return candidate;
-                            }
+                            if candidate.exists() { return candidate; }
                         }
                     }
                 }
@@ -61,13 +64,11 @@ fn find_binary(name: &str) -> PathBuf {
         if output.status.success() {
             let path_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
             if !path_str.is_empty() {
-                eprintln!("[find_binary] found via which: {}", path_str);
                 return PathBuf::from(path_str);
             }
         }
     }
 
-    eprintln!("[find_binary] NOT FOUND: {}", name);
     PathBuf::from(name)
 }
 
@@ -119,9 +120,11 @@ fn run_cli(bin: &PathBuf, args: &[&str]) -> Result<String, String> {
 fn run_auto(args: Vec<String>, platform: Option<String>) -> Result<String, String> {
     let plat = platform.as_deref().unwrap_or("ios");
     let bin = auto_binary(plat);
-    eprintln!("[run_auto] bin={} exists={} platform={}", bin.display(), bin.exists(), plat);
+    let cwd = std::env::current_dir().unwrap_or_default();
     let args_ref: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-    run_cli(&bin, &args_ref)
+    run_cli(&bin, &args_ref).map_err(|e| {
+        format!("{}\n[debug] bin={} exists={} cwd={} platform={}", e, bin.display(), bin.exists(), cwd.display(), plat)
+    })
 }
 
 /// Parse tree output into structured elements (works for both iOS and Android)
