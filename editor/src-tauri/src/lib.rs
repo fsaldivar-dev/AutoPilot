@@ -5,24 +5,67 @@ use std::time::Duration;
 use serde_json::Value;
 
 fn find_binary(name: &str) -> PathBuf {
+    // 1. Inside the .app bundle (Tauri externalBin — production builds)
+    //    Tauri places externalBin at: App.app/Contents/MacOS/<name>
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
+            // Tauri appends target triple, check both with and without
             let candidate = dir.join(name);
             if candidate.exists() { return candidate; }
+
+            // Also check with target triple suffix
+            let target = std::env::consts::ARCH;
+            let os = std::env::consts::OS;
+            let triple = match (target, os) {
+                ("aarch64", "macos") => "aarch64-apple-darwin",
+                ("x86_64", "macos") => "x86_64-apple-darwin",
+                _ => "",
+            };
+            if !triple.is_empty() {
+                let candidate = dir.join(format!("{}-{}", name, triple));
+                if candidate.exists() { return candidate; }
+            }
         }
     }
 
+    // 2. Relative paths from cwd (tauri dev — repo checkout)
     if let Ok(cwd) = std::env::current_dir() {
-        for path in [
-            cwd.join(name),
-            cwd.join(format!("../{}", name)),
-            cwd.join(format!("../../{}", name)),
-            cwd.join(format!("../../cli/.build/debug/{}", name)),
-            cwd.join(format!("../../cli/.build/release/{}", name)),
-            cwd.join(format!("../cli/.build/debug/{}", name)),
-            cwd.join(format!("../cli/.build/release/{}", name)),
+        for rel in [
+            name.to_string(),
+            format!("../{}", name),
+            format!("../../{}", name),
+            format!("../../cli/.build/debug/{}", name),
+            format!("../../cli/.build/release/{}", name),
+            format!("../cli/.build/debug/{}", name),
+            format!("../cli/.build/release/{}", name),
         ] {
+            let path = cwd.join(&rel);
             if path.exists() { return path; }
+        }
+
+        // 3. Scan cli/.build/*/debug/ for any architecture
+        for base in ["../../cli/.build", "../cli/.build", "cli/.build"] {
+            let build_dir = cwd.join(base);
+            if let Ok(entries) = std::fs::read_dir(&build_dir) {
+                for entry in entries.flatten() {
+                    if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                        for profile in ["debug", "release"] {
+                            let candidate = entry.path().join(profile).join(name);
+                            if candidate.exists() { return candidate; }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 4. Search system PATH via `which`
+    if let Ok(output) = Command::new("which").arg(name).output() {
+        if output.status.success() {
+            let path_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            if !path_str.is_empty() {
+                return PathBuf::from(path_str);
+            }
         }
     }
 
@@ -36,12 +79,42 @@ fn auto_binary(platform: &str) -> PathBuf {
     }
 }
 
+/// Extended PATH for subprocess execution (Tauri may not inherit full shell PATH)
+fn extended_path() -> String {
+    let path = std::env::var("PATH").unwrap_or_default();
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/Users/".to_string());
+    format!("{path}:/usr/bin:/usr/local/bin:/opt/homebrew/bin:{home}/Library/Android/sdk/platform-tools")
+}
+
+/// Resolve ANDROID_HOME — Tauri apps don't inherit shell env vars
+fn android_home() -> String {
+    std::env::var("ANDROID_HOME").unwrap_or_else(|_| {
+        let home = std::env::var("HOME").unwrap_or_else(|_| "/Users/".to_string());
+        format!("{home}/Library/Android/sdk")
+    })
+}
+
 /// Run a CLI command and return stdout
 fn run_cli(bin: &PathBuf, args: &[&str]) -> Result<String, String> {
+    let extended_path = extended_path();
+    let cwd = std::env::current_dir().unwrap_or_default();
+
     let output = Command::new(bin)
         .args(args)
+        .env("PATH", &extended_path)
+        .env("ANDROID_HOME", android_home())
         .output()
-        .map_err(|e| format!("Failed to run {}: {}", bin.display(), e))?;
+        .map_err(|e| {
+            format!(
+                "Failed to run {}\n  cwd: {}\n  exists: {}\n  PATH: {}\n  error: {} (kind: {:?})",
+                bin.display(),
+                cwd.display(),
+                bin.exists(),
+                extended_path,
+                e,
+                e.kind()
+            )
+        })?;
 
     let stdout = String::from_utf8_lossy(&output.stdout).to_string();
     let stderr = String::from_utf8_lossy(&output.stderr).to_string();
@@ -57,8 +130,11 @@ fn run_cli(bin: &PathBuf, args: &[&str]) -> Result<String, String> {
 fn run_auto(args: Vec<String>, platform: Option<String>) -> Result<String, String> {
     let plat = platform.as_deref().unwrap_or("ios");
     let bin = auto_binary(plat);
+    let cwd = std::env::current_dir().unwrap_or_default();
     let args_ref: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-    run_cli(&bin, &args_ref)
+    run_cli(&bin, &args_ref).map_err(|e| {
+        format!("{}\n[debug] bin={} exists={} cwd={} platform={}", e, bin.display(), bin.exists(), cwd.display(), plat)
+    })
 }
 
 /// Parse tree output into structured elements (works for both iOS and Android)
@@ -262,6 +338,8 @@ fn take_screenshot(bin: &PathBuf) -> String {
 
     let _ = Command::new(bin)
         .args(["screenshot", &tmp_str])
+        .env("PATH", extended_path())
+        .env("ANDROID_HOME", android_home())
         .output();
 
     if tmp.exists() {

@@ -68,6 +68,49 @@ const AUTO_COMMANDS = [
   // Build (iOS)
   { label: "build", detail: "Compilar con mock", insertText: "build -project ${1:App.xcodeproj} -scheme ${2:App}", platform: "ios" as const },
 
+  // Drag
+  { label: "drag", detail: "Arrastrar entre elementos", insertText: 'drag "${1:from}" "${2:to}"' },
+  { label: "drag (coords)", detail: "Arrastrar entre coordenadas", insertText: "drag ${1:x1},${2:y1} ${3:x2},${4:y2}" },
+
+  // Rotacion
+  { label: "rotate", detail: "Rotar dispositivo", insertText: "rotate ${1|left,right,portrait,landscape|}" },
+
+  // Teclado
+  { label: "pressKey", detail: "Presionar tecla", insertText: 'pressKey "${1|home,back,enter,delete,volumeUp,volumeDown,power,tab,escape|}"' },
+  { label: "hideKeyboard", detail: "Ocultar teclado" },
+  { label: "eraseText", detail: "Borrar N caracteres", insertText: "eraseText ${1:10}" },
+
+  // Texto
+  { label: "copyTextFrom", detail: "Leer texto de elemento", insertText: 'copyTextFrom "${1:elemento}"' },
+
+  // App Data
+  { label: "clearState", detail: "Borrar datos de app", insertText: 'clearState "${1:com.example.app}"' },
+  { label: "uninstall", detail: "Desinstalar app", insertText: 'uninstall "${1:com.example.app}"' },
+
+  // Scroll
+  { label: "scrollTo", detail: "Scroll hasta encontrar elemento", insertText: 'scrollTo "${1:elemento}"' },
+
+  // Grabacion
+  { label: "startRecording", detail: "Iniciar grabacion de pantalla" },
+  { label: "stopRecording", detail: "Detener grabacion", insertText: 'stopRecording "${1:video.mp4}"' },
+
+  // Entorno
+  { label: "setLocation", detail: "GPS simulado", insertText: "setLocation ${1:19.4326} ${2:-99.1332}" },
+  { label: "setAppearance", detail: "Modo oscuro/claro", insertText: 'setAppearance "${1|dark,light|}"' },
+  { label: "lockDevice", detail: "Bloquear pantalla" },
+  { label: "unlockDevice", detail: "Desbloquear pantalla" },
+
+  // Archivos
+  { label: "pushFile", detail: "Enviar archivo al dispositivo", insertText: 'pushFile "${1:local/path}" "${2:/remote/path}"' },
+  { label: "pullFile", detail: "Traer archivo del dispositivo", insertText: 'pullFile "${1:/remote/path}" "${2:local/path}"' },
+
+  // Permisos
+  { label: "permission", detail: "Permisos de app", insertText: 'permission ${1|grant,revoke,reset|} ${2|camera,photos,location,all|} ${3:com.example.app}' },
+
+  // Logs
+  { label: "logs", detail: "Ver logs de app", insertText: 'logs "${1:com.example.app}"' },
+  { label: "logs (system)", detail: "Logs del sistema", insertText: "logs --system" },
+
   // Media y datos
   { label: "media", detail: "Inyectar foto a galeria", insertText: "media ${1:photo.jpg}" },
   { label: "paste", detail: "Portapapeles", insertText: 'paste "${1:text}"' },
@@ -122,6 +165,8 @@ function App() {
     setRunning(true);
     abortRef.current = false;
     setOutput("");
+    const editor = editorRef.current;
+    let decorations: string[] = [];
     const lines = script.split("\n");
     let stepNum = 0;
     for (let i = 0; i < lines.length; i++) {
@@ -130,6 +175,15 @@ function App() {
       if (!trimmed || trimmed.startsWith("#")) continue;
       stepNum++;
       setCurrentStep(i);
+      // Highlight active line in editor
+      if (editor) {
+        const lineNum = i + 1;
+        decorations = editor.deltaDecorations(decorations, [{
+          range: { startLineNumber: lineNum, startColumn: 1, endLineNumber: lineNum, endColumn: 1 },
+          options: { isWholeLine: true, className: "active-step-line" },
+        }]);
+        editor.revealLineInCenter(lineNum);
+      }
       appendOutput(`[${stepNum}] ${trimmed}`);
       try {
         const args = parseCommand(trimmed);
@@ -140,6 +194,8 @@ function App() {
         break;
       }
     }
+    // Clear highlight
+    if (editor) editor.deltaDecorations(decorations, []);
     appendOutput(`\n${stepNum} step(s) completed`);
     setCurrentStep(-1);
     setRunning(false);
@@ -169,15 +225,40 @@ function App() {
 
     monaco.languages.register({ id: "auto" });
     monaco.languages.setMonarchTokensProvider("auto", {
+      keywords: [
+        "ping", "tree", "tap", "doubleTap", "longPress", "type", "clear",
+        "swipe", "scroll", "tapAt", "elementAt", "exists", "waitFor", "wait",
+        "sleep", "screenshot", "launch", "terminate", "install", "biometric",
+        "faceid", "paste", "openurl", "media", "build", "camera", "inject",
+        "index", "inspect", "config", "run", "boot", "shutdown", "list",
+        "drag", "rotate", "permission", "logs",
+        "pressKey", "hideKeyboard", "eraseText", "copyTextFrom",
+        "clearState", "uninstall", "scrollTo",
+        "startRecording", "stopRecording",
+        "setLocation", "setAppearance", "lockDevice", "unlockDevice",
+        "pushFile", "pullFile",
+      ],
+      subcommands: [
+        "enroll", "match", "fail", "status", "start", "feed", "stop",
+        "up", "down", "left", "right", "dark", "light",
+        "home", "back", "enter", "delete", "volumeUp", "volumeDown",
+        "power", "tab", "escape", "grant", "revoke", "reset",
+        "portrait", "landscape",
+      ],
       tokenizer: {
         root: [
           [/#.*$/, "comment"],
           [/"[^"]*"/, "string"],
           [/'[^']*'/, "string"],
-          [/\b(ping|tree|tap|doubleTap|longPress|type|clear|swipe|scroll|tapAt|elementAt|exists|waitFor|wait|sleep|screenshot|launch|terminate|install|biometric|faceid|paste|openurl|media|build|camera|inject|index|inspect|config|run|boot|shutdown|list)\b/, "keyword"],
-          [/\b(enroll|match|fail|status|start|feed|stop|up|down|left|right)\b/, "type"],
-          [/--env\b/, "annotation"],
-          [/\b\d+\b/, "number"],
+          [/--\w+/, "annotation"],
+          [/\d+(\.\d+)?/, "number"],
+          [/[a-zA-Z]\w*/, {
+            cases: {
+              "@keywords": "keyword",
+              "@subcommands": "type",
+              "@default": "identifier",
+            },
+          }],
         ],
       },
     });
@@ -254,6 +335,28 @@ function App() {
       },
     });
     monaco.editor.setTheme("autopilot");
+
+    // Cmd+Enter to run script
+    editor.addAction({
+      id: "run-script",
+      label: "Run Script",
+      keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.Enter],
+      run: () => {
+        const runBtn = document.querySelector(".btn-play") as HTMLButtonElement;
+        if (runBtn && !runBtn.disabled) runBtn.click();
+      },
+    });
+
+    // Cmd+I to inspect
+    editor.addAction({
+      id: "inspect-ui",
+      label: "Inspect UI",
+      keybindings: [monaco.KeyMod.CtrlCmd | monaco.KeyCode.KeyI],
+      run: () => {
+        const inspectBtn = document.querySelector(".btn-tree") as HTMLButtonElement;
+        if (inspectBtn && !inspectBtn.disabled) inspectBtn.click();
+      },
+    });
   };
 
   return (
@@ -277,15 +380,15 @@ function App() {
               disabled={running}
             >Android</button>
           </div>
-          <button className="btn btn-tree" onClick={refreshTree} disabled={running}>
+          <button className="btn btn-tree" onClick={refreshTree} disabled={running} title="Inspect Simulator UI (⌘I)">
             <span className="btn-icon">🌳</span> Inspect
           </button>
           {!running ? (
-            <button className="btn btn-play" onClick={runScript}>
+            <button className="btn btn-play" onClick={runScript} title="Run script (⌘↵)">
               <span className="btn-icon">▶</span> Play
             </button>
           ) : (
-            <button className="btn btn-stop" onClick={stopScript}>
+            <button className="btn btn-stop" onClick={stopScript} title="Stop execution">
               <span className="btn-icon">■</span> Stop
             </button>
           )}
@@ -340,7 +443,7 @@ function App() {
               }}>📂 Screenshots</button>
               <button className="btn-clear" onClick={() => setOutput("")}>Clear</button>
             </div>
-            <pre className="terminal-content">
+            <pre className="terminal-content" ref={(el) => { if (el) el.scrollTop = el.scrollHeight; }}>
               {output || "$ auto run script.auto\nReady..."}
             </pre>
           </section>

@@ -287,6 +287,24 @@ func printUsage() {
       camera start <image.jpg> [--package <pkg>]  Inject mock camera (JVMTI)
       camera feed <image.jpg> [--package <pkg>]  Update camera image (hot-swap)
       camera stop [--package <pkg>]              Stop mock camera (kills app)
+      drag <from> <to> [secs]            Drag between elements
+      drag x1,y1 x2,y2 [secs]           Drag between coordinates
+      rotate <left|right|portrait|landscape>  Rotate device orientation
+      pressKey <key>                     Press key (home, back, enter, delete, volumeUp, volumeDown, power)
+      hideKeyboard                       Dismiss on-screen keyboard
+      eraseText [N]                      Delete N characters (default 1)
+      copyTextFrom <element>             Read text content from element
+      clearState <package>               Clear app data (pm clear)
+      uninstall <package>                Uninstall app
+      scrollTo <element> [direction]     Scroll until element is visible
+      startRecording                     Start screen recording
+      stopRecording <file.mp4>           Stop recording and save
+      setLocation <lat> <lon>            Set GPS location (emulator only)
+      setAppearance <dark|light>         Switch dark/light mode
+      lockDevice                         Lock device screen
+      unlockDevice                       Unlock device screen
+      pushFile <local> <remote>          Push file to device
+      pullFile <remote> <local>          Pull file from device
       terminate <package>               Kill app
       config                            Show all config
       config <key> <value>              Set config value

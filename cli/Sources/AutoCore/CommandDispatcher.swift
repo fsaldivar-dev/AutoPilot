@@ -380,6 +380,145 @@ public func executeSharedCommand(_ args: [String], bridge: any DeviceBridge) thr
         let ms = elapsedMs(start)
         print("Rotated \(args[1]) (\(ms)ms)")
 
+    // MARK: - Keyboard
+
+    case "pressKey":
+        guard args.count >= 2 else {
+            print("Usage: auto pressKey <home|back|enter|delete|volumeUp|volumeDown|power|tab|escape>")
+            return true
+        }
+        try bridge.pressKey(key: args[1])
+        let ms = elapsedMs(start)
+        print("Pressed key '\(args[1])' (\(ms)ms)")
+
+    case "hideKeyboard":
+        try bridge.hideKeyboard()
+        let ms = elapsedMs(start)
+        print("Keyboard dismissed (\(ms)ms)")
+
+    case "eraseText":
+        let count = args.count >= 2 ? Int(args[1]) ?? 1 : 1
+        try bridge.eraseText(count: count)
+        let ms = elapsedMs(start)
+        print("Erased \(count) character(s) (\(ms)ms)")
+
+    // MARK: - Text Extraction
+
+    case "copyTextFrom":
+        guard args.count >= 2 else {
+            print("Usage: auto copyTextFrom <element>")
+            return true
+        }
+        let text = try bridge.copyTextFrom(target: args[1])
+        let ms = elapsedMs(start)
+        print("\(text)")
+        if isatty(1) != 0 {
+            fputs("(\(ms)ms)\n", stderr)
+        }
+
+    // MARK: - App Data
+
+    case "clearState":
+        guard args.count >= 2 else {
+            print("Usage: auto clearState <bundleId>")
+            return true
+        }
+        try bridge.clearState(bundleId: args[1])
+        let ms = elapsedMs(start)
+        print("Cleared state for \(args[1]) (\(ms)ms)")
+
+    case "uninstall":
+        guard args.count >= 2 else {
+            print("Usage: auto uninstall <bundleId>")
+            return true
+        }
+        try bridge.uninstallApp(bundleId: args[1])
+        let ms = elapsedMs(start)
+        print("Uninstalled \(args[1]) (\(ms)ms)")
+
+    // MARK: - Scroll Search
+
+    case "scrollTo":
+        guard args.count >= 2 else {
+            print("Usage: auto scrollTo <element> [direction] [maxAttempts]")
+            return true
+        }
+        let direction = args.count >= 3 ? args[2] : "down"
+        let maxAttempts = args.count >= 4 ? Int(args[3]) ?? 20 : 20
+        try bridge.scrollTo(target: args[1], direction: direction, maxAttempts: maxAttempts)
+        let ms = elapsedMs(start)
+        print("Scrolled to '\(args[1])' (\(ms)ms)")
+
+    // MARK: - Screen Recording
+
+    case "startRecording":
+        try bridge.startRecording()
+        let ms = elapsedMs(start)
+        print("Recording started (\(ms)ms)")
+
+    case "stopRecording":
+        guard args.count >= 2 else {
+            print("Usage: auto stopRecording <output.mp4>")
+            return true
+        }
+        try bridge.stopRecording(outputPath: args[1])
+        let ms = elapsedMs(start)
+        print("Recording saved to \(args[1]) (\(ms)ms)")
+
+    // MARK: - Device Environment
+
+    case "setLocation":
+        guard args.count >= 3 else {
+            print("Usage: auto setLocation <latitude> <longitude>")
+            return true
+        }
+        guard let lat = Double(args[1]), let lon = Double(args[2]) else {
+            print("Error: latitude and longitude must be numbers")
+            return true
+        }
+        try bridge.setLocation(latitude: lat, longitude: lon)
+        let ms = elapsedMs(start)
+        print("Location set to \(lat), \(lon) (\(ms)ms)")
+
+    case "setAppearance":
+        guard args.count >= 2 else {
+            print("Usage: auto setAppearance <dark|light>")
+            return true
+        }
+        try bridge.setAppearance(mode: args[1])
+        let ms = elapsedMs(start)
+        print("Appearance set to \(args[1]) (\(ms)ms)")
+
+    case "lockDevice":
+        try bridge.lockDevice()
+        let ms = elapsedMs(start)
+        print("Device locked (\(ms)ms)")
+
+    case "unlockDevice":
+        try bridge.unlockDevice()
+        let ms = elapsedMs(start)
+        print("Device unlocked (\(ms)ms)")
+
+    // MARK: - File Transfer
+
+    case "pushFile":
+        guard args.count >= 3 else {
+            print("Usage: auto pushFile <localPath> <remotePath>")
+            return true
+        }
+        try bridge.pushFile(localPath: args[1], remotePath: args[2])
+        let ms = elapsedMs(start)
+        print("Pushed \(args[1]) → \(args[2]) (\(ms)ms)")
+
+    case "pullFile":
+        guard args.count >= 3 else {
+            print("Usage: auto pullFile <remotePath> <localPath>")
+            return true
+        }
+        try bridge.pullFile(remotePath: args[1], localPath: args[2])
+        let ms = elapsedMs(start)
+        print("Pulled \(args[1]) → \(args[2]) (\(ms)ms)")
+
     default:
         return false
     }

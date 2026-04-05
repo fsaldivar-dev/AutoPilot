@@ -1,0 +1,30 @@
+# text-operations.auto
+# Test text input, extraction, and app data commands
+#
+# Usage: auto run scripts/examples/text-operations.auto        (iOS)
+#        auto-android run scripts/examples/text-operations.auto (Android)
+
+ping
+launch dev.autopilot.test.Explorea
+waitFor "Explorea" 10
+
+# === Type and erase ===
+tap "Explorea"
+wait 1
+type "Hello World"
+wait 1
+eraseText 5
+wait 1
+screenshot screenshots/erased-text.png
+
+# === Copy text from element ===
+copyTextFrom "Explorea"
+
+# === Hide keyboard ===
+hideKeyboard
+wait 1
+
+# === Clear app state ===
+clearState dev.autopilot.test.Explorea
+wait 2
+screenshot screenshots/cleared-state.png

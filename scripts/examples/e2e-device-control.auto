@@ -1,0 +1,57 @@
+# e2e-device-control.auto
+# E2E test: all new device control commands in sequence
+#
+# Usage:
+#   auto run scripts/examples/e2e-device-control.auto          (iOS)
+#   auto-android run scripts/examples/e2e-device-control.auto  (Android)
+
+ping
+
+# === Appearance ===
+setAppearance dark
+wait 1
+screenshot screenshots/e2e-dark.png
+setAppearance light
+wait 1
+screenshot screenshots/e2e-light.png
+
+# === Keyboard ===
+pressKey home
+wait 1
+
+# === Lock / Unlock ===
+lockDevice
+wait 2
+screenshot screenshots/e2e-locked.png
+unlockDevice
+wait 2
+screenshot screenshots/e2e-unlocked.png
+
+# === Location ===
+setLocation 19.4326 -99.1332
+wait 1
+setLocation 35.6762 139.6503
+wait 1
+
+# === Recording (within script context, process persists) ===
+startRecording
+wait 2
+pressKey home
+wait 1
+stopRecording screenshots/e2e-recording.mp4
+
+# === File Transfer ===
+pushFile scripts/demo-images/qr-autopilot.png /tmp/e2e-test-push.png
+pullFile /tmp/e2e-test-push.png /tmp/e2e-test-pull.png
+
+# === Text operations (need an app) ===
+launch dev.autopilot.test.Explorea
+waitFor "Explorea" 10
+hideKeyboard
+
+# === Erase text ===
+eraseText 3
+
+# === Done ===
+screenshot screenshots/e2e-final.png
+terminate dev.autopilot.test.Explorea

@@ -369,6 +369,21 @@ func printUsage() {
       logs [bundleId] [--lines N]       Get device logs (last 50 lines)
       logs --system                     Get system logs
       rotate <left|right|portrait|landscape>  Rotate device orientation
+      pressKey <key>                     Press hardware key (home, enter, delete, tab, escape, volumeUp, volumeDown)
+      hideKeyboard                       Dismiss on-screen keyboard
+      eraseText [N]                      Delete N characters (default 1)
+      copyTextFrom <element>             Read text content from element
+      clearState <bundleId>              Clear app data and permissions
+      uninstall <bundleId>               Uninstall app from simulator
+      scrollTo <element> [direction]     Scroll until element is visible
+      startRecording                     Start screen recording
+      stopRecording <file.mp4>           Stop recording and save
+      setLocation <lat> <lon>            Set simulated GPS location
+      setAppearance <dark|light>         Switch dark/light mode
+      lockDevice                         Lock device screen
+      unlockDevice                       Unlock device screen
+      pushFile <local> <remote>          Push file to device
+      pullFile <remote> <local>          Pull file from device
       config                             Show all config
       config <key> <value>              Set config value
       config <key>                      Get config value
