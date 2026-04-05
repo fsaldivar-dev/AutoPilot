@@ -264,6 +264,6 @@ strings.forEach((s, i) => {
 
 ---
 
-*Anterior: [Capítulo 10 — Paridad Android](10-paridad-android.md)*
+*Anterior: [Capítulo 10 — Paridad Android](10-paridad-android.md) | Siguiente: [Capitulo 12 — Permisos de accesibilidad](12-permisos-accesibilidad.md)*
 
 *[Índice del libro](README.md)*
