@@ -66,4 +66,40 @@ public protocol DeviceBridge {
 
     func drag(from: String, to: String, duration: Double) throws
     func dragCoordinates(x1: Double, y1: Double, x2: Double, y2: Double, duration: Double) throws
+
+    // MARK: - Keyboard
+
+    func pressKey(key: String) throws
+    func hideKeyboard() throws
+    func eraseText(count: Int) throws
+
+    // MARK: - Text Extraction
+
+    func copyTextFrom(target: String) throws -> String
+
+    // MARK: - App Data
+
+    func clearState(bundleId: String) throws
+    func uninstallApp(bundleId: String) throws
+
+    // MARK: - Scroll Search
+
+    func scrollTo(target: String, direction: String, maxAttempts: Int) throws
+
+    // MARK: - Screen Recording
+
+    func startRecording() throws
+    func stopRecording(outputPath: String) throws
+
+    // MARK: - Device Environment
+
+    func setLocation(latitude: Double, longitude: Double) throws
+    func setAppearance(mode: String) throws
+    func lockDevice() throws
+    func unlockDevice() throws
+
+    // MARK: - File Transfer
+
+    func pushFile(localPath: String, remotePath: String) throws
+    func pullFile(remotePath: String, localPath: String) throws
 }

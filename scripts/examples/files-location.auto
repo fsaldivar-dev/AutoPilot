@@ -1,0 +1,31 @@
+# files-location.auto
+# Test file transfer and location commands
+#
+# Usage: auto run scripts/examples/files-location.auto        (iOS)
+#        auto-android run scripts/examples/files-location.auto (Android)
+
+ping
+
+# === GPS Location ===
+# Mexico City
+setLocation 19.4326 -99.1332
+wait 1
+
+# Tokyo
+setLocation 35.6762 139.6503
+wait 1
+
+# Reset to default (Cupertino / Mountain View)
+setLocation 37.3346 -122.0090
+wait 1
+
+# === File Transfer ===
+# Push a test file to device
+pushFile scripts/demo-images/qr-autopilot.png /tmp/test-upload.png
+wait 1
+
+# Pull it back
+pullFile /tmp/test-upload.png /tmp/test-download.png
+wait 1
+
+screenshot screenshots/files-done.png
