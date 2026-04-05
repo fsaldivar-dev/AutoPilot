@@ -40,6 +40,59 @@ public struct TargetResolverShared {
         return results
     }
 
+    /// Search a tree for all elements matching a label, filtered by role.
+    /// - requiredRole: if non-nil, only return elements whose "role" contains this string (case-insensitive)
+    public static func findAll(
+        in tree: [[String: Any]],
+        matching label: String,
+        requiredRole: String?
+    ) -> [(element: [String: Any], occurrence: Int)] {
+        var results: [(element: [String: Any], occurrence: Int)] = []
+        var count = 0
+        let query = label.lowercased()
+        findRecursiveWithRole(elements: tree, query: query, requiredRole: requiredRole?.lowercased(), results: &results, count: &count)
+        return results
+    }
+
+    private static func findRecursiveWithRole(
+        elements: [[String: Any]],
+        query: String,
+        requiredRole: String?,
+        results: inout [(element: [String: Any], occurrence: Int)],
+        count: inout Int
+    ) {
+        for element in elements {
+            let title = (element["title"] as? String ?? "").lowercased()
+            let label = (element["label"] as? String ?? "").lowercased()
+            let identifier = (element["identifier"] as? String ?? "").lowercased()
+            let display = (element["display"] as? String ?? "").lowercased()
+
+            let matches = title.contains(query) ||
+                         label.contains(query) ||
+                         identifier.contains(query) ||
+                         display.contains(query) ||
+                         title == query ||
+                         label == query
+
+            if matches {
+                if let requiredRole {
+                    let role = (element["role"] as? String ?? "").lowercased()
+                    if role.contains(requiredRole) {
+                        count += 1
+                        results.append((element: element, occurrence: count))
+                    }
+                } else {
+                    count += 1
+                    results.append((element: element, occurrence: count))
+                }
+            }
+
+            if let children = element["children"] as? [[String: Any]] {
+                findRecursiveWithRole(elements: children, query: query, requiredRole: requiredRole, results: &results, count: &count)
+            }
+        }
+    }
+
     private static func findRecursive(elements: [[String: Any]], query: String, results: inout [(element: [String: Any], occurrence: Int)], count: inout Int) {
         for element in elements {
             let title = (element["title"] as? String ?? "").lowercased()
