@@ -352,6 +352,32 @@ func executeCommand(_ args: [String]) throws {
             }
         }
 
+    case "record":
+        guard args.count >= 2 else {
+            print("Usage: auto record <output.auto>")
+            print("Records interactions with the Simulator to a .auto script.")
+            return
+        }
+        let session = RecordingSession(bridge: bridge, outputPath: args[1])
+        try session.start()
+
+        // Graceful Ctrl+C
+        signal(SIGINT, SIG_IGN)
+        let sigSource = DispatchSource.makeSignalSource(signal: SIGINT, queue: .main)
+        sigSource.setEventHandler {
+            do {
+                let path = try session.stop()
+                print("\nSaved to \(path)")
+            } catch {
+                print("\nError saving: \(error)")
+            }
+            exit(0)
+        }
+        sigSource.resume()
+
+        // Pump run loop for AX events
+        dispatchMain()
+
     case "help", "--help", "-h":
         printUsage()
 
@@ -424,6 +450,7 @@ func printUsage() {
       config <key>                      Get config value
       build                             Build with camera mock (uses .autopilot)
       build <xcodebuild args...>        Build with explicit args
+      record <output.auto>               Record interactions to script (Ctrl+C to stop)
       run <script.auto>                 Run automation script
 
     Script format (.auto):
