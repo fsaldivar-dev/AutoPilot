@@ -673,6 +673,29 @@ public final class SimulatorBridge {
         throw BridgeError.noWindow
     }
 
+    /// Lightweight content access — skips activation and retries.
+    /// Use during recording when Simulator is already in the foreground.
+    /// Get the Simulator window frame in screen coordinates.
+    public func getSimulatorWindowFrame() -> CGRect? {
+        guard let window = findSimulatorContentFast() else { return nil }
+        var posRef: CFTypeRef?
+        AXUIElementCopyAttributeValue(window, kAXPositionAttribute as CFString, &posRef)
+        var sizeRef: CFTypeRef?
+        AXUIElementCopyAttributeValue(window, kAXSizeAttribute as CFString, &sizeRef)
+        guard let posRef, let sizeRef else { return nil }
+        var pos = CGPoint.zero
+        var size = CGSize.zero
+        AXValueGetValue(posRef as! AXValue, .cgPoint, &pos)
+        AXValueGetValue(sizeRef as! AXValue, .cgSize, &size)
+        return CGRect(origin: pos, size: size)
+    }
+
+    public func findSimulatorContentFast() -> AXUIElement? {
+        guard let pid = simulatorPID else { return nil }
+        let app = AXUIElementCreateApplication(pid)
+        return getFirstWindow(of: app)
+    }
+
     private func getFirstWindow(of app: AXUIElement) -> AXUIElement? {
         var windows: CFTypeRef?
         AXUIElementCopyAttributeValue(app, kAXWindowsAttribute as CFString, &windows)

@@ -79,27 +79,27 @@ public struct AXDebug {
         return output
     }
 
-    // MARK: - Context helpers
+    // MARK: - Context helpers (public for SemanticResolver)
 
-    private static func axGetParent(of element: AXUIElement) -> AXUIElement? {
+    public static func axGetParent(of element: AXUIElement) -> AXUIElement? {
         var ref: CFTypeRef?
         AXUIElementCopyAttributeValue(element, kAXParentAttribute as CFString, &ref)
         return ref as! AXUIElement?
     }
 
-    private static func axGetRole(of element: AXUIElement) -> String? {
+    public static func axGetRole(of element: AXUIElement) -> String? {
         var ref: CFTypeRef?
         AXUIElementCopyAttributeValue(element, kAXRoleAttribute as CFString, &ref)
         return ref as? String
     }
 
-    private static func axHasIdentifier(_ element: AXUIElement) -> Bool {
+    public static func axHasIdentifier(_ element: AXUIElement) -> Bool {
         var ref: CFTypeRef?
         AXUIElementCopyAttributeValue(element, kAXIdentifierAttribute as CFString, &ref)
         return ((ref as? String) ?? "").isEmpty == false
     }
 
-    private static func isContainerRole(_ role: String?) -> Bool {
+    public static func isContainerRole(_ role: String?) -> Bool {
         guard let role else { return false }
         let containers = ["AXToolbar", "AXNavigationBar", "AXTabBar", "AXTable",
                           "AXScrollArea", "AXGroup", "AXList", "AXOutline",
@@ -109,7 +109,7 @@ public struct AXDebug {
 
     /// Walk parent chain and find the best ancestor for a `within` clause.
     /// Prefers ancestors with accessibilityIdentifier, then named containers.
-    private static func findBestAncestor(of element: AXUIElement) -> String? {
+    public static func findBestAncestor(of element: AXUIElement) -> String? {
         var current: AXUIElement = element
         var bestLabel: String? = nil
         var bestScore = 0
