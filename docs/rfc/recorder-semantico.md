@@ -762,17 +762,17 @@ Autonoma no tiene issues públicos (repositorio cerrado). Sus claims:
 | 4 | waitUntilGone | **NO** | Solo `waitFor` (aparicion). Falta deteccion de desaparicion. |
 | 5 | OCR (assertOCR) | **NO** | Sin integracion con Vision.framework ni tesseract. |
 | 6 | Perceptual hash (assertScreen) | **NO** | Sin captura de screenshots ni diff visual. |
-| 7 | CGEventTap pasivo (iOS) | **SI** | `.listenOnly`, filtro por window frame, thread dedicado. |
-| 8 | getevent (Android) | **SI** | `adb shell getevent -lt` + calibracion touchscreen. |
-| 9 | Selector priority | **SI** | Exactamente como el RFC: id > title > label > [N] > tapAt. |
-| 10 | waitFor injection | **SI** | 3 triggers: primer tap, gap >1.5s, transicion tapAt→tap. Soporta `[N]`. |
-| 11 | terminate+launch | **SI** | iOS: config. Android: detecta app en foreground via dumpsys. |
-| 12 | System dialog detection | **PARCIAL** | Solo iOS. Detecta AXSheet/AXDialog y emite `permission grant`. |
-| 13 | Keyboard recording | **PARCIAL** | Solo iOS. CGEventTap keyDown + debounce. Android: teclado virtual = touch events. |
-| 14 | Long press | **SI** | Ambas plataformas. Threshold 0.5s. |
-| 15 | Double tap | **SI** | Ambas plataformas. Buffer 300ms. |
-| 16 | Scroll detection | **PARCIAL** | iOS: NO (trackpad bypass CGEventTap). Android: SI (getevent swipe >50px). |
-| 17 | scrollTo visibility | **NO** | `search()` encuentra offscreen. Necesita verificacion de frame vs viewport. |
+| 7 | CGEventTap pasivo (iOS) | **SI** | `AutoLibiOS/EventRecorder.swift` — `.listenOnly`, window frame filter, thread dedicado |
+| 8 | getevent (Android) | **SI** | `AutoCore/GetEventParser.swift` + `AndroidRecordingSession.swift` — calibracion touchscreen |
+| 9 | Selector priority | **SI** | `AutoLibiOS/SemanticResolver.swift:chooseBestSelector()` + `AutoCore/AndroidSemanticResolver.swift` |
+| 10 | waitFor injection | **SI** | `AutoCore/ScriptGenerator.swift:24-43` — 3 triggers + soporte `[N]` |
+| 11 | terminate+launch | **SI** | `AutoLibiOS/RecordingSession.swift:45` (config) + `AutoCore/AndroidRecordingSession.swift:49` (dumpsys) |
+| 12 | System dialog detection | **PARCIAL** | `AutoLibiOS/RecordingSession.swift:361-424` — solo iOS, detecta AXSheet/AXDialog |
+| 13 | Keyboard recording | **PARCIAL** | `AutoLibiOS/RecordingSession.swift:192-237` — solo iOS, CGEventTap keyDown + debounce |
+| 14 | Long press | **SI** | `RecordingSession.swift:164` + `AndroidRecordingSession.swift:200` — threshold 0.5s |
+| 15 | Double tap | **SI** | `RecordingSession.swift:132` + `AndroidRecordingSession.swift:233` — buffer 300ms |
+| 16 | Scroll detection | **PARCIAL** | iOS: NO (#50). Android: `AndroidRecordingSession.swift:217` (swipe >50px) |
+| 17 | scrollTo visibility | **NO** | Issue #49. `search()` encuentra offscreen. Fix propuesto: #58 |
 
 **Implementado: 11/17 completo, 3/17 parcial, 3/17 pendiente.**
 
