@@ -138,14 +138,70 @@ Cosas que el usuario tiene que hacer a mano despues de grabar:
 | iOS + Android | Solo iOS | Ambos | Ambos |
 | Replicabilidad E2E | **100%** (50/50) | ~70-75% | ~40-55% |
 
-### Flujo probado: Explorea app (19 pasos)
+### iOS — Explorea app (19 pasos)
 
 ```
 login → codigo → confirmar → navegar tabs → scroll → cerrar sesion → confirmar dialogo
 ```
 
-- 50 corridas consecutivas
-- 0 failures
+- **50/50 corridas (100%)** con script editado manualmente (1 swipe up agregado)
+- **0/50 con script raw** del recorder (falta scroll)
 - Tiempo promedio por corrida: ~10s
 - Selectores semanticos: 15 de 19 pasos (79%)
-- Fallback a coordenadas: 4 de 19 pasos (21% — scroll areas y modal buttons)
+- Fallback a coordenadas: 4 de 19 pasos (21%)
+- Ediciones manuales necesarias: 1 (`swipe up` extra)
+
+### Android — Explorea app (22 pasos)
+
+```
+login → codigo → confirmar → navegar tabs → scroll → cerrar sesion → confirmar dialogo
+```
+
+- **0/5 con script raw** del recorder (falta scroll + wait)
+- **3/3 con script editado** (2 ediciones: `swipe up` extra + `wait 0.5`)
+- Tiempo promedio por corrida: ~5.5s (AgentBridge) vs ~4s (iOS)
+- Selectores semanticos: 14 de 22 pasos (64%)
+- Fallback a coordenadas: 8 de 22 pasos (36% — Compose Buttons sin label)
+
+**Que funciona automaticamente (sin editar):**
+- `waitFor` injection (primer tap, transicion de pantalla, tapAt→tap switch)
+- `waitFor "X[2]"` — espera N matches (para dialogos)
+- Foreground app detection (`dumpsys activity recents`)
+- Swipe detection (via getevent)
+- `tap "X[2]"` con tapAtCoordinate (toca la ocurrencia correcta)
+- Compose Button click-through (findClickableFrame busca Button padre)
+- Calibracion touchscreen automatica (getevent -p + wm size)
+
+**Que requiere edicion manual:**
+- Scroll insuficiente (1 swipe no alcanza → agregar swipes)
+- Wait post-scroll (scroll necesita asentarse → agregar `wait 0.5`)
+- Compose Buttons sin contentDescription (caen a tapAt)
+
+### Comparativa recorder: iOS vs Android
+
+| Aspecto | iOS | Android |
+|---------|-----|---------|
+| Captura | CGEventTap (macOS) | getevent -lt (kernel) |
+| Latencia captura | <1ms | <5ms |
+| Tree access | AXUIElement (~15ms) | AgentBridge (~6ms) / Legacy (~2s) |
+| Selectores semanticos | 79% | 64% |
+| Scroll detection | NO (trackpad bypass) | SI (getevent swipe) |
+| Replicabilidad raw | 0% (scroll) | 0% (scroll) |
+| Replicabilidad editado | **100%** (50/50) | **100%** (3/3) |
+| Ediciones manuales | 1 (swipe) | 2 (swipe + wait) |
+
+### Problema pendiente: scroll
+
+El bloqueante principal para 100% replicabilidad raw (sin edicion) es el scroll:
+
+**iOS:** CGEventTap no recibe scrollWheel del trackpad en Simulator (gestos van directo al proceso).
+
+**Android:** getevent SI detecta swipes pero:
+1. Un solo swipe puede no scrollear lo suficiente
+2. El tree se lee pre-scroll y puede no reflejar el estado post-scroll
+3. No hay forma de saber cuantos pixels scrolleo el usuario
+
+**Solucion propuesta (futuro PR):**
+- `scrollTo "elemento"` con verificacion de visibilidad (frame dentro del viewport)
+- Requiere fix del AX tree que reporta elementos offscreen como encontrados
+- Alternativa: `scrollUntilVisible "X"` que hace diff de posiciones entre scrolls

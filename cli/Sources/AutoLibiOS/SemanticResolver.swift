@@ -1,18 +1,6 @@
 import Foundation
 import ApplicationServices
-
-// MARK: - ResolvedAction
-
-public struct ResolvedAction {
-    public let command: String        // "tap", "longPress", "doubleTap", "type", "scroll"
-    public let selector: String       // "Login", "Camera[2]", "loginBtn"
-    public let role: String?          // "button" (short form for [role] syntax)
-    public let within: String?        // scope parent label
-    public let occurrence: Int?       // nil if unique, N if label[N]
-    public let identifier: String?    // AX identifier (when available)
-    public let fragile: Bool          // true if no identifier and needs occurrence
-    public let coordinate: CGPoint    // original click coordinate (fallback)
-}
+import AutoCore
 
 // MARK: - SemanticResolver
 

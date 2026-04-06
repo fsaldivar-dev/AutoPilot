@@ -31,6 +31,7 @@ Documentamos todo el proceso — los errores, los callejones sin salida, las dec
 10. **[Paridad Android](10-paridad-android.md)** — Label[N], clipboard (y la restricción silenciosa de Android 10), y tres intentos de camera mock
 11. **[El benchmark](11-el-benchmark.md)** — AutoPilot vs Maestro vs WDA: metodología, resultados, y por qué Maestro es 2.5x más lento por diseño
 12. **[Permisos de accesibilidad](12-permisos-accesibilidad.md)** — Por qué el Inspector dejó de funcionar, cómo macOS hereda permisos TCC, y por qué no hay alternativa a AXUIElement
+13. **[El recorder semantico](13-el-recorder-semantico.md)** — CGEventTap (iOS) + getevent (Android): captura pasiva, selectores semanticos, y por qué el scroll es el ultimo problema
 
 ### Apendices
 
@@ -43,7 +44,9 @@ Documentamos todo el proceso — los errores, los callejones sin salida, las dec
 ### Referencia
 
 - **[Roadmap](../../ROADMAP.md)** — Fases futuras (Android, web, recorder)
-- **[Bitacora](../camera/BITACORA.md)** — Diario de laboratorio crudo (cada sesion, cada intento)
+- **[Bitacora — Camara](../camera/BITACORA.md)** — Diario de laboratorio crudo de la camara virtual
+- **[Bitacora — Recorder](../recorder/BITACORA.md)** — Diario del recorder semantico (CGEventTap, getevent, bugs)
+- **[Hallazgos — Recorder](../recorder/HALLAZGOS.md)** — Limitaciones, metricas, comparativa para benchmark
 - **[Android backend](../android/README.md)** — AgentBridge, agente nativo, comandos implementados
 
 ---

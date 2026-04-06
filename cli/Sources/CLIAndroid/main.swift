@@ -160,16 +160,46 @@ func executeCommand(_ args: [String]) throws {
                 print("'\(label)[\(occ)]' not found (\(matches.count) occurrence(s) total)")
                 return
             }
-            let tapLabel = (match.element["title"] as? String) ?? (match.element["label"] as? String) ?? label
-            try bridge.tap(target: tapLabel)
+            // Tap by coordinate (center of frame) to ensure we hit the right occurrence
+            if let frame = match.element["frame"] as? [String: Any],
+               let fx = frame["x"] as? Int, let fy = frame["y"] as? Int,
+               let fw = frame["width"] as? Int, let fh = frame["height"] as? Int {
+                let cx = Double(fx + fw / 2)
+                let cy = Double(fy + fh / 2)
+                try bridge.tapAtCoordinate(x: cx, y: cy)
+            } else {
+                let tapLabel = (match.element["title"] as? String) ?? (match.element["label"] as? String) ?? label
+                try bridge.tap(target: tapLabel)
+            }
             print("Tapped '\(label)[\(occ)]' (\(elapsedMs(start))ms)")
             return
         }
 
-        // Plain label — delegate to shared
-        let handled = try executeSharedCommand(args, bridge: bridge)
-        if !handled {
-            print("Unknown command: \(cmd)")
+        // Plain label — find in tree and tap by coordinate for reliability.
+        // When the match is a TextView with a sibling/parent Button, tap the Button
+        // center instead (Compose puts click handlers on Button, not TextView).
+        let tree = try bridge.tree()
+        let matches = TargetResolverShared.findAll(in: tree, matching: target)
+        if let match = matches.first {
+            let clickable = findClickableFrame(for: match.element, in: tree)
+            if clickable != nil {
+                fputs("[tap] found Button frame for '\(target)'\n", stderr)
+            }
+            let tapFrame = clickable ?? match.element["frame"] as? [String: Any]
+            if let frame = tapFrame,
+               let fx = frame["x"] as? Int, let fy = frame["y"] as? Int,
+               let fw = frame["width"] as? Int, let fh = frame["height"] as? Int {
+                let cx = Double(fx + fw / 2)
+                let cy = Double(fy + fh / 2)
+                try bridge.tapAtCoordinate(x: cx, y: cy)
+                print("Tapped '\(target)' (\(elapsedMs(start))ms)")
+            } else {
+                try bridge.tap(target: target)
+                print("Tapped '\(target)' (\(elapsedMs(start))ms)")
+            }
+        } else {
+            try bridge.tap(target: target)
+            print("Tapped '\(target)' (\(elapsedMs(start))ms)")
         }
         return
 
@@ -251,6 +281,32 @@ func executeCommand(_ args: [String]) throws {
             print("Unknown camera action: \(args[1]). Use start/feed/stop")
         }
 
+    case "record":
+        guard args.count >= 2 else {
+            print("Usage: auto-android record <output.auto>")
+            print("Records touch interactions to a .auto script via getevent.")
+            return
+        }
+        let session = AndroidRecordingSession(bridge: bridge, outputPath: args[1])
+        try session.start()
+
+        // Graceful Ctrl+C
+        signal(SIGINT, SIG_IGN)
+        let sigSource = DispatchSource.makeSignalSource(signal: SIGINT, queue: .main)
+        sigSource.setEventHandler {
+            do {
+                let path = try session.stop()
+                print("\nSaved to \(path)")
+            } catch {
+                print("\nError saving: \(error)")
+            }
+            exit(0)
+        }
+        sigSource.resume()
+
+        // Pump run loop
+        dispatchMain()
+
     case "help", "--help", "-h":
         printUsage()
 
@@ -316,6 +372,7 @@ func printUsage() {
       terminate <package>               Kill app
       config                            Show all config
       config <key> <value>              Set config value
+      record <output.auto>               Record touch interactions to script (Ctrl+C to stop)
       run <script.auto>                 Run automation script
 
     Script format (.auto):
@@ -342,6 +399,45 @@ func printUsage() {
       - Agent running (adb shell am instrument -w dev.autopilot.agent/.AgentInstrumentation)
       - Socket forwarded (adb forward tcp:9008 localabstract:autopilot)
     """)
+}
+
+/// Find a clickable parent/sibling Button for a non-clickable element (e.g., TextView in Compose).
+/// Returns the Button's frame, or nil if not found.
+func findClickableFrame(for element: [String: Any], in tree: [[String: Any]]) -> [String: Any]? {
+    guard let frame = element["frame"] as? [String: Any],
+          let ex = frame["x"] as? Int, let ey = frame["y"] as? Int else { return nil }
+
+    // Search the tree for a Button whose frame contains this element's position
+    return findButtonContaining(x: ex, y: ey, in: tree)
+}
+
+func findButtonContaining(x: Int, y: Int, in elements: [[String: Any]]) -> [String: Any]? {
+    var bestFrame: [String: Any]?
+    var bestArea = Int.max
+
+    findSmallestButton(x: x, y: y, in: elements, bestFrame: &bestFrame, bestArea: &bestArea)
+    return bestFrame
+}
+
+func findSmallestButton(x: Int, y: Int, in elements: [[String: Any]], bestFrame: inout [String: Any]?, bestArea: inout Int) {
+    for element in elements {
+        let role = (element["role"] as? String) ?? ""
+        let clickable = (element["clickable"] as? Bool) ?? false
+
+        if (role == "Button" || clickable),
+           let frame = element["frame"] as? [String: Any],
+           let fx = frame["x"] as? Int, let fy = frame["y"] as? Int,
+           let fw = frame["width"] as? Int, let fh = frame["height"] as? Int {
+            let area = fw * fh
+            if x >= fx && x <= fx + fw && y >= fy && y <= fy + fh && area < bestArea {
+                bestArea = area
+                bestFrame = frame
+            }
+        }
+        if let children = element["children"] as? [[String: Any]] {
+            findSmallestButton(x: x, y: y, in: children, bestFrame: &bestFrame, bestArea: &bestArea)
+        }
+    }
 }
 
 do {
