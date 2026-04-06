@@ -245,10 +245,14 @@ public func executeSharedCommand(_ args: [String], bridge: any DeviceBridge) thr
         let pollInterval: useconds_t = 500_000
         let maxAttempts = Int(timeout * 2)
 
+        // Support label[N] syntax: waitFor "Cerrar sesion[2]" waits for 2+ matches
+        let (searchLabel, requiredCount) = TargetResolverShared.parse(target)
+        let minMatches = requiredCount ?? 1
+
         var found = false
         for _ in 0..<maxAttempts {
-            let results = try bridge.search(query: target)
-            if !results.isEmpty {
+            // Catch errors (e.g., "No active window" during app launch) and retry
+            if let results = try? bridge.search(query: searchLabel), results.count >= minMatches {
                 found = true
                 break
             }
