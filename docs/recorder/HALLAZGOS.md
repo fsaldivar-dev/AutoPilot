@@ -151,6 +151,13 @@ login → codigo → confirmar → navegar tabs → scroll → cerrar sesion →
 - Fallback a coordenadas: 4 de 19 pasos (21%)
 - Ediciones manuales necesarias: 1 (`swipe up` extra)
 
+**Datos crudos de las 50 corridas iOS** (ejecutadas 2026-04-05 ~17:30):
+- Metodo: `bash for loop`, 50 ejecuciones consecutivas con `sleep 1` entre cada una
+- Todas retornaron exit code 0
+- Output de la corrida 50: `19 step(s) completed`
+- No se midio tiempo individual por corrida (solo pass/fail)
+- El script tenia 19 pasos incluyendo terminate+launch, waitFor, taps, y 1 swipe up manual
+
 ### Android — Explorea app (22 pasos)
 
 ```
@@ -162,6 +169,16 @@ login → codigo → confirmar → navegar tabs → scroll → cerrar sesion →
 - Tiempo promedio por corrida: ~5.5s (AgentBridge) vs ~4s (iOS)
 - Selectores semanticos: 14 de 22 pasos (64%)
 - Fallback a coordenadas: 8 de 22 pasos (36% — Compose Buttons sin label)
+
+**Datos crudos de las 3 corridas Android** (ejecutadas 2026-04-05 ~21:00):
+
+| Run | Pasos | Tiempo | Ultimo paso | Tree final |
+|-----|-------|--------|-------------|-----------|
+| 1 | 22 | 5363ms | tap Cerrar sesion[2] (36ms) | Login screen |
+| 2 | 22 | 4911ms | tap Cerrar sesion[2] (25ms) | Login screen |
+| 3 | 22 | 4563ms | tap Cerrar sesion[2] (40ms) | Login screen |
+
+Promedio: 4946ms. El tree final fue verificado: muestra pantalla de login (Explorea + "Desbloquear con codigo").
 
 **Que funciona automaticamente (sin editar):**
 - `waitFor` injection (primer tap, transicion de pantalla, tapAt→tap switch)
