@@ -16,6 +16,7 @@ public enum BridgeError: Error, CustomStringConvertible {
     case cameraImageNotFound(String)
     case adbNotFound
     case adbFailed(String)
+    case eventTapFailed
     case unknown(String)
 
     public var description: String {
@@ -35,6 +36,7 @@ public enum BridgeError: Error, CustomStringConvertible {
         case .cameraImageNotFound(let p): return "Image not found: '\(p)'"
         case .adbNotFound: return "ADB not found. Set ANDROID_HOME or add adb to PATH."
         case .adbFailed(let msg): return "ADB failed: \(msg)"
+        case .eventTapFailed: return "CGEventTap creation failed. Grant Accessibility permissions in: System Settings > Privacy & Security > Accessibility."
         case .unknown(let msg): return msg
         }
     }
