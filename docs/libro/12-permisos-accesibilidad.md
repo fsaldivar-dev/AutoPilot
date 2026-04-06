@@ -207,4 +207,4 @@ La conclusion fue que no hay alternativa practica que elimine la necesidad de pe
 
 ---
 
-*Anterior: [Capitulo 11 — El benchmark](11-el-benchmark.md)*
+*Anterior: [Capitulo 11 — El benchmark](11-el-benchmark.md)* | *Siguiente: [Capitulo 13 — El recorder semantico](13-el-recorder-semantico.md)*
