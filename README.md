@@ -61,6 +61,7 @@ Documentamos todo el proceso — los errores, los callejones sin salida, las dec
 | [06 — Alternativas](docs/libro/06-alternativas.md) | Maestro, Appium, AXe, XCUITest — análisis honesto |
 | [07 — Decisiones](docs/libro/07-decisiones.md) | Por qué Swift, por qué AX públicas, por qué no YAML |
 | [09 — El agente Android](docs/libro/09-el-agente-android.md) | De 2100ms a 75ms con UiAutomation directa |
+| [13 — El recorder semantico](docs/libro/13-el-recorder-semantico.md) | CGEventTap + getevent: captura pasiva, 100% replicabilidad |
 
 > **[Leer el libro completo →](docs/libro/README.md)**
 
@@ -99,6 +100,42 @@ auto tap "Capturar"
 auto inject paisaje.jpg    # Cambiar en caliente
 auto tap "Capturar"
 ```
+
+### Recorder semantico
+
+Graba interacciones y genera scripts `.auto` con selectores semanticos — no coordenadas.
+
+```bash
+# iOS — graba clicks en el Simulator
+auto record mi-flujo.auto
+# interactua con la app... Ctrl+C para parar
+
+# Android — graba toques en el emulador
+auto-android record mi-flujo.auto
+# interactua con la app... Ctrl+C para parar
+
+# Replay en ambas plataformas
+auto run mi-flujo.auto
+auto-android run mi-flujo.auto
+```
+
+El script generado usa selectores semanticos:
+
+```auto
+# Generado automaticamente por el recorder
+waitFor "Desbloquear con codigo"
+tap "Desbloquear con codigo"
+tap "1"
+tap "2"
+tap "3"
+tap "4"
+waitFor "Capturar"
+tap "Capturar"
+waitFor "Mapa"
+tap "Mapa"
+```
+
+Probado con 50 corridas consecutivas en iOS — **100% replicabilidad**. [Capitulo 13](docs/libro/13-el-recorder-semantico.md)
 
 ### Scripts .auto
 
