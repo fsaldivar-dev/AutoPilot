@@ -167,40 +167,52 @@ public final class SimulatorBridge {
         usleep(200_000)
 
         // Strategy for tricky chars (`+`, `@`, `!`, ...):
-        //   1. Try setting AXValue on the currently focused element directly.
-        //      This bypasses both the keyboard and paste-blocking (works even
-        //      on password fields that disable Cmd+V). When the simulator
-        //      window exposes a focused TextField, this is the most reliable
-        //      path and is silently picked up by the underlying app.
-        //   2. Fall back to `simctl pbcopy` + Cmd+V via osascript.
-        //   3. As a last resort, type per-character with CGEvent — drops
-        //      shifted chars but is better than typing nothing.
+        //   1. AX setvalue on the focused element (silent, instant). Often fails
+        //      on iOS app fields because focus lives inside the iframe.
+        //   2. simctl pbcopy + Cmd+V via osascript. This path is independent
+        //      of keyboard layout (US/Latin American/etc) but triggers the iOS 17+
+        //      pasteboard privacy dialog. We auto-dismiss that dialog by tapping
+        //      "Permitir pegar" / "Allow Paste" right after the paste.
+        //   3. (intentionally no char-by-char fallback: per-key CGEvents with
+        //      shift modifiers depend on the macOS keyboard layout, which on
+        //      Latin American layouts maps shift+2 to `"` instead of `@`,
+        //      shift+= to garbage instead of `+`, etc.)
         if text.contains(where: { Self.trickyTypeChars.contains($0) }) {
             if trySetFocusedFieldValue(text) {
                 return
             }
             try pasteViaPasteboard(text, pid: pid)
+            autoDismissPasteboardDialog()
             return
         }
 
         let src = CGEventSource(stateID: .combinedSessionState)
+        let shiftKeyCode: CGKeyCode = 56 // left shift
 
         for char in text {
-            if let keyCode = keyCodeForChar(char) {
-                let needsShift = char.isUppercase || shiftChars.contains(char)
+            guard let keyCode = keyCodeForChar(char) else { continue }
+            let needsShift = char.isUppercase || shiftChars.contains(char)
 
-                let keyDown = CGEvent(keyboardEventSource: src, virtualKey: keyCode, keyDown: true)
-                let keyUp = CGEvent(keyboardEventSource: src, virtualKey: keyCode, keyDown: false)
+            let keyDown = CGEvent(keyboardEventSource: src, virtualKey: keyCode, keyDown: true)
+            let keyUp = CGEvent(keyboardEventSource: src, virtualKey: keyCode, keyDown: false)
 
-                if needsShift {
-                    keyDown?.flags = .maskShift
-                    keyUp?.flags = .maskShift
-                }
-
+            // iOS Simulator does not reliably honor `flags = .maskShift` on a
+            // single CGEvent. Post explicit shift down → key → shift up instead.
+            if needsShift {
+                let shiftDown = CGEvent(keyboardEventSource: src, virtualKey: shiftKeyCode, keyDown: true)
+                let shiftUp = CGEvent(keyboardEventSource: src, virtualKey: shiftKeyCode, keyDown: false)
+                keyDown?.flags = .maskShift
+                keyUp?.flags = .maskShift
+                shiftDown?.postToPid(pid)
+                usleep(5_000)
                 keyDown?.postToPid(pid)
                 keyUp?.postToPid(pid)
-                usleep(30_000) // 30ms between keys
+                shiftUp?.postToPid(pid)
+            } else {
+                keyDown?.postToPid(pid)
+                keyUp?.postToPid(pid)
             }
+            usleep(30_000) // 30ms between keys
         }
     }
 
@@ -302,6 +314,24 @@ public final class SimulatorBridge {
         try? osa.run()
         osa.waitUntilExit()
         usleep(200_000)
+    }
+
+    /// After a `pasteViaPasteboard` call, iOS 17+ shows a privacy dialog asking
+    /// the user to allow paste from CoreSimulatorBridge. The dialog IS in the
+    /// Simulator AX tree (unlike Save Password), so we can find and tap
+    /// "Permitir pegar" / "Allow Paste" automatically. No-op if the dialog
+    /// is not present (iOS may have remembered the previous answer).
+    private func autoDismissPasteboardDialog() {
+        usleep(300_000) // give iOS a moment to render the dialog
+        guard let root = try? findSimulatorContent() else { return }
+        let candidateLabels = ["Permitir pegar", "Allow Paste", "Allow"]
+        for label in candidateLabels {
+            if let element = findAXElement(in: root, matching: label, depth: 0, maxDepth: 12) {
+                tapElement(element)
+                usleep(150_000)
+                return
+            }
+        }
     }
 
     /// Per-character typing using CGEvent keycodes. This is the original
@@ -1344,8 +1374,8 @@ public final class SimulatorBridge {
     private let shiftChars: Set<Character> = Set("~!@#$%^&*()_+{}|:\"<>?")
 
     private func keyCodeForChar(_ char: Character) -> CGKeyCode? {
-        let lower = char.lowercased()
-        let map: [String: CGKeyCode] = [
+        // Direct lookup table for unshifted chars (lowercase letters, digits, common punctuation)
+        let unshifted: [String: CGKeyCode] = [
             "a": 0, "s": 1, "d": 2, "f": 3, "h": 4, "g": 5, "z": 6, "x": 7,
             "c": 8, "v": 9, "b": 11, "q": 12, "w": 13, "e": 14, "r": 15,
             "y": 16, "t": 17, "1": 18, "2": 19, "3": 20, "4": 21, "6": 22,
@@ -1354,9 +1384,18 @@ public final class SimulatorBridge {
             "j": 38, "'": 39, "k": 40, ";": 41, "\\": 42, ",": 43, "/": 44,
             "n": 45, "m": 46, ".": 47, " ": 49, "`": 50,
         ]
-        if lower == "\n" || lower == "\r" { return 36 }
-        if lower == "\t" { return 48 }
-        return map[lower]
+        // Shifted symbols map to the keyCode of their base char (caller must apply shift).
+        let shiftedSymbols: [Character: CGKeyCode] = [
+            "!": 18, "@": 19, "#": 20, "$": 21, "%": 23, "^": 22,
+            "&": 26, "*": 28, "(": 25, ")": 29, "_": 27, "+": 24,
+            "{": 33, "}": 30, "|": 42, ":": 41, "\"": 39,
+            "<": 43, ">": 47, "?": 44, "~": 50,
+        ]
+        if char == "\n" || char == "\r" { return 36 }
+        if char == "\t" { return 48 }
+        if let kc = shiftedSymbols[char] { return kc }
+        // Uppercase letters and lowercase chars share the same keyCode (lowercased lookup).
+        return unshifted[char.lowercased()]
     }
 
     // MARK: - Build
