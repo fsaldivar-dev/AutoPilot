@@ -310,6 +310,21 @@ func executeCommand(_ args: [String]) throws {
     case "help", "--help", "-h":
         printUsage()
 
+    case "setup":
+        // #67: rearma forward + agente automaticamente
+        guard let agent = bridge as? AgentBridge else {
+            print("setup is only available with AgentBridge (do not pass --legacy)")
+            return
+        }
+        agent.autoRecover = false  // we drive the recovery flow ourselves
+        do {
+            try agent.setupAgent(verbose: true)
+            print("\n✓ Setup complete — auto-android is ready")
+        } catch {
+            print("\n✗ Setup failed: \(error)")
+            exit(1)
+        }
+
     case "doctor":
         print("AutoPilot Doctor — Android Environment Check\n")
 
@@ -447,6 +462,7 @@ func printUsage() {
       record <output.auto>               Record touch interactions to script (Ctrl+C to stop)
       run <script.auto>                 Run automation script
       doctor                            Check environment setup (adb, devices, agent)
+      setup                             Rearm adb forward + relaunch agent (auto-recovery)
 
     Script format (.auto):
       # Comments start with #
