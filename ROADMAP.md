@@ -301,3 +301,39 @@ Mismo protocolo (`DeviceBridge`), diferente backend. Dos binarios: `auto` (iOS) 
 - **Regresion Visual** — comparacion estructural del arbol entre ejecuciones (no basada en pixeles, basada en estructura)
 - **Ejecucion Paralela** — multiples simuladores, mismo script, concurrente
 - **Grabador** — `CGEventTap` para interceptar clicks/taps y generar scripts `.auto`
+
+---
+
+## Recomendaciones del experimento de validacion en apps reales
+
+Sesion 2026-04-07. El experimento corrio el flow completo de login desde estado limpio en una app comercial real sobre iOS y Android. El CLI logro automatizarlo en ambas plataformas, pero aparecieron seis fricciones acotadas y tres mejoras de calidad de vida. Detalle completo en `docs/libro/14-validacion-en-una-app-real.md` y bitacora cruda en `docs/validacion/BITACORA.md`.
+
+Todas las correcciones suman ~80 lineas de Swift sobre el bridge actual. No requieren cambios arquitectonicos ni dependencias nuevas.
+
+### P0 — sin esto el flow real es fragil
+
+- [ ] **`auto-android hideKeyboard` no cierra el teclado.** El comando retorna `Keyboard dismissed` pero el teclado sigue visible en pantalla, lo que rompe los `tap` posteriores sobre elementos tapados por el IME. Fix: en la rama Android del case `hideKeyboard` del `CommandDispatcher`, invocar internamente `pressKey back` que sí lo cierra. ~3 lineas en `cli/Sources/AutoCore/CommandDispatcher.swift`.
+
+- [ ] **`ScriptParser` no expande variables de entorno.** Hoy las credenciales viven literales en el `.auto` y los secret scanners marcan el repo. Fix: agregar funcion `expand(_ token: String) -> String` que reemplace `$VAR` y `${VAR}` consultando `ProcessInfo.processInfo.environment[name]`, llamada desde `tokenize()` antes de retornar cada token. ~15 lineas en `cli/Sources/AutoCore/ScriptParser.swift`. Desbloquea pasar credenciales por env var sin tocar los scripts.
+
+- [ ] **`auto clearState <bundleId>` no limpia el keychain en iOS.** El comando borra el data container de la app pero los items del keychain sobreviven, asi que el "estado limpio" prometido no es real cuando la app guarda tokens o credenciales ahi. Fix: en la rama iOS del dispatcher, agregar una llamada equivalente a `simctl spawn booted security delete-generic-password -s <bundleId>`. ~10 lineas en `CommandDispatcher.swift`. Garantiza el contrato del comando.
+
+### P1 — reducen iteraciones
+
+- [ ] **`auto-android scrollTo` parsea mal el segundo argumento.** El comando retorna `Invalid direction: . Use up/down/left/right` aunque la direccion se pase correctamente, porque el dispatcher Android lee mal el segundo token. Fix: corregir el indice del argumento en la rama Android del case `scrollTo`. ~2 lineas.
+
+- [ ] **`auto dismissSystemDialog` para el dialog de Save Password de iOS.** El dialog del sistema de iOS aparece despues de un login exitoso y bloquea el siguiente paso del script. Fix: comando nuevo con heuristica que calcula las coordenadas del boton "Ahora no" en runtime usando el frame del simulator window expuesto via AX (es portable porque las coordenadas salen del AX, no son hardcodeadas). ~50 lineas en `SimulatorBridge.swift` + case en el dispatcher. Alternativa: si se implementa la limpieza de keychain (P0 #3), el dialog directamente no aparece porque iOS no tiene credenciales que ofrecer guardar — costo cero.
+
+- [ ] **Wait implicito tras `pressKey back` y `hideKeyboard`.** Compose en Android necesita unos cientos de ms para re-renderizar el form despues de cerrar el IME, y sin la pausa el siguiente comando golpea el layout viejo. Fix: agregar un sleep breve al final de ambos casos en la rama Android del dispatcher. ~5 lineas.
+
+### P2 — calidad de vida
+
+- [ ] **`auto exists <bundleId>` para apps instaladas.** Hoy `exists` solo verifica elementos UI, no si una app esta instalada. Util para precondiciones de scripts y chequeos de setup en CI. Costo bajo, reusa `simctl get_app_container` (iOS) y `pm list packages` (Android).
+
+- [ ] **Documentar el patron "tap por id" para Compose Android.** Los labels de Compose con caracteres especiales (apostrofes tipograficos U+2019, espacios no separables, etc.) rompen el match por texto y obligan a usar resource-id. Documentar el patron en `HALLAZGOS.md` o un quickstart de Android cambia significativamente la experiencia inicial.
+
+- [ ] **`auto info <bundleId>` que muestre estado de la app.** Comando nuevo que reporta: si esta instalada, ruta del data container, items del keychain (iOS), permisos otorgados, version. Util para debug rapido sin abrir Xcode/Android Studio. Costo medio, todo via `simctl` y `pm dump`/`adb shell`.
+
+### Costo total estimado
+
+~80 lineas de codigo Swift, todas dentro del bridge actual. Ningun cambio arquitectonico, ninguna dependencia nueva. Las P0 son las que mas mueven la aguja: con esas tres correcciones el flow real corre limpio en ambas plataformas.
