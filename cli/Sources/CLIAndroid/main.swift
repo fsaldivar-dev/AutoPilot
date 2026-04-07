@@ -310,6 +310,77 @@ func executeCommand(_ args: [String]) throws {
     case "help", "--help", "-h":
         printUsage()
 
+    case "doctor":
+        print("AutoPilot Doctor — Android Environment Check\n")
+
+        // 1. ANDROID_HOME
+        let env = ProcessInfo.processInfo.environment
+        print("ANDROID_HOME:")
+        if let home = env["ANDROID_HOME"] {
+            print("  ✓ \(home)")
+        } else if let root = env["ANDROID_SDK_ROOT"] {
+            print("  ~ ANDROID_SDK_ROOT=\(root) (legacy, prefer ANDROID_HOME)")
+        } else {
+            print("  ✗ Not set — IDEs may not inherit shell env vars")
+        }
+
+        // 2. ADB binary
+        print("\nadb:")
+        do {
+            // AdbLegacyBridge exposes adb check via ping/listDevices
+            let legacy = bridge as? AdbLegacyBridge ?? AdbLegacyBridge()
+            let devices = try legacy.listDevices()
+            let adbVer = Process()
+            adbVer.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+            adbVer.arguments = ["adb", "version"]
+            let adbPipe = Pipe()
+            adbVer.standardOutput = adbPipe
+            adbVer.standardError = Pipe()
+            adbVer.environment = env
+            try? adbVer.run()
+            adbVer.waitUntilExit()
+            let verOut = (String(data: adbPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let firstLine = verOut.components(separatedBy: .newlines).first ?? "found"
+            print("  ✓ \(firstLine)")
+
+            // 3. Connected devices
+            print("\nDevices:")
+            if devices.isEmpty {
+                print("  ✗ No devices connected — run an emulator or connect a device")
+            } else {
+                for device in devices {
+                    let name = (device["name"] as? String) ?? "unknown"
+                    let udid = (device["udid"] as? String) ?? "?"
+                    let state = (device["state"] as? String) ?? "?"
+                    let icon = state == "Booted" ? "✓" : "~"
+                    print("  \(icon) \(name) (\(udid)) — \(state)")
+                }
+            }
+        } catch {
+            print("  ✗ Not found — \(error)")
+            print("  Checked: ANDROID_HOME, ANDROID_SDK_ROOT, ~/Library/Android/sdk, /opt/homebrew, PATH")
+        }
+
+        // 4. Agent bridge (socket)
+        print("\nAgent Socket:")
+        if let agent = bridge as? AgentBridge {
+            do {
+                let _ = try agent.search(query: "__doctor_probe__")
+                print("  ✓ Connected")
+            } catch {
+                print("  ✗ Not connected — ensure agent is running:")
+                print("    adb forward tcp:9008 localabstract:autopilot")
+                print("    adb shell am instrument -w dev.autopilot.agent/.AgentInstrumentation")
+            }
+        } else {
+            print("  ~ Using legacy bridge (--legacy), agent not required")
+        }
+
+        // 5. Environment
+        print("\nEnvironment:")
+        print("  PATH: \(env["PATH"] ?? "(not set)")")
+        print("  Bridge: \(useLegacy ? "AdbLegacyBridge (--legacy)" : "AgentBridge (default)")")
+
     default:
         // Delegate to shared (platform-agnostic) dispatcher
         let handled = try executeSharedCommand(args, bridge: bridge)
@@ -360,6 +431,7 @@ func printUsage() {
       copyTextFrom <element>             Read text content from element
       clearState <package>               Clear app data (pm clear)
       uninstall <package>                Uninstall app
+      waitUntilGone <label> [timeout]     Wait for element to disappear
       scrollTo <element> [direction]     Scroll until element is visible
       startRecording                     Start screen recording
       stopRecording <file.mp4>           Stop recording and save
@@ -374,6 +446,7 @@ func printUsage() {
       config <key> <value>              Set config value
       record <output.auto>               Record touch interactions to script (Ctrl+C to stop)
       run <script.auto>                 Run automation script
+      doctor                            Check environment setup (adb, devices, agent)
 
     Script format (.auto):
       # Comments start with #
