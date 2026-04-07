@@ -79,6 +79,11 @@ public final class AdbLegacyBridge: DeviceBridge {
         return try runAdb(arguments)
     }
 
+    /// Public accessor for the resolved adb binary path.
+    public func adbPathPublic() throws -> String {
+        return try adbPath()
+    }
+
     @discardableResult
     private func runAdb(_ arguments: [String]) throws -> String {
         let process = Process()

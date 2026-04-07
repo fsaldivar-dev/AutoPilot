@@ -44,11 +44,14 @@ docs/                    → Documentacion por modulo
 - Seguir patrones existentes (Process + xcrun para iOS, Process + adb para Android)
 
 ### 3. Probar
-- Compilar CLI: `cd cli && swift build` (compila ambos binarios)
-- Copiar binario iOS: `cp .build/debug/auto ../auto`
-- Probar iOS: `./auto run scripts/examples/camera-test.auto`
-- Probar Android: `.build/debug/auto-android run scripts/examples/android-login.auto`
-- Requisitos Android: emulador corriendo (`adb devices`), ANDROID_HOME configurado
+- Build + instalar atomicamente: `./cli/dev-install.sh` (debug) o `--release`
+- Build + refrescar binarios del editor: `./cli/dev-install.sh --editor`
+- Alternativa manual: `cd cli && swift build && cp .build/debug/auto* ~/bin/`
+- Probar iOS: `auto run scripts/examples/camera-test.auto`
+- Probar Android: `auto-android setup && auto-android run scripts/examples/android-login.auto`
+- Requisitos Android: emulador corriendo (`adb devices`), ver `docs/android/SDK-SETUP.md`
+- Diagnostico: `auto doctor` / `auto-android doctor`
+- Recovery tras Maestro: `./scripts/maestro-reset.sh`
 - Para UI del editor: `cd editor && npm run tauri dev`
 - Para CI: push a main y verificar GitHub Actions
 - Tomar screenshots como evidencia
