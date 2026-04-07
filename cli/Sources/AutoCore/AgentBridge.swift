@@ -159,11 +159,33 @@ public final class AgentBridge: DeviceBridge {
             """)
     }
 
-    /// Probe non-throwing: returns true if socket connect succeeds.
+    /// Probe non-throwing: returns true only if a real ping round-trip succeeds.
+    /// Trusting connect() alone is unsafe — `adb forward` makes the macOS side
+    /// accept any connect() against localhost:9008 regardless of whether the
+    /// Android side actually has the `localabstract:autopilot` socket bound,
+    /// because adb only forwards bytes lazily and never validates the remote
+    /// socket on connect. We need a real round-trip (ping + response within
+    /// a short timeout) to know the agent is alive.
     private func probeSocket() -> Bool {
         guard let sock = try? createSocket() else { return false }
-        close(sock)
-        return true
+        defer { close(sock) }
+
+        // Send a real ping JSON.
+        let ping = "{\"method\":\"ping\"}\n"
+        guard let data = ping.data(using: .utf8) else { return false }
+        let sent = data.withUnsafeBytes { ptr in
+            send(sock, ptr.baseAddress!, data.count, 0)
+        }
+        if sent <= 0 { return false }
+
+        // Read response with a 1s timeout. The agent's ping handler is
+        // sub-millisecond when alive; recv returns -1 (EAGAIN) on timeout.
+        var tv = timeval(tv_sec: 1, tv_usec: 0)
+        setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
+
+        var buf = [UInt8](repeating: 0, count: 256)
+        let bytesRead = recv(sock, &buf, buf.count, 0)
+        return bytesRead > 0
     }
 
     /// Launch the agent via `am instrument` in background, detached from this process.
