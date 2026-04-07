@@ -228,6 +228,11 @@ public final class AndroidRecordingSession {
         let line = "swipe \(direction)"
         generator.appendRaw(line)
         printRecorded(line)
+
+        // Auto-inject wait after swipe so the AX tree settles before next tap (#63)
+        let waitLine = "wait 0.5"
+        generator.appendRaw(waitLine)
+        printRecorded(waitLine)
     }
 
     private func handlePotentialDoubleTap(action: ResolvedAction, timestamp: Double) {

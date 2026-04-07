@@ -79,15 +79,17 @@ Para comparar contra Maestro Studio y Appium Inspector en el benchmark.
 
 **Para el benchmark**: Este problema es unico de AutoPilot. Maestro captura screenshots, no AX tree. Appium usa session logs del WebDriver.
 
-### 5. Modals y sheets — botones no expuestos en AX
+### 5. Modals y sheets — botones no expuestos en AX (wontfix #57)
 
-**Problema**: Algunos botones en SwiftUI sheets/modals no aparecen en el AX tree del Simulator. Especificamente, botones de toolbar (`.toolbar { }`) en sheets pueden no tener AX representation.
+**Problema**: Botones en `.toolbar { }` de SwiftUI sheets/modals no aparecen en el AX tree del Simulator macOS. Especificamente, "Cancelar" y "Guardar" en un `NavigationView` dentro de `.sheet { }`.
 
-**Evidencia**: "Cancelar" y "Guardar" en un sheet modal de `NavigationView` no aparecen con `tree -s "Cancelar"`. El AXGroup del sheet tiene height 49px (solo la barra de titulo), los botones estan fuera.
+**Evidencia**: `tree -s "Cancelar"` → No elements found. El AXGroup del sheet tiene height 49px (solo la barra de titulo). `AXToolbarItems` (ya consultado en AXDebug.swift) retorna vacio para estos elementos. `AXUIElementCopyElementAtPosition` tampoco los encuentra — es el mismo AX tree subyacente.
 
-**Workaround actual**: El tap cae a `tapAt` (coordenadas) — funciona pero es fragil.
+**Causa raiz**: Limite de Apple — macOS Accessibility no expone correctamente los toolbar items de sheets del iOS Simulator. El toolbar vive en un layer que no tiene children AX.
 
-**Para el benchmark**: Maestro y Appium tienen el mismo problema con SwiftUI toolbars. Es un limite de Apple, no del tool. Documentar como "AX tree gap de SwiftUI".
+**Status: wontfix** — Maestro y Appium tienen exactamente el mismo limite. No hay fix posible desde el tool. El workaround (`tapAt x y`) funciona.
+
+**Recomendacion para devs**: Agregar `.accessibilityIdentifier("cancelar")` al boton en SwiftUI para que aparezca en el tree. Esto beneficia tanto al automation como al testing con XCTest.
 
 ### 6. Solo iOS — Android no soportado
 
@@ -113,7 +115,8 @@ Cosas que el usuario tiene que hacer a mano despues de grabar:
 
 | Intervencion | Cuando | Script generado | Fix manual |
 |---|---|---|---|
-| Agregar scroll | Usuario scrolleo en la app | Nada (scroll no detectable) | Agregar `swipe up/down` antes del tap |
+| Agregar scroll | Usuario scrolleo en la app | Nada (scroll no detectable en iOS) | Agregar `swipe up/down` antes del tap |
+| ~~Wait post-scroll~~ | ~~Android: tree no asentado despues de swipe~~ | ~~Nada~~ | **RESUELTO**: recorder inyecta `wait 0.5` automaticamente post-swipe |
 | zsh escaping | Ejecutar `tap[button]` en terminal | N/A | Usar `'tap[button]'` o `tap\[button\]` |
 | Ajustar waits | Transicion muy rapida o lenta | `waitFor` si gap >1.5s | Agregar `wait N` o `waitFor "X"` |
 | Buttons en modals | Sheet con toolbar SwiftUI | `tapAt x y` (coordenadas) | Dejar como esta o agregar identifier al codigo |
