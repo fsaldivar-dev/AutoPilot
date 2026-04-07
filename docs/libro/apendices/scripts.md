@@ -269,6 +269,75 @@ waitFor "Login" 10
 
 **Solucion:** Mantiene los comandos cross-platform: `tap`, `waitFor`, `screenshot`, `swipe`, `launch`, `terminate`, `biometric`, `wait`, `type`, `exists`.
 
+### "Element not found" en Android justo despues de `type`
+
+**Causa:** Compose en Android es lazy — el AX tree solo expone los elementos que estan **actualmente visibles en el viewport**. Cuando tipeas en un campo, el teclado virtual tapa la mitad inferior de la pantalla, y cualquier elemento del formulario que queda debajo deja de estar en el arbol. El siguiente `tree -s` o `tap` falla con "Element not found", aunque el elemento existia antes del `type`.
+
+**Solucion:** Cerrar el teclado con `pressKey back` y esperar 2 segundos para que Compose recomponga el formulario:
+
+```bash
+type "Password" "MiContrasena123"
+pressKey back
+wait 2
+waitFor "Iniciar sesion" 5
+tap "Iniciar sesion"
+```
+
+Si despues de cerrar el teclado el elemento sigue debajo del fold (formularios muy largos), agregar un `swipe up` para traerlo al viewport. Evitar `scrollTo` porque tiene un bug actual en Android (ver troubleshooting).
+
+### `hideKeyboard` no cierra el teclado en Android
+
+**Causa:** Bug del CLI. El comando `auto-android hideKeyboard` reporta `Keyboard dismissed` con exit 0, pero el teclado sigue visible en pantalla. Verificable con un `screenshot` inmediatamente despues.
+
+**Solucion:** Usar `pressKey back` en lugar de `hideKeyboard`. Internamente es un `KEYCODE_BACK`, que es la unica forma confiable de cerrar el IME en Android:
+
+```bash
+# MAL
+type "user@example.com"
+hideKeyboard
+tap "Siguiente"       # falla: el boton sigue tapado
+
+# BIEN
+type "user@example.com"
+pressKey back
+wait 2
+tap "Siguiente"
+```
+
+Para una lista expandida de problemas comunes con sus workarounds, ver [Apendice D — Troubleshooting](troubleshooting.md).
+
+---
+
+## Variables de entorno: el parser NO expande `$VAR`
+
+Una limitacion importante para quien intente parametrizar credenciales o paths: **el parser de `.auto` NO expande variables de entorno**. Si escribis:
+
+```bash
+type "$EMAIL"
+type "$PASSWORD"
+```
+
+el comando `type` recibe literalmente los strings `$EMAIL` y `$PASSWORD`, no los valores del shell. Ni `$VAR` ni `${VAR}` funcionan — el tokenizer trata el `$` como un caracter mas.
+
+**Implicacion practica para credenciales:** Si tu flujo necesita usuario y contrasena reales, tenes que hardcodearlos en el script. Esto colisiona de frente con secret scanners (gitleaks, trufflehog, pre-commit hooks de seguridad) que bloquean commits con credenciales en texto plano. No hay forma de tener un script `.auto` versionable y seguro al mismo tiempo mientras la expansion no se implemente.
+
+**Workaround mientras tanto:** En lugar de correr un script, ejecutar los comandos uno por uno desde la shell, donde las variables de entorno SI funcionan porque es el shell el que las expande antes de llamar al binario:
+
+```bash
+export EMAIL="user@example.com"
+export PASSWORD="MiContrasena123!"
+
+auto launch com.example.app
+auto waitFor "Email" 10
+auto type "Email" "$EMAIL"
+auto type "Password" "$PASSWORD"
+auto tap "Iniciar sesion"
+```
+
+Se pierde la ventaja de tener el flujo versionado en un archivo, pero al menos las credenciales no quedan expuestas en el repo.
+
+**Fix propuesto (P0 en el backlog):** Agregar expansion de `$VAR` y `${VAR}` al `ScriptParser.swift` antes de la tokenizacion. Seria un cambio chico (~20 lineas) pero abriria la puerta a tener scripts parametrizables. Hasta que eso exista, asumi que los scripts `.auto` no pueden contener secretos.
+
 ---
 
 ## Referencia rapida del formato
