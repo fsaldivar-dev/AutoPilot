@@ -169,13 +169,19 @@ public final class AgentBridge: DeviceBridge {
     /// Launch the agent via `am instrument` in background, detached from this process.
     private func relaunchAgentDetached() {
         guard let adb = try? legacy.adbPathPublic() else { return }
+        // Double-fork pattern: /bin/sh spawns a subshell that backgrounds the
+        // adb command, then the outer sh exits. The backgrounded process is
+        // reparented to launchd/init so it survives this CLI exiting.
+        // Without this the instrumentation dies the moment the swift parent
+        // exits, and the next CLI invocation sees an "Empty response".
+        let cmd = "( \"\(adb)\" shell am instrument -w dev.autopilot.agent/.AgentInstrumentation </dev/null >/dev/null 2>&1 & )"
         let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: adb)
-        proc.arguments = ["shell", "am", "instrument", "-w", "dev.autopilot.agent/.AgentInstrumentation"]
+        proc.executableURL = URL(fileURLWithPath: "/bin/sh")
+        proc.arguments = ["-c", cmd]
         proc.standardOutput = Pipe()
         proc.standardError = Pipe()
         try? proc.run()
-        // Don't wait — instrument runs the agent process; it would block forever.
+        proc.waitUntilExit() // safe — the inner adb is already detached
     }
 
     /// Public setup entry point — used by `auto-android setup` command (#67).
