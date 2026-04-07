@@ -139,16 +139,38 @@ public final class SimulatorBridge {
         delUp?.postToPid(pid)
     }
 
+    /// Characters that are unreliable through CGEvent + shift modifier
+    /// (postToPid drops these intermittently, especially `+`, `@`, `!`, `#`, `$`).
+    /// When the input contains any of these we route the entire string through
+    /// the simulator pasteboard + Cmd+V for a deterministic paste.
+    private static let trickyTypeChars: Set<Character> = [
+        "+", "@", "!", "#", "$", "%", "^", "&", "*",
+        "(", ")", "_", "{", "}", "|", ":", "\"",
+        "<", ">", "?", "~", "`"
+    ]
+
     /// Type text by sending keyboard events to the Simulator.
+    /// If the text contains characters that drop unreliably with CGEvent shift
+    /// (`+`, `@`, `!`, ...), the whole string is pasted via `simctl pbcopy` + Cmd+V.
     public func typeText(_ text: String) throws {
         guard let pid = simulatorPID ?? findSimulatorPID() else {
             throw BridgeError.simulatorNotRunning
         }
 
+        // Make sure Connect Hardware Keyboard is enabled, otherwise CGEvents
+        // posted to the simulator process are silently dropped.
+        ensureHardwareKeyboardEnabled()
+
         // Bring simulator to front
         let simApp = NSRunningApplication(processIdentifier: pid)
         simApp?.activate()
         usleep(200_000)
+
+        // Fast path: paste via pbcopy + Cmd+V when text contains tricky chars.
+        if text.contains(where: { Self.trickyTypeChars.contains($0) }) {
+            try pasteViaPasteboard(text, pid: pid)
+            return
+        }
 
         let src = CGEventSource(stateID: .combinedSessionState)
 
@@ -169,6 +191,78 @@ public final class SimulatorBridge {
                 usleep(30_000) // 30ms between keys
             }
         }
+    }
+
+    /// Toggles `Simulator → I/O → Keyboard → Connect Hardware Keyboard` ON
+    /// if it is currently OFF. Without this, CGEvents posted to the simulator
+    /// process are silently dropped. Idempotent — does nothing when already ON.
+    private func ensureHardwareKeyboardEnabled() {
+        let script = """
+        tell application "System Events"
+            tell process "Simulator"
+                try
+                    set markVal to value of attribute "AXMenuItemMarkChar" of menu item "Connect Hardware Keyboard" of menu 1 of menu item "Keyboard" of menu 1 of menu bar item "I/O" of menu bar 1
+                    if markVal is missing value then
+                        click menu item "Connect Hardware Keyboard" of menu 1 of menu item "Keyboard" of menu 1 of menu bar item "I/O" of menu bar 1
+                    end if
+                end try
+            end tell
+        end tell
+        """
+        let proc = Process()
+        proc.launchPath = "/usr/bin/osascript"
+        proc.arguments = ["-e", script]
+        proc.standardOutput = Pipe()
+        proc.standardError = Pipe()
+        do {
+            try proc.run()
+            proc.waitUntilExit()
+        } catch {
+            // Best-effort: if AppleScript fails (no AX permissions, simulator
+            // not at front, etc.) we still try the type — the user gets a clear
+            // empty-field symptom rather than a crash here.
+        }
+    }
+
+    /// Copies `text` to the booted simulator pasteboard via `xcrun simctl pbcopy`
+    /// and then sends Cmd+V to the simulator process. Used as a deterministic
+    /// fallback for characters that CGEvent + shift drops on macOS.
+    private func pasteViaPasteboard(_ text: String, pid: pid_t) throws {
+        // 1. Pipe `text` into `xcrun simctl pbcopy booted`
+        let pbcopy = Process()
+        pbcopy.launchPath = "/usr/bin/xcrun"
+        pbcopy.arguments = ["simctl", "pbcopy", "booted"]
+        let stdinPipe = Pipe()
+        pbcopy.standardInput = stdinPipe
+        pbcopy.standardOutput = Pipe()
+        pbcopy.standardError = Pipe()
+        try pbcopy.run()
+        if let data = text.data(using: .utf8) {
+            stdinPipe.fileHandleForWriting.write(data)
+        }
+        stdinPipe.fileHandleForWriting.closeFile()
+        pbcopy.waitUntilExit()
+        guard pbcopy.terminationStatus == 0 else {
+            throw BridgeError.appleScriptFailed("simctl pbcopy failed (status=\(pbcopy.terminationStatus))")
+        }
+
+        // 2. Tiny wait so the simulator pasteboard observer picks up the change.
+        usleep(150_000)
+
+        // 3. Send Cmd+V to the Simulator process via CGEvent.
+        let src = CGEventSource(stateID: .combinedSessionState)
+        let vKeyCode: CGKeyCode = 9 // 'v'
+        let cmdDown = CGEvent(keyboardEventSource: src, virtualKey: 55, keyDown: true)   // 55 = left cmd
+        let vDown   = CGEvent(keyboardEventSource: src, virtualKey: vKeyCode, keyDown: true)
+        let vUp     = CGEvent(keyboardEventSource: src, virtualKey: vKeyCode, keyDown: false)
+        let cmdUp   = CGEvent(keyboardEventSource: src, virtualKey: 55, keyDown: false)
+        vDown?.flags = .maskCommand
+        vUp?.flags   = .maskCommand
+        cmdDown?.postToPid(pid)
+        vDown?.postToPid(pid)
+        vUp?.postToPid(pid)
+        cmdUp?.postToPid(pid)
+        usleep(100_000)
     }
 
     /// Scroll within a specific element.
