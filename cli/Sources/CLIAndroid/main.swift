@@ -391,7 +391,41 @@ func executeCommand(_ args: [String]) throws {
             print("  ~ Using legacy bridge (--legacy), agent not required")
         }
 
-        // 5. Environment
+        // 5. DNS resolution from inside the emulator.
+        // netsimd caches host DNS at boot — when the WiFi changes, the
+        // emulator keeps pointing at unreachable nameservers and apps see
+        // "no internet" even though `ping 8.8.8.8` works.
+        print("\nEmulator DNS:")
+        do {
+            let legacy = bridge as? AdbLegacyBridge ?? AdbLegacyBridge()
+            let devs = try legacy.listDevices()
+            let booted = devs.first(where: { ($0["state"] as? String) == "Booted" })
+            if let udid = booted?["udid"] as? String {
+                let proc = Process()
+                proc.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+                proc.arguments = ["adb", "-s", udid, "shell", "ping", "-c", "1", "-W", "2", "google.com"]
+                let out = Pipe(); proc.standardOutput = out; proc.standardError = Pipe()
+                proc.environment = env
+                try? proc.run()
+                proc.waitUntilExit()
+                let output = String(data: out.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+                if proc.terminationStatus == 0 && output.contains("bytes from") {
+                    print("  ✓ google.com resolves from inside the emulator")
+                } else {
+                    print("  ✗ google.com does NOT resolve — emulator DNS is stale")
+                    print("    Cause: netsimd cached an unreachable nameserver (common after WiFi change).")
+                    print("    Fix:   cold-boot the emulator with an explicit DNS server")
+                    print("           adb -s \(udid) emu kill")
+                    print("           emulator -avd <name> -dns-server 8.8.8.8,1.1.1.1 -no-snapshot-load")
+                }
+            } else {
+                print("  ~ No booted device — skipped")
+            }
+        } catch {
+            print("  ~ Skipped — \(error)")
+        }
+
+        // 6. Environment
         print("\nEnvironment:")
         print("  PATH: \(env["PATH"] ?? "(not set)")")
         print("  Bridge: \(useLegacy ? "AdbLegacyBridge (--legacy)" : "AgentBridge (default)")")
