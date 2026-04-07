@@ -84,6 +84,8 @@ auto tree
 auto tap "General"
 ```
 
+> **Nota**: Los comandos iOS que usan el AX tree (`tree`, `tap`, `inspect`) requieren permiso de Accesibilidad para el **proceso que ejecuta** `auto`. Si usas Terminal.app, agrega Terminal en System Settings > Privacy & Security > Accessibility. Si usas el editor o un IDE (Cursor, VS Code), agrega ese IDE. Cada recompilacion con `swift build` puede invalidar el permiso del binario. [Detalles en Cap. 12](docs/libro/12-permisos-accesibilidad.md)
+
 ### Android
 ```bash
 adb devices          # Verificar emulador/dispositivo conectado

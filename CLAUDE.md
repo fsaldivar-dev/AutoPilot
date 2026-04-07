@@ -110,8 +110,9 @@ ping                    # Verificar conexion
 tap Elemento            # Tap por label
 tap Camera[2]           # Segundo duplicado
 tap 1,2,3,4,Confirmar  # Multi-tap
-waitFor "texto" 10     # Esperar elemento
-screenshot file.png     # Evidencia
+waitFor "texto" 10          # Esperar elemento
+waitUntilGone "Loading" 10  # Esperar que desaparezca
+screenshot file.png          # Evidencia
 ```
 
 ### CI/CD
@@ -140,7 +141,7 @@ auto launch
 - Con `--legacy`: `uiautomator dump` toma 1-2 segundos (el AgentBridge default no tiene este problema)
 - Clipboard read no soportado via ADB (solo write como workaround)
 - Camera mock no implementado aun en Android
-- Element index `$N` en Android se genera en el editor (Rust), no en el CLI — `auto-android index` aun no existe
+- Element index `$N` en Android: `auto-android index` funciona, `tap $N` auto-construye el indice
 
 ### General
 - El editor necesita Rust toolchain instalado (`rustup`)

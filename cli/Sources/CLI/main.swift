@@ -381,6 +381,56 @@ func executeCommand(_ args: [String]) throws {
     case "help", "--help", "-h":
         printUsage()
 
+    case "doctor":
+        print("AutoPilot Doctor — iOS Environment Check\n")
+
+        // 1. Simulator.app running
+        print("Simulator.app:")
+        if let pid = bridge.findSimulatorPID() {
+            print("  ✓ Running (PID \(pid))")
+        } else {
+            print("  ✗ Not running — open Simulator.app first")
+        }
+
+        // 2. Booted simulator
+        print("\nBooted Simulator:")
+        do {
+            let deviceId = try bridge.getBootedDeviceId()
+            print("  ✓ \(deviceId)")
+        } catch {
+            print("  ✗ No booted simulator — run: xcrun simctl boot <device>")
+        }
+
+        // 3. xcrun
+        print("\nxcrun:")
+        let xcrunCheck = Process()
+        xcrunCheck.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
+        xcrunCheck.arguments = ["--version"]
+        let xcrunPipe = Pipe()
+        xcrunCheck.standardOutput = xcrunPipe
+        xcrunCheck.standardError = Pipe()
+        try? xcrunCheck.run()
+        xcrunCheck.waitUntilExit()
+        if xcrunCheck.terminationStatus == 0 {
+            let ver = (String(data: xcrunPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            print("  ✓ Found (\(ver))")
+        } else {
+            print("  ✗ xcrun not working — install Xcode Command Line Tools")
+        }
+
+        // 4. Accessibility
+        print("\nAccessibility Permission:")
+        if AXIsProcessTrusted() {
+            print("  ✓ Granted")
+        } else {
+            print("  ✗ Not granted — add this app to: System Settings > Privacy & Security > Accessibility")
+        }
+
+        // 5. Environment
+        print("\nEnvironment:")
+        print("  PATH: \(ProcessInfo.processInfo.environment["PATH"] ?? "(not set)")")
+        print("  DEVELOPER_DIR: \(ProcessInfo.processInfo.environment["DEVELOPER_DIR"] ?? "(not set)")")
+
     default:
         // Delegate to shared (platform-agnostic) dispatcher
         let handled = try executeSharedCommand(args, bridge: bridge)
@@ -436,6 +486,7 @@ func printUsage() {
       copyTextFrom <element>             Read text content from element
       clearState <bundleId>              Clear app data and permissions
       uninstall <bundleId>               Uninstall app from simulator
+      waitUntilGone <label> [timeout]     Wait for element to disappear
       scrollTo <element> [direction]     Scroll until element is visible
       startRecording                     Start screen recording
       stopRecording <file.mp4>           Stop recording and save
@@ -452,6 +503,7 @@ func printUsage() {
       build <xcodebuild args...>        Build with explicit args
       record <output.auto>               Record interactions to script (Ctrl+C to stop)
       run <script.auto>                 Run automation script
+      doctor                            Check environment setup (Simulator, AX, xcrun)
 
     Script format (.auto):
       # Comments start with #

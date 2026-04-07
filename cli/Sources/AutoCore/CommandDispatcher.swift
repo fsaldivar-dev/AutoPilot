@@ -267,6 +267,38 @@ public func executeSharedCommand(_ args: [String], bridge: any DeviceBridge) thr
             exit(1)
         }
 
+    case "waitUntilGone":
+        guard args.count >= 2 else {
+            print("Usage: auto waitUntilGone <identifier|label> [timeout_seconds]")
+            return true
+        }
+        let target = args[1]
+        let timeout = args.count >= 3 ? Double(args[2]) ?? 10.0 : 10.0
+        let pollInterval: useconds_t = 500_000
+        let maxAttempts = Int(timeout * 2)
+
+        // Support label[N] syntax: waitUntilGone "Item[2]" waits until fewer than 2 matches
+        let (searchLabel, requiredCount) = TargetResolverShared.parse(target)
+        let minMatches = requiredCount ?? 1
+
+        var gone = false
+        for _ in 0..<maxAttempts {
+            let results = (try? bridge.search(query: searchLabel)) ?? []
+            if results.count < minMatches {
+                gone = true
+                break
+            }
+            usleep(pollInterval)
+        }
+
+        let wms = elapsedMs(start)
+        if gone {
+            print("Gone '\(target)' (\(wms)ms)")
+        } else {
+            print("Timeout: '\(target)' still present after \(timeout)s")
+            exit(1)
+        }
+
     case "config":
         if args.count < 2 {
             let config = AutoPilotConfig.readAll()
