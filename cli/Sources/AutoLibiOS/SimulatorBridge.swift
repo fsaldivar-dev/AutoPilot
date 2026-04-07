@@ -166,8 +166,19 @@ public final class SimulatorBridge {
         simApp?.activate()
         usleep(200_000)
 
-        // Fast path: paste via pbcopy + Cmd+V when text contains tricky chars.
+        // Strategy for tricky chars (`+`, `@`, `!`, ...):
+        //   1. Try setting AXValue on the currently focused element directly.
+        //      This bypasses both the keyboard and paste-blocking (works even
+        //      on password fields that disable Cmd+V). When the simulator
+        //      window exposes a focused TextField, this is the most reliable
+        //      path and is silently picked up by the underlying app.
+        //   2. Fall back to `simctl pbcopy` + Cmd+V via osascript.
+        //   3. As a last resort, type per-character with CGEvent — drops
+        //      shifted chars but is better than typing nothing.
         if text.contains(where: { Self.trickyTypeChars.contains($0) }) {
+            if trySetFocusedFieldValue(text) {
+                return
+            }
             try pasteViaPasteboard(text, pid: pid)
             return
         }
@@ -191,6 +202,31 @@ public final class SimulatorBridge {
                 usleep(30_000) // 30ms between keys
             }
         }
+    }
+
+    /// Walks the simulator AX tree to find the currently focused element and
+    /// sets its AXValue to `text`. Returns `true` on success, `false` if there
+    /// is no focused element, no settable AXValue, or any AX call fails.
+    /// This is the most reliable path for password fields that disable paste.
+    private func trySetFocusedFieldValue(_ text: String) -> Bool {
+        guard let pid = simulatorPID ?? findSimulatorPID() else { return false }
+        let app = AXUIElementCreateApplication(pid)
+
+        var focusedAny: CFTypeRef?
+        let focusedResult = AXUIElementCopyAttributeValue(app, kAXFocusedUIElementAttribute as CFString, &focusedAny)
+        guard focusedResult == .success, let focused = focusedAny, CFGetTypeID(focused) == AXUIElementGetTypeID() else {
+            return false
+        }
+        let focusedEl = focused as! AXUIElement
+
+        var settable: DarwinBoolean = false
+        let settableResult = AXUIElementIsAttributeSettable(focusedEl, kAXValueAttribute as CFString, &settable)
+        guard settableResult == .success, settable.boolValue else {
+            return false
+        }
+
+        let setResult = AXUIElementSetAttributeValue(focusedEl, kAXValueAttribute as CFString, text as CFTypeRef)
+        return setResult == .success
     }
 
     /// Toggles `Simulator → I/O → Keyboard → Connect Hardware Keyboard` ON
@@ -225,8 +261,11 @@ public final class SimulatorBridge {
     }
 
     /// Copies `text` to the booted simulator pasteboard via `xcrun simctl pbcopy`
-    /// and then sends Cmd+V to the simulator process. Used as a deterministic
-    /// fallback for characters that CGEvent + shift drops on macOS.
+    /// and then sends Cmd+V to the Simulator via osascript keystroke (the
+    /// CGEvent path is unreliable for Cmd+V into the simulator window).
+    /// If the focused field rejects paste (e.g. some password fields), the
+    /// caller should fall back to per-character typing.
+    /// Throws on pbcopy failure; the paste keystroke itself is best-effort.
     private func pasteViaPasteboard(_ text: String, pid: pid_t) throws {
         // 1. Pipe `text` into `xcrun simctl pbcopy booted`
         let pbcopy = Process()
@@ -246,23 +285,44 @@ public final class SimulatorBridge {
             throw BridgeError.appleScriptFailed("simctl pbcopy failed (status=\(pbcopy.terminationStatus))")
         }
 
-        // 2. Tiny wait so the simulator pasteboard observer picks up the change.
-        usleep(150_000)
+        // 2. Bring Simulator to front and Cmd+V via System Events. This is the
+        // path that actually triggers iOS Paste; CGEvent postToPid does not.
+        let script = """
+        tell application "Simulator" to activate
+        delay 0.4
+        tell application "System Events"
+            keystroke "v" using command down
+        end tell
+        """
+        let osa = Process()
+        osa.launchPath = "/usr/bin/osascript"
+        osa.arguments = ["-e", script]
+        osa.standardOutput = Pipe()
+        osa.standardError = Pipe()
+        try? osa.run()
+        osa.waitUntilExit()
+        usleep(200_000)
+    }
 
-        // 3. Send Cmd+V to the Simulator process via CGEvent.
+    /// Per-character typing using CGEvent keycodes. This is the original
+    /// reliable path for plain ASCII letters/digits/space. Used as a fallback
+    /// when the field rejects paste (some password fields disable Cmd+V).
+    private func typeCharByChar(_ text: String, pid: pid_t) {
         let src = CGEventSource(stateID: .combinedSessionState)
-        let vKeyCode: CGKeyCode = 9 // 'v'
-        let cmdDown = CGEvent(keyboardEventSource: src, virtualKey: 55, keyDown: true)   // 55 = left cmd
-        let vDown   = CGEvent(keyboardEventSource: src, virtualKey: vKeyCode, keyDown: true)
-        let vUp     = CGEvent(keyboardEventSource: src, virtualKey: vKeyCode, keyDown: false)
-        let cmdUp   = CGEvent(keyboardEventSource: src, virtualKey: 55, keyDown: false)
-        vDown?.flags = .maskCommand
-        vUp?.flags   = .maskCommand
-        cmdDown?.postToPid(pid)
-        vDown?.postToPid(pid)
-        vUp?.postToPid(pid)
-        cmdUp?.postToPid(pid)
-        usleep(100_000)
+        for char in text {
+            if let keyCode = keyCodeForChar(char) {
+                let needsShift = char.isUppercase || shiftChars.contains(char)
+                let keyDown = CGEvent(keyboardEventSource: src, virtualKey: keyCode, keyDown: true)
+                let keyUp   = CGEvent(keyboardEventSource: src, virtualKey: keyCode, keyDown: false)
+                if needsShift {
+                    keyDown?.flags = .maskShift
+                    keyUp?.flags   = .maskShift
+                }
+                keyDown?.postToPid(pid)
+                keyUp?.postToPid(pid)
+                usleep(30_000)
+            }
+        }
     }
 
     /// Scroll within a specific element.
