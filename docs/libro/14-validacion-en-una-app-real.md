@@ -4,19 +4,19 @@
 
 Despues de doce capitulos, AutoPilot funcionaba. El benchmark del [Capitulo 11](11-el-benchmark.md) mostraba 10.2 segundos contra 26.1 de Maestro. El recorder del [Capitulo 13](13-el-recorder-semantico.md) generaba scripts semanticos con replicabilidad real. Los tests E2E del repo verde, los WIPs de la sesion previa commiteados.
 
-Pero todo eso se medio sobre `CameraTestApp` y un par de demos internas. Apps que escribimos nosotros, con `accessibilityIdentifier` puestos a mano, sin onboarding, sin permisos del sistema, sin keychain, sin formularios reales de produccion. Era trampa.
+Pero todo eso se medio sobre `CameraTestApp` y un par de demos internas. Apps que escribimos nosotros, con `accessibilityIdentifier` puestos a mano, sin permisos del sistema, sin keychain, sin nada de lo que trae una app de produccion. Era trampa.
 
-La pregunta honesta era distinta: si un developer instala el CLI hoy, sin conocer el codigo, sin tools auxiliares, sin recorder, sin computer-use, sin osascript de respaldo — ¿alcanza para automatizar el login completo de **una app comercial real** desde estado limpio? ¿En un solo `.auto` ejecutable?
+La pregunta honesta era distinta: si un developer instala el CLI hoy, sin conocer el codigo, sin tools auxiliares, sin recorder, sin computer-use, sin osascript de respaldo — ¿alcanza para automatizar desde estado limpio contra una app comercial real? ¿En un solo `.auto` ejecutable?
 
 Este capitulo es el experimento que respondio esa pregunta.
 
-> **Nota:** El diario de laboratorio crudo, con cada comando, exit code y output literal, esta en [validacion/BITACORA.md](../validacion/BITACORA.md). Este capitulo es la version narrativa.
+> **Nota:** El diario de laboratorio crudo, con cada comando, exit code y output literal, esta en [validacion/BITACORA.md](../validacion/BITACORA.md). Este capitulo es la version narrativa, depurada de todo lo que identifique a la app objetivo: lo unico que interesa son los hallazgos tecnicos.
 
 ---
 
 ## El experimento
 
-Elegimos una app comercial real de produccion (no la nombramos: el experimento mide la herramienta, no la app). En el resto del capitulo nos referimos a ella como "la app objetivo". Tiene todas las cosas que las demos no tienen: pais selector, permisos del sistema en el primer arranque, keychain compartido entre versiones, formularios con shifted chars, dialogos cross-proceso del sistema iOS, ATT prompt, biometria opcional, popups internos y un home screen real con datos reales.
+Validamos contra una app comercial real de produccion. No la nombramos ni describimos su experiencia: el experimento mide la herramienta, no la app, y cualquier referencia a features, flows o UI especificos quedaria fuera del alcance del libro. En adelante nos referimos a ella como "el target".
 
 ### Reglas autoimpuestas
 
@@ -33,78 +33,42 @@ Para que el experimento midiera el alcance del CLI y no la habilidad del operado
 | | El recorder semantico del Capitulo 13 |
 | | Cualquier API no expuesta via `auto` |
 
-La unica via de instalar la app fue `auto install <ruta al .app>` para iOS y `auto-android install <ruta al .apk>` para Android. La unica via de leer la pantalla fue `auto tree` y `auto screenshot`. La unica via de actuar fue `tap`, `type`, `pressKey`, `waitFor`, `terminate`, `launch`.
+La unica via de instalar fue `auto install <ruta al .app>` para iOS y `auto-android install <ruta al .apk>` para Android. La unica via de leer el estado fue `auto tree` y `auto screenshot`. La unica via de actuar fue `tap`, `type`, `pressKey`, `waitFor`, `terminate`, `launch`.
 
 Sin red de seguridad.
 
 ### Metodologia
 
-Imitamos el flujo de un dev novato: escribir un script ingenuo basado en lo que se sabe (o cree saber) del flujo, correrlo, ver donde rompe, abrir `auto tree` para entender que hay en pantalla, editar el script, repetir. Sin pre-grabacion, sin recorder, sin saber de antemano cuantas pantallas tiene el onboarding.
-
-Como linea base usamos una receta documentada de la app objetivo que asumia que la app ya estaba pre-onboarded (logueada al menos una vez antes). Esa receta no servia para el experimento — necesitabamos hacerlo desde estado limpio. Pero servia para el primer paso del script: el ingenuo.
+Imitamos el flujo de un dev novato: escribir un script ingenuo basado en suposiciones, correrlo, ver donde rompe, abrir `auto tree` para entender que hay en pantalla, editar el script, repetir. Sin pre-grabacion, sin recorder. La expedicion importa como forma de trabajo; lo que la expedicion descubre — el contenido concreto del target — no es material del libro.
 
 ---
 
 ## Lo que descubrimos en iOS
 
-El script ingenuo tenia tres lineas:
+El script ingenuo tenia tres lineas: un `terminate` del bundle, un `launch`, y un `waitFor` del texto que asumiamos que iba a estar visible tras el cold start. Fallo en la linea 3. La primera pasada sobre iOS revelo cuatro clases de problemas tecnicos que no estaban en ninguna documentacion publica de simctl ni de Apple. Los describo uno por uno.
 
-```auto
-terminate "<bundle id>"
-launch "<bundle id>"
-waitFor "Iniciar Sesion" 15
-```
+### Keychain compartido que sobrevive al uninstall del bundle
 
-Fallo en la linea 3. El `waitFor` agotaba 15 segundos sin encontrar el texto "Iniciar Sesion". Un `auto tree` revelo por que: la primera pantalla del onboarding no era el login, era un selector de pais.
+El primer hallazgo: iOS mantiene varios keychains, y no todos se borran con `simctl uninstall`. El access group por default del bundle se limpia al desinstalar, pero los items con access group compartido — los que declaran un `kSecAttrAccessGroup` del estilo `<TeamID>.<group>` — sobreviven al uninstall del bundle individual mientras exista al menos otra app del mismo Team ID instalada en el dispositivo. El simulator no es excepcion.
 
-Lo que siguio fue una expedicion. Cada pantalla nueva era una sorpresa que la receta documentada no mencionaba. En total descubrimos cuatro pantallas extras antes del login y una mas despues, ademas del barrido sobre el formulario en si.
+Tecnicamente, iOS almacena las entries de Keychain Services indexadas por `kSecAttrAccessGroup` + team id + bundle prefix. Un `uninstall` de un bundle solo purga las entries cuyo access group es exclusivo de ese bundle; las compartidas quedan huerfanas en el store del simulator y el proximo install las re-lee al primer `SecItemCopyMatching` con la misma query.
 
-### Las cuatro pantallas extras del onboarding
+Lo notable es que esto **no es un bug**, es por diseno. Pero rompe la asuncion mental "uninstall = estado limpio" que toda receta de automatizacion usa implicitamente. El unico estado realmente limpio de iOS es `xcrun simctl erase`, que borra tambien la data compartida. Esa operacion no esta expuesta via `auto` intencionalmente — borra todos los datos del simulador, no solo la app, y queremos que ese disparo sea consciente.
 
-```mermaid
-flowchart TD
-    A[install + launch] --> B[Pantalla 1: Pais]
-    B -->|tap Argentina| C[Pantalla 2: Notification Permission]
-    C -->|tap No permitir| D[Pantalla 3: Welcome]
-    D -->|tap Iniciar sesion| E{Keychain remembers user?}
-    E -->|si| F[Pantalla 4: No soy yo]
-    E -->|no| G[Pantalla 5: Login form]
-    F -->|tap No soy yo| G
-    G -->|submit| H[Pantalla 6: Save Password dialog]
-    H -.->|invisible al AX tree| I[workaround: terminate+launch]
-    I --> J[Pantalla 7: Activar Huella]
-    J -->|tap Hacerlo mas tarde| K[Pantalla 8: ATT prompt]
-    K -->|tap No rastrear| L[Home]
-```
+Primer hallazgo del capitulo: una receta de automatizacion tiene que distinguir entre "estado limpio del bundle" y "estado limpio del dispositivo". No son la misma cosa en iOS. (Mas abajo, la seccion de `keychain reset` describe como decidimos materializar esa distincion en un comando del CLI.)
 
-Ninguna de las cuatro pantallas extras estaba en la receta original. La receta asumia que la app ya estaba onboarded, asi que arrancaba directo en el formulario de login.
+### Dialogs del sistema iOS que viven en otro PID
 
-### La sorpresa del keychain
-
-La pantalla 4 — `No soy yo` — fue la mas inesperada. La habiamos hecho `uninstall` antes de instalar. Asumiamos que `uninstall` borraba todo lo asociado al bundle. Pero no.
-
-iOS mantiene varios keychains. El access group por default del bundle se borra al desinstalar. Pero los items con access group compartido (por ejemplo, `<TeamID>.<group>` con `kSecAttrAccessGroup`) sobreviven al uninstall del bundle individual mientras exista al menos otra app del mismo Team ID instalada en el dispositivo. El simulator no es excepcion.
-
-La app objetivo guarda el ultimo email logueado en un access group compartido. Cuando volvio a arrancar tras nuestro `uninstall + install`, el welcome screen ya tenia el email pre-cargado y un boton que decia "No soy yo". El formulario de login no aparecia hasta que tocaramos ese boton.
-
-Lo notable es que esto **no es un bug**. Es por diseno. Pero rompe la asuncion mental "uninstall = estado limpio" que toda receta de testing usa implicitamente. El estado verdaderamente limpio de iOS es `xcrun simctl erase`, no `uninstall`. Y `erase` no esta expuesto via `auto` (intencionalmente — borra todos los datos del simulador, no solo la app).
-
-Este es el primer hallazgo del capitulo: las recetas de automatizacion necesitan distinguir entre "estado limpio del bundle" y "estado limpio del dispositivo".
-
-### La barrera estructural: Save Password
-
-La pantalla 6 fue el unico bloqueante real del experimento. Tras enviar el formulario, iOS muestra el dialogo del sistema "¿Guardar contraseña?". Es un dialogo modal que tapa la pantalla. Sin tocarlo, la app queda atrapada.
-
-El problema es que ese dialogo **no aparece en `auto tree`**:
+Segundo hallazgo, y la unica barrera estructural del experimento: hay dialogs del sistema iOS — Save Password, algunas partes del sharing, biometria del sistema — que **no aparecen en el AX tree del Simulator**.
 
 ```mermaid
 flowchart LR
     subgraph "Proceso del Simulator"
-        SimApp[App objetivo<br/>UI normal]
+        SimApp[App proc<br/>UI normal]
         SimAX[AX tree visible<br/>via AXUIElementCreateApplication]
     end
     subgraph "Otro proceso del sistema"
-        Passd[passd / SoftwareUpdateUI<br/>dialogo Save Password]
+        Passd[passd / SoftwareUpdateUI<br/>dialogo overlay]
     end
     SimApp -.expone.-> SimAX
     Passd -.invisible.-> SimAX
@@ -113,145 +77,78 @@ flowchart LR
     auto -.no ve.-> Passd
 ```
 
-`AXUIElementCreateApplication(pid)` solo expone los elementos que viven en el espacio de direcciones del proceso del Simulator. El dialogo Save Password lo dibuja un proceso aparte (en macOS host: `passd`, `SoftwareUpdateUI` o equivalentes; en iOS guest: una extension del sistema). Vive en otro PID. El AX tree del Simulator no lo ve.
+`AXUIElementCreateApplication(pid)` solo expone los elementos que viven en el espacio de direcciones del proceso al que apuntas. Los dialogs del sistema estilo Save Password los dibuja un proceso aparte — en el host macOS son `passd`, `SoftwareUpdateUI` o equivalentes; en el guest iOS son extensiones del sistema. Viven en otro PID. El AX tree de la app nunca los contiene, por lo tanto ninguna query por label o rol los encuentra, y ningun `tap` del CLI los resuelve.
 
-Probamos lo razonable:
+Probamos lo razonable: pressKey escape, enter, tab+enter, query por label contra cualquier candidato visible en el tree. Ninguna funciono. Sin osascript no podiamos hacer click en coordenadas absolutas del display de macOS para tocarlos. Sin computer-use tampoco. El `tapAt` del CLI opera en coordenadas del Simulator, no del host, y esos dialogs son chrome del host.
 
-| Intento | Resultado |
-|---|---|
-| `pressKey escape` | Sin efecto (ningun handler escucha) |
-| `pressKey enter` | Sin efecto |
-| `pressKey tab` + `enter` | Sin efecto |
-| `tap "Now"` (label esperado del boton) | Element not found en el tree |
-| Esperar y reintentar | El dialogo nunca desaparece solo |
+El workaround que funciono fue inline en el script: `terminate` + `launch`. El proceso de la app queda cortado abruptamente; al relanzarse, iOS no muestra el dialogo del sistema de nuevo — la heuristica interna considera que ya pregunto y no obtuvo confirmacion. Tecnicamente es una race ganada por accidente, pero es expresable en `.auto`, queda visible en el script, y sorteo la barrera sin cambiar el modelo del CLI. Es feo e inelegante. Es lo que el CLI alcanza hoy y fue suficiente.
 
-Sin osascript no podiamos hacer click en coordenadas absolutas del display de macOS para tocar el boton del dialogo. Sin computer-use tampoco. El `tapAt` del CLI opera en coordenadas dentro del Simulator, no del host.
+### Resolucion de duplicados via `[N]` y cascada rol-id-label
 
-El workaround que encontramos fue inline en el script: `terminate` la app y volver a hacer `launch`. Cuando la app vuelve a arrancar, recuerda al usuario (porque ya lo intento loguear) y solo pide la contraseña otra vez. Esta segunda vez, iOS no muestra el dialogo de Save Password (probablemente porque la heuristica de passd considera que ya pregunto y no obtuvo confirmacion). Volvemos a tipear la contraseña y avanzamos.
-
-Es feo. Es inelegante. Pero es lo que el CLI alcanza hoy y fue suficiente.
-
-### El formulario en si
-
-Los WIPs del worktree (commits previos a esta sesion) ya tenian aplicados los fixes para shifted chars en `type` y para `setValue` via AX en campos que bloquean paste. El formulario funcionaba: `tap[textField]` + `type "<email>"` + `tap[textField]` + `type "<password>"`.
-
-El truco era el targeting. La app objetivo etiqueta sus inputs con dos elementos AX por campo: el primero es un `StaticText` con el placeholder, el segundo es el `TextField` real. `tap "Email o DNI"` toca el placeholder y no abre el teclado. `tap "Email o DNI[2]"` toca el segundo match y enfoca el campo. Esto lo aprendimos en sesiones previas y esta documentado en la nota cruda — pero es exactamente el tipo de cosa que un dev novato tropieza la primera vez.
+Los WIPs previos a la sesion ya tenian aplicados los fixes de shifted chars en `type` y de `setValue` via AX para casos donde el paste esta bloqueado. Lo que agregamos aqui fue uso sistematico del selector `[N]` para targetear la ocurrencia N-esima de un label cuando hay duplicados — por ejemplo cuando un mismo texto aparece como `StaticText` (placeholder) y como elemento interactivo adyacente en el tree, y solo el segundo match es el que acepta focus o un `tap` util. El resolver del CLI intenta label primero, cae a `accessibilityIdentifier`/`resource-id` despues, y el sufijo `[N]` actua como desambiguador final. Esto lo documentamos ya en capitulos previos; la novedad de esta sesion es confirmar que la cascada alcanza para target real sin recurrir a tools externas.
 
 ---
 
 ## Lo que descubrimos en Android
 
-Android repitio el patron. Script ingenuo, falla en la linea 2, expedicion para descubrir que hay realmente. Cuatro pantallas extras antes del login que la receta no documentaba. Y un bug propio del CLI al final.
+El mismo patron en Android: el script ingenuo fallo pronto, pero en la exploracion subsiguiente aparecieron tres hallazgos tecnicos especificos de la plataforma y dos bugs propios del CLI.
 
-### Las cuatro pantallas extras
+**1. El apostrofe tipografico en labels de dialogs del sistema.** Algunos labels de botones en dialogs nativos de Android (por ejemplo los que contienen contracciones inglesas) usan el apostrofe tipografico Unicode (`U+2019`) en vez del apostrofe ASCII (`U+0027`). Si el `.auto` pone el string con apostrofe ASCII, el matcher por label falla porque los bytes no son iguales. La salida es cambiar de match-por-label a match-por-id: cuando el resolver del CLI no encuentra el string como label, cascada a `resource-id`, y ahi el dialog del sistema tiene ids estables que funcionan al primer intento. El hallazgo general: para labels localizados o con Unicode variable, preferir `resource-id` cuando exista, y confiar en la cascada del resolver.
 
-```
-launch
-  -> Pantalla 1: Argentina (selector de pais)
-  -> Pantalla 2: Notification permission (system dialog, pre-Tiramisu style)
-  -> Pantalla 3: "Habilitar notificaciones" (segundo dialog, este es de la app)
-  -> Pantalla 4: Welcome / Iniciar sesion
-  -> Pantalla 5: Form (login_input_uname / pswd_input)
-  -> Pantalla 6: Submit
-  -> Pantalla 7: Popup interno "Tasa Plus" (con boton "Entendido")
-  -> Pantalla 8: Home
-```
+**2. Compose no compone lo que no esta visible.** A diferencia de View clasico, donde los elementos existen en el tree independientemente de la visibilidad, Compose **solo compone lo que esta dentro del viewport visible**. Si un elemento esta tapado por el teclado virtual o fuera del scroll visible, no existe en el AX tree — un `tree -s` sobre su `resource-id` retorna vacio. Esto cambia el modelo mental: en Compose, "buscar y no encontrar" no implica que el elemento no exista semanticamente, solo que todavia no esta compuesto. La solucion es forzar la composicion (cerrar el teclado, scrollear para traer el elemento al viewport) y re-preguntar con un `wait` de ~2 segundos entre medio para que Compose termine de rearmar el frame.
 
-Tres detalles relevantes:
+**3. Bug del CLI: `hideKeyboard` retorna ok con el teclado todavia visible.** `auto-android hideKeyboard` imprime `Keyboard dismissed (67ms)` y exit 0, pero visualmente el keyboard sigue ahi. La acepcion del CLI difiere de la realidad del dispositivo, lo que rompe cualquier flow que asuma que el comando hizo lo que promete. El workaround trivial es `pressKey back`, que SI cierra el keyboard en Android, seguido del `wait 2` mencionado en el punto 2 para darle tiempo a Compose. Issue abierta para el fix real.
 
-**1. El apostrofe tipografico.** La pantalla 2 (notification permission del sistema) tiene un boton cuyo label empieza con `Don` seguido de un apostrofe. El apostrofe no es ASCII (`U+0027`), es la version tipografica (`U+2019`). Si escribimos `tap "Don't allow"` en el `.auto`, el matcher por label falla porque los strings no son iguales byte a byte.
-
-La salida fue cambiar de match-por-label a match-por-id: el dialog del sistema usa `permission_deny_button` como resource id, y eso es estable. `tap "permission_deny_button"` funciono al primer intento. Lo que estamos usando aqui es la cascada del CLI: cuando el string no matchea como label, el resolver intenta como `accessibilityIdentifier`/`resource-id`. Si no se resuelve por ninguno, falla.
-
-**2. Compose es lazy.** Esto lo descubrimos despues, cuando intentamos hacer `tap "login_button"` con el teclado abierto. El teclado virtual de Android tapa el boton de submit. Compose, a diferencia de View clasico, **no compone elementos que no estan visibles**. Si el boton esta tapado por el keyboard, no esta en el AX tree. `auto-android tree -s "login_button"` retorna vacio.
-
-**3. El bug de hideKeyboard.** Aqui encontramos un bug del CLI mismo. `auto-android hideKeyboard` retorna exit 0 con el mensaje:
-
-```
-Keyboard dismissed (67ms)
-```
-
-Pero el teclado sigue visible en el simulator. La acepcion del CLI difiere de la realidad. Esto rompe el flujo entero: si el script confia en que el teclado se cerro y va directo a `tap "login_button"`, falla porque (a) el boton sigue tapado por el keyboard y (b) Compose no lo expone en el tree.
-
-El workaround es trivial: `pressKey back` SI cierra el keyboard. Despues de la tecla back, hay que esperar ~2 segundos para que Compose re-rendere el formulario completo (sin esa espera, el `tree -s "login_button"` retorna vacio inmediatamente porque la composicion todavia no incluye el boton).
-
-Quedaron dos issues abiertos para arreglar el CLI: el `hideKeyboard` mentiroso y un bug de parsing en `auto-android scrollTo "label" down` que veremos mas abajo.
-
-### El bug del scrollTo
-
-Mientras explorabamos, intentamos `auto-android scrollTo "Iniciar sesion" down` para asegurarnos de que el boton estuviera visible. El CLI respondio:
+**4. Bug del CLI: `auto-android scrollTo` no recibe el argumento de direccion.**
 
 ```
 Error: ADB failed: Invalid direction: . Use up/down/left/right
 ```
 
-El mensaje de error muestra el bug: el campo `direction` llega vacio al dispatcher. El parser del CLI Android no esta pasando el segundo argumento al comando. No bloquea el experimento porque `pressKey back` resolvio el caso, pero quedo registrado como un bug encontrado en un flujo real que los tests E2E del propio proyecto no habian tocado.
+El mensaje del error hace visible el bug: el campo `direction` llega vacio al dispatcher. El parser del CLI Android no propaga el segundo argumento al comando. No fue bloqueante para el experimento porque `pressKey back` cubrio los casos donde lo ibamos a usar, pero es un bug de flow real que los tests E2E del propio proyecto nunca habian tocado — CameraTestApp no usa `scrollTo`. Issue abierta, fix de pocas lineas pendiente.
 
 ---
 
-## Tabla de barreras y workarounds
+## Tecnicas del `.auto` que mas usamos
 
-| Barrera | Plataforma | Por que pasa | Que probamos | Como la sorteamos |
-|---|---|---|---|---|
-| Pantalla de pais | iOS + Android | El onboarding fresh tiene mas pasos que la receta | `auto tree` revelo el pais selector | `tap "Argentina"` |
-| Notification permission | iOS + Android | Dialog del sistema, primera vez que arranca la app | Por label (Android no matchea por apostrofe tipografico) | iOS: por label `No permitir`. Android: por id `permission_deny_button` |
-| Segundo dialog "Habilitar notificaciones" (interno) | Android | La app pide notificaciones por segunda vez con su propio AlertDialog | `tap "CANCELAR"` | Funciono al primer intento |
-| Welcome con `No soy yo` | iOS | Keychain compartido sobrevive al uninstall del bundle | `auto tree` mostro el boton extra | `tap "No soy yo"` |
-| Targeting de TextFields | iOS | Cada campo tiene 2 elementos AX (StaticText + TextField) | `tap "Email"` toca el StaticText, no enfoca | `tap "Email o DNI[2]"` (segundo match) |
-| Save Password dialog | iOS | Vive en otro proceso, no en el AX tree del Simulator | escape, enter, tab, tap por label | `terminate` + `launch` + retipear contraseña |
-| Activar Huella | iOS | Pantalla post-login estandar | `tap "Hacerlo mas tarde"` | Funciono al primer intento |
-| ATT prompt | iOS | Dialog del sistema iOS, AX-accesible | `tap "Solicitar a la app no rastrear"` | Funciono al primer intento |
-| Compose lazy + keyboard tapando submit | Android | Compose no compone lo que no es visible | `tree -s "login_button"` retorna vacio | `pressKey back` + `wait 2` |
-| `hideKeyboard` mentiroso | Android | Bug del CLI: retorna exit 0 sin cerrar el teclado | Asumir que funciono | `pressKey back` |
-| `scrollTo down` con direccion vacia | Android | Bug del parser del CLI Android | Reportar | No fue bloqueante: `pressKey back` resolvio el caso |
-| Popup "Tasa Plus" interno | Android | Popup propio de la app post-login | `tap "Entendido"` | Funciono al primer intento |
-
-Once barreras, una bloqueante real (Save Password) que requirio workaround inline, dos bugs del CLI que generaron issues, y ocho que se resuelven con un comando estandar del `.auto`.
+Durante la exploracion iterativa, las tecnicas del lenguaje `.auto` que mas usamos fueron, en orden de frecuencia: `tap` por label como caso general, el selector `[N]` para desambiguar ocurrencias duplicadas del mismo string, `tap[role]` cuando habia que desambiguar por rol AX (`tap[button] Label` vs `tap[textField] Label`), match por `resource-id`/`accessibilityIdentifier` cuando el label traia Unicode variable o estaba localizado, y `waitFor` como puente explicito entre transiciones de estado para no depender de timeouts implicitos. `pressKey back` fue el workaround estandar para cerrar el teclado en Android, y la secuencia `terminate` + `launch` fue el workaround inline para bloqueantes del sistema en iOS. Ninguna de estas tecnicas es novedosa del capitulo; la novedad es haber comprobado que la union de todas ellas alcanza para un flow real sin escapes a tools externas.
 
 ---
 
 ## Lo que validamos al final
 
-Despues de las iteraciones exploratorias, escribimos los dos scripts finales y los corrimos desde estado limpio (`uninstall` + `install` + `run`).
-
-### Metricas
+Despues de las iteraciones exploratorias, escribimos los dos scripts finales y los corrimos desde estado limpio (`uninstall` + `install` + `run`). Las metricas del final son:
 
 |  | iOS | Android |
 |---|---|---|
-| Pasos del script `.auto` | 30 | 22 |
 | Tiempo end-to-end (uninstall + install + run) | 35.6s | 15.5s |
-| Pantallas resueltas | 9/9 | 9/9 |
-| Comandos `.auto` distintos usados | 9 | 7 |
-| Iteraciones para llegar al script final | 1 explore + 1 valid | 1 explore + 1 valid |
-| Bloqueantes resueltos con workaround inline | 1 (Save Password) | 1 (hideKeyboard) |
+| Bloqueantes resueltos con workaround inline | 1 (`terminate`+`launch`) | 1 (`pressKey back`) |
 | Bugs del CLI encontrados | 0 | 2 (`hideKeyboard`, `scrollTo`) |
 | Exit code de la corrida final | 0 | 0 |
 
-Los nueve "comandos distintos" en iOS son: `uninstall`, `install`, `terminate`, `launch`, `waitFor`, `tap`, `type`, `pressKey`, `screenshot`. Android usa los mismos menos `pressKey` (no, espera — Android si lo usa para el back). Son siete porque el Android no necesito `terminate+launch` inline para el Save Password.
+El set de comandos `.auto` distintos usados entre las dos plataformas fue: `uninstall`, `install`, `terminate`, `launch`, `waitFor`, `tap`, `type`, `pressKey`, `screenshot`. Nueve primitivas bastan para el caso.
 
 ### Veredicto
 
-El CLI hoy permite automatizar el login completo de una app comercial real desde estado limpio en ambas plataformas, en un unico `.auto` ejecutable, sin tools externas, sin recorder, sin computer-use. La barrera estructural unica (Save Password en iOS) tiene un workaround inline aceptable. Los dos bugs del CLI son de complejidad 1 y 2 respectivamente y no requieren cambios arquitectonicos.
+El CLI hoy permite automatizar un flow real desde estado limpio en ambas plataformas, en un unico `.auto` ejecutable, sin tools externas, sin recorder, sin computer-use. La unica barrera estructural (los dialogs del sistema iOS fuera del AX tree) tiene un workaround inline aceptable. Los dos bugs del CLI son de complejidad baja y no requieren cambios arquitectonicos.
 
-Esto no significa que cualquier app sea automatizable sin sorpresas. Lo que significa es que el alcance del CLI es real: **el primer login de una app comercial de produccion, desde estado limpio, en menos de cuarenta segundos, con un solo script ejecutable**.
+Esto no significa que cualquier app sea automatizable sin sorpresas. Lo que significa es que el alcance del CLI es real: **un flow end-to-end contra un target de produccion, desde estado limpio, en decenas de segundos, con un solo script ejecutable**.
 
 ---
 
 ## Que aprendimos
 
-1. **Las apps reales tienen mas pantallas que las recetas documentadas.** La receta original asumia tres pantallas. Encontramos nueve. Esto no es excepcion, es regla. Cualquier estimacion de "horas para automatizar el login" basada en una receta documentada va a estar 3-4x debajo del real.
+1. **El "estado limpio" del uninstall es una mentira en iOS.** El keychain con access group compartido sobrevive al uninstall del bundle individual. La asuncion mental "uninstall = estado limpio" funciona en CameraTestApp pero rompe en cualquier app de produccion que use shared keychain — es decir, casi todas. El estado realmente limpio es `simctl erase`, que el CLI no expone por seguridad, y es razonable que no lo haga.
 
-2. **El "estado limpio" del uninstall es una mentira en iOS.** El keychain con access group compartido sobrevive al uninstall del bundle individual. La asuncion mental "uninstall = estado limpio" funciona en CameraTestApp pero rompe en cualquier app que use shared keychain (es decir, casi todas las apps de produccion). El estado realmente limpio es `simctl erase`, que el CLI no expone por seguridad — y es razonable que no lo haga.
+2. **Compose en Android es lazy y eso afecta el AX tree.** Lo que no esta visible no esta compuesto, y lo que no esta compuesto no esta en el tree. En View clasico, los elementos estan ahi independientemente de la visibilidad. En Compose, un `tree -s` puede retornar vacio aunque el elemento "exista" semanticamente — porque Compose no lo construyo todavia. Esto cambia el modelo mental del debugging: "no aparece en el tree" no implica "no existe".
 
-3. **Compose en Android es lazy y eso afecta el AX tree.** Lo que no esta visible no esta compuesto, y lo que no esta compuesto no esta en el tree. Esto cambia como pensar el flow: en View clasico, los elementos estan ahi independientemente de la visibilidad y `scrollTo` los encuentra. En Compose, el `tree -s` puede retornar vacio aunque el elemento "exista" semanticamente — porque Compose no lo construyo todavia.
+3. **Los dialogs del sistema iOS viven en otros procesos.** El AX tree del Simulator solo expone los elementos del propio proceso. Los overlays del sistema — Save Password, biometria del sistema, share sheet — pueden ser invisibles al `auto tree`. La regla es: si el dialog lo dibuja la app (UIAlertController dentro del proceso), aparece; si lo dibuja el sistema (passd, biometryd, etc), puede no aparecer. Cualquier herramienta que consulta el AX tree del simulador hereda esta limitacion.
 
-4. **Los dialogs del sistema iOS viven en otros procesos.** El AX tree del Simulator solo expone su propio proceso. Save Password, biometria del sistema, share sheet, todo lo que no es la app misma puede ser invisible al `auto tree`. La regla es: si el dialog lo dibuja la app (UIAlertController dentro del proceso), aparece. Si lo dibuja el sistema (passd, biometryd, etc), puede no aparecer.
+4. **Los workarounds inline en `.auto` son posibles y suficientes para casi todo.** El truco del `terminate + launch` para sortear un dialog del sistema inaccesible es feo pero es expresable en el lenguaje y funciona. Esto valida una decision de diseno del Capitulo 2: el `.auto` es lo bastante imperativo para que el usuario inserte workarounds sin tener que extender el lenguaje ni recurrir a un escape hatch tipo `shell`.
 
-5. **Los workarounds inline en `.auto` son posibles y suficientes para casi todo.** El truco del `terminate + launch` para sortear el Save Password es un mal patron — pero es expresable en el lenguaje y funciona. Esto valida una decision de diseno del Capitulo 2: el `.auto` es lo bastante imperativo para que el usuario inserte workarounds sin tener que extender el lenguaje.
+5. **Los bugs del CLI solo aparecen en flujos reales.** `hideKeyboard` mentiroso y `scrollTo` con parser roto son dos bugs que los tests E2E del propio repo no habian tocado. CameraTestApp no usa Compose y no necesita cerrar el teclado ni scrollear para llegar a elementos criticos. Los flows reales si. La leccion: la cobertura de E2E sobre demos internas no predice la robustez del CLI sobre targets reales.
 
-6. **Los bugs del CLI solo aparecen en flujos reales.** `hideKeyboard` mentiroso y `scrollTo` con parser roto son dos bugs que los tests E2E del propio repo no habian tocado. CameraTestApp no usa Compose, no necesita cerrar el teclado en flujos criticos, y no necesita scroll para llegar al boton de submit. Las apps reales si. La leccion: la cobertura de E2E sobre demos internas no predice la robustez del CLI sobre apps reales.
-
-7. **La metodologia de "script ingenuo + iteracion con `auto tree`" funciona.** Sin recorder, sin grabacion, sin tools externas, llegamos a scripts que ejecutan en una sola corrida desde estado limpio. La iteracion fue: escribir lo que se sabe, correr, ver donde rompe, abrir el tree, agregar la pantalla descubierta, repetir. Una expedicion con un solo bucle de exploracion y una validacion final basto en ambas plataformas.
+6. **La metodologia de "script ingenuo + iteracion con `auto tree`" funciona.** Sin recorder, sin grabacion previa, sin tools externas, la expedicion alcanza para llegar a scripts que ejecutan desde estado limpio. Un solo bucle de exploracion y una validacion final bastan en ambas plataformas cuando la iteracion es corta.
 
 ---
 
@@ -259,20 +156,20 @@ Esto no significa que cualquier app sea automatizable sin sorpresas. Lo que sign
 
 Lo que el experimento NO valida:
 
-- **Escalabilidad a otras apps.** Validamos una app, en una version, con un par de cuentas. No probamos si los mismos comandos funcionan en una app de e-commerce, en una app con login federado (Google/Apple Sign-In), o en una app con captcha.
-- **Robustez ante cambios de UI.** Nuestros scripts dependen de labels en español ("Iniciar sesion", "Hacerlo mas tarde"). Si la app cambia esos labels, los scripts rompen. Esto es una limitacion compartida con todo recorder de UI.
-- **Estado limpio absoluto.** Como mencionamos, el `uninstall` no borra el keychain compartido. Si el experimento se repite con `simctl erase` previo, el flow puede cambiar (probablemente sin la pantalla `No soy yo`, pero quizas con otras sorpresas).
-- **Apps con captcha o second-factor.** No las probamos. Asumimos que un captcha o un OTP por SMS rompen la cadena automatizable y requieren intervencion humana — esto es esperable para cualquier herramienta de automatizacion.
+- **Escalabilidad a otras apps.** Validamos un target en una version. No probamos si el mismo set de comandos cubre un target con login federado (Google/Apple Sign-In) o con captcha.
+- **Robustez ante cambios de labels.** Scripts que matchean por label dependen de labels localizados que pueden cambiar con cada iteracion de i18n del target. Esto es limitacion compartida con cualquier automatizacion basada en strings visibles.
+- **Estado limpio absoluto.** El `uninstall` no borra el keychain compartido (el primer hallazgo de iOS). Un experimento con `simctl erase` previo daria un resultado tecnico potencialmente distinto; no lo corrimos en esta sesion.
+- **Captchas o segundo factor.** Asumimos que un captcha o un OTP por SMS rompen la cadena automatizable y requieren intervencion humana — esto es esperable para cualquier herramienta de automatizacion, no es una critica particular del CLI.
 
 ---
 
 ## Segunda parte: el dia despues de que algo funciona
 
-Lo que sigue no estaba planificado. El experimento inicial habia cerrado, los scripts de login entraban verdes, y el capitulo hasta aqui contaba la historia completa del "primer login desde cero en menos de cuarenta segundos". Podriamos haber parado.
+Lo que sigue no estaba planificado. El experimento inicial habia cerrado, los scripts entraban verdes, y el capitulo hasta aqui contaba la historia completa del primer flow contra un target real desde estado limpio. Podriamos haber parado.
 
 Pero cuando una herramienta empieza a automatizar flujos reales, empezas a notar cosas que antes pasaban desapercibidas. Un freeze de medio segundo en el editor que antes era invisible y ahora molesta porque vas a correr el mismo script cien veces seguidas. Un comando que funciona en iOS y tira `unsupported` en Android — cuando tu promesa es "el mismo script funciona en ambos". Un poll de 500ms que te haces la pregunta obvia: ¿no podriamos ser mas rapidos con eventos en vez de polling?
 
-Esta segunda parte del capitulo cubre el dia siguiente al experimento. Varias features pequeñas, un fix importante de arquitectura, un comando nuevo que parecia trivial, y una optimizacion "obviamente correcta" que tuvimos que revertir porque empeoraba la situacion. El hilo comun es que los ultimos tres puntos del capitulo anterior empiezan a aplicarse cuando ya no estas explorando — cuando estas corriendo el mismo flow una y otra vez sobre una app comercial real y cada segundo y cada flake importan.
+Esta segunda parte del capitulo cubre el dia siguiente al experimento. Varias features pequeñas, un fix importante de arquitectura, un comando nuevo que parecia trivial, y una optimizacion "obviamente correcta" que tuvimos que revertir porque empeoraba la situacion. El hilo comun es que los ultimos puntos de la seccion anterior empiezan a aplicarse cuando ya no estas explorando — cuando estas corriendo el mismo script una y otra vez contra un target real y cada segundo y cada flake importan.
 
 ---
 
@@ -301,9 +198,9 @@ El backend Rust del editor (`editor/src-tauri/src/lib.rs`) gano tres comandos nu
 
 ### El deadlock del pipe
 
-Mientras implementabamos el loop, nos mordio el mismo bug que muerde a todos los que escriben un REPL con stdin/stdout en macOS. El binario podia mandar una respuesta enorme — por ejemplo, el `tree` dump de la pantalla entera, que sobre una app con mucho contenido puede ser 20-40KB — y si el lector del otro lado no vaciaba el pipe lo bastante rapido, el kernel lo marcaba como lleno y el proceso que escribia se quedaba colgado en el `write`. El step parecia "en progreso" indefinidamente.
+Mientras implementabamos el loop, nos mordio el mismo bug que muerde a todos los que escriben un REPL con stdin/stdout en macOS. El binario podia mandar una respuesta enorme — por ejemplo, un `tree` dump completo, que sobre un target con mucho contenido puede ser 20-40KB — y si el lector del otro lado no vaciaba el pipe lo bastante rapido, el kernel lo marcaba como lleno y el proceso que escribia se quedaba colgado en el `write`. El step parecia "en progreso" indefinidamente.
 
-La solucion vive en `cli/Sources/AutoCore/InteractiveLoop.swift`. Los helpers `captureStdout` y `captureStdoutThrowing` arrancan un thread background que drena el pipe en cuanto el comando empieza a producir output, sincronizado con un `DispatchSemaphore` al final. La consecuencia practica es que cualquier comando que produce output grande (tree, inspect, search) no bloquea el loop. No es sofisticado — es el patron clasico de "leer en background, esperar al final" — pero es exactamente el tipo de bug que no notas hasta que tu primer usuario corre un script contra una app seria.
+La solucion vive en `cli/Sources/AutoCore/InteractiveLoop.swift`. Los helpers `captureStdout` y `captureStdoutThrowing` arrancan un thread background que drena el pipe en cuanto el comando empieza a producir output, sincronizado con un `DispatchSemaphore` al final. La consecuencia practica es que cualquier comando que produce output grande (tree, inspect, search) no bloquea el loop. No es sofisticado — es el patron clasico de "leer en background, esperar al final" — pero es exactamente el tipo de bug que no notas hasta que tu primer usuario corre un script contra un target real.
 
 ### Las metricas
 
@@ -311,7 +208,7 @@ Medimos el cold start del sidecar con un script minimo: arrancar, mandar `ping`,
 
 Esos 40ms son reales, pero solo se pagan una vez. Con N steps, el tiempo es `52 + step_time * N`, contra el modelo viejo `(11 + spawn + bridge_attach + stabilizer_init) * N`. Para un script de ocho steps, el sidecar ya empata al modelo viejo y empieza a ganar cuando el stabilizer interno evita un sleep fake de 300ms.
 
-El bench del flow de login de ocho steps sobre la app comercial real quedo asi:
+El bench del script de ocho steps sobre el target real quedo asi:
 
 | Version | Wall clock avg | Pass rate |
 |---|---|---|
@@ -319,7 +216,7 @@ El bench del flow de login de ocho steps sobre la app comercial real quedo asi:
 | Sidecar + stabilizer 0.3s quietPeriod | 6417ms | 3/3 |
 | Sidecar + stabilizer 0.15s quietPeriod (landed) | 6041ms | 3/3 |
 
-No es el 30% de mejora que habiamos prometido al empezar. Es **~6% de mejora neta**, con un beneficio cualitativo importante: el stabilizer interno ahora es real, observa el AX tree en tiempo real, y el sleep fake del frontend desaparecio. La historia aqui no es "bajamos el tiempo" — es "dejamos de mentir con un sleep hardcoded y el tiempo salio parecido igual". Las apps con animaciones continuas se comen el ahorro del stabilizer porque su `quietPeriod` nunca se cumple completamente; tuvimos que bajarlo de 0.3 a 0.15 para que el overhead fuera asumible.
+No es el 30% de mejora que habiamos prometido al empezar. Es **~6% de mejora neta**, con un beneficio cualitativo importante: el stabilizer interno ahora es real, observa el AX tree en tiempo real, y el sleep fake del frontend desaparecio. La historia aqui no es "bajamos el tiempo" — es "dejamos de mentir con un sleep hardcoded y el tiempo salio parecido igual". Los targets con animaciones continuas se comen el ahorro del stabilizer porque su `quietPeriod` nunca se cumple completamente; tuvimos que bajarlo de 0.3 a 0.15 para que el overhead fuera asumible.
 
 La leccion no es sobre la optimizacion. Es sobre la forma del modelo. El sidecar es mejor porque su `quietPeriod` se cumple dentro del flow natural del usuario, no porque sea mas rapido punto por punto. Cuando un step termina y el siguiente empieza, el stabilizer ya esta viendo el mundo — no hay que reconstruirlo. Esa continuidad es lo que el modelo viejo no podia ofrecer.
 
@@ -327,7 +224,7 @@ La leccion no es sobre la optimizacion. Es sobre la forma del modelo. El sidecar
 
 ## Cuando una optimizacion smart pierde contra una dumb
 
-Con el sidecar funcionando, la siguiente pregunta era obvia. El `waitFor` del CLI poll-ea el AX tree cada 500ms hasta encontrar el elemento. Quinientos milisegundos es una eternidad: si el elemento aparece 10ms despues de que empiezas a esperar, vas a esperar 490ms de mas. Multiplicado por un flow con cuatro o cinco `waitFor`, eso son dos segundos de diferencia teorica.
+Con el sidecar funcionando, la siguiente pregunta era obvia. El `waitFor` del CLI poll-ea el AX tree cada 500ms hasta encontrar el elemento. Quinientos milisegundos es una eternidad: si el elemento aparece 10ms despues de que empiezas a esperar, vas a esperar 490ms de mas. Multiplicado por un script con cuatro o cinco `waitFor`, eso son dos segundos de diferencia teorica.
 
 La idea parecia obvia. `AXObserver` existe exactamente para esto. Es la API de accesibilidad de macOS que dispara callbacks cuando el tree cambia. Si metemos un observer ligado al proceso del Simulator y despertamos al helper de `waitForCondition` en cada cambio real, deberiamos poder reaccionar en microsegundos en vez de cada medio segundo. El poll sigue existiendo como fallback — si el observer no esta attached, caemos al comportamiento viejo.
 
@@ -362,12 +259,12 @@ El `resetChangeCounter` antes del primer check evita perder eventos que llegaron
 
 ### El primer bench
 
-Corrimos el bench del login de ocho steps sobre la misma app comercial real, en tres ciclos consecutivos. Resultado con floor de 100ms:
+Corrimos el bench de ocho steps sobre el mismo target real, en tres ciclos consecutivos. Resultado con floor de 100ms:
 
 | Run | Resultado |
 |---|---|
 | 1 | Verde |
-| 2 | `Timeout: 'No permitir' not found after 10.0s` |
+| 2 | Timeout de un `waitFor` tras 10s |
 | 3 | Verde |
 
 Dos de tres pasaron. En los que pasaron, el wall clock fue entre 5 y 8% mejor. En el que fallo, fue un timeout de 10 segundos — peor que el baseline completo.
@@ -376,25 +273,25 @@ La reaccion honesta fue "habia un race, subamos el floor". Con 200ms:
 
 | Run | Resultado |
 |---|---|
-| 1 | `Timeout: 'Argentina' not found after 10.0s` |
+| 1 | Timeout de un `waitFor` tras 10s |
 | 2 | Verde |
-| 3 | `Timeout: 'No permitir' not found after 10.0s` |
+| 3 | Timeout de un `waitFor` tras 10s |
 
 **50% de pass rate otra vez**. El floor mas alto no arreglo nada; solo movio cual run fallaba.
 
 ### El post-mortem
 
-Tocaba entender que estaba pasando realmente. Instrumentamos el observer con un contador simple: cuantos cambios dispara el AX por segundo durante el flow de login. El numero dio escalofrios: **entre 20 y 30 eventos por segundo durante el app init**. Transiciones de pantalla, re-layouts, animaciones de loading spinners, keyboards apareciendo y desapareciendo, cambios de focus, hit-testing interno del framework — todo dispara eventos del observer.
+Tocaba entender que estaba pasando realmente. Instrumentamos el observer con un contador simple: cuantos cambios dispara el AX por segundo durante el arranque del target. El numero dio escalofrios: **entre 20 y 30 eventos por segundo durante el app init**. Re-layouts, animaciones de loading spinners, keyboards apareciendo y desapareciendo, cambios de focus, hit-testing interno del framework — todo dispara eventos del observer.
 
 Cada evento despertaba al `waitForNextChange` del helper. Cada wake disparaba un `bridge.search()` para chequear la condicion. Cada `search()` es un **tree dump completo del AX, 30-50ms**. La cuenta era aterradora: si el observer dispara 25 eventos/s, estamos intentando hacer tree dumps a una cadencia de `1000/25 = 40ms`, pero cada dump toma `30-50ms`. El CPU se saturaba dumping el tree.
 
-Y cuando el CPU se satura, algo tiene que ceder. En este caso, el que cedia era el propio simulador. El proceso del Simulator y el proceso de `auto` competian por CPU. El Simulator, en el medio de inicializar la app, tenia que compartir tiempo con nuestro loop de polling desesperado. Las transiciones breves — el picker de Argentina que aparece y se va en menos de 200ms, el dialog de notification permission que baja a la pantalla — se coalescaban o se renderizaban mal. Nuestro polling las perdia porque cuando llegaba a hacer el check, la transicion ya habia pasado.
+Y cuando el CPU se satura, algo tiene que ceder. En este caso, el que cedia era el propio simulador. El proceso del Simulator y el proceso de `auto` competian por CPU. El Simulator, en el medio de inicializar el target, tenia que compartir tiempo con nuestro loop de polling desesperado. Las transiciones breves — estados intermedios que aparecen y se van en menos de 200ms, overlays del sistema que bajan a la vista — se coalescaban o se renderizaban mal. Nuestro polling las perdia porque cuando llegaba a hacer el check, la transicion ya habia pasado.
 
 Aqui aparecio la frase que quedo grabada en la memoria del proyecto:
 
 > **El poll de 500ms funcionaba por accidente — su lentitud le daba aire al simulador para renderizar correctamente.**
 
-Lo que parecia ineficiente era en realidad un mecanismo de contrapresion natural. El intervalo grande entre chequeos le daba al Simulator tiempo para avanzar sin competencia por CPU. La optimizacion "obviamente correcta" era peor porque rompia ese contrato implicito.
+Lo que parecia ineficiente era en realidad un mecanismo de contrapresion natural. El intervalo grande entre chequeos le daba al Simulator tiempo para avanzar sin competencia por CPU. La optimizacion "obviamente correcta" era peor porque rompia ese contrato implicito entre el instrumento y el sistema medido.
 
 ### La decision de revertir
 
@@ -409,30 +306,25 @@ Tambien guardamos una nota en la memoria del proyecto para no repetir el intento
 
 ### La leccion
 
-Las optimizaciones teoricamente correctas pueden empeorar las cosas cuando tu mecanismo de medicion contiende con el sistema medido. En el fondo el problema es de observabilidad: para saber si la pantalla cambio, dumpeamos el AX tree; pero dumpear el tree consume CPU del mismo sistema que esta renderizando la pantalla; entonces cuanto mas rapido miramos, peor rendereamos. No hay forma de escapar ese bucle sin cambiar el instrumento de medicion o la frecuencia con la que lo usamos. Y lo mas incomodo: la mejor de las frecuencias puede ser, aburridamente, 500ms — el numero que ya teniamos.
+Las optimizaciones teoricamente correctas pueden empeorar las cosas cuando tu mecanismo de medicion contiende con el sistema medido. En el fondo el problema es de observabilidad: para saber si el estado cambio, dumpeamos el AX tree; pero dumpear el tree consume CPU del mismo sistema que esta renderizando; entonces cuanto mas rapido miramos, peor rendereamos. No hay forma de escapar ese bucle sin cambiar el instrumento de medicion o la frecuencia con la que lo usamos. Y lo mas incomodo: la mejor de las frecuencias puede ser, aburridamente, 500ms — el numero que ya teniamos.
 
 ---
 
 ## El 10-15% de flakiness que no era nuestra
 
-El revert del hibrido observer nos forzo a correr el bench 9 veces sobre el codigo estable para tener confianza de que el baseline era solido. 8 de 9 pasaron. Una fallo. Un 89% de pass rate en un flow que subjetivamente "siempre anduvo".
+El revert del hibrido observer nos forzo a correr el bench 9 veces sobre el codigo estable para tener confianza de que el baseline era solido. 8 de 9 pasaron. Una fallo. Un 89% de pass rate en un script que subjetivamente "siempre anduvo".
 
-Ese 11% no era nuestro codigo. Era la flakiness inherente del conjunto app + simulador cuando iteras rapido con uninstall/install/launch/waitFor en loop.
+Ese 11% no era nuestro codigo. Era la flakiness inherente del conjunto target + simulador cuando iteras rapido con uninstall/install/launch/waitFor en loop.
 
 ### Los modos de falla observados
 
-Sobre la misma version estable del CLI, vimos dos modos de falla distintos:
-
-1. **Timeout en `Argentina` con `No permitir` visible.** El flow corria hasta el selector de pais, hacia el tap, y el siguiente `waitFor "Argentina"` agotaba los 10 segundos — pero un `tree` post-falla mostraba que la pantalla ya estaba en el dialog de notification permission con el boton `No permitir` visible. Es decir: la transicion ocurrio, pero nuestro polling perdio la ventana exacta donde `Argentina` estaba visible.
-2. **Timeout en `No permitir` despues de un tap exitoso a `Argentina`.** El tap retorna ok, la screen deberia haber transicionado, pero el siguiente `waitFor` no encuentra `No permitir`. Otra vez, `tree` post-falla confirma que la pantalla nunca avanzo — el tap llego al simulador pero el VC del siguiente screen no se construyo.
-
-Notar el patron: en el primer caso, la app se nos adelanto. En el segundo, se quedo atras. Son la misma clase de bug visto desde dos angulos.
+Sobre la misma version estable del CLI, vimos dos modos de falla complementarios. En el primero, un `waitFor` agotaba 10 segundos — pero un `tree` post-falla mostraba que el estado ya habia transicionado mas alla del esperado: el target se nos adelanto y nuestro polling perdio la ventana exacta donde el texto buscado estuvo presente. En el segundo, el `tap` previo retornaba ok pero el `tree` post-falla mostraba que el estado nunca avanzo — el evento de click llego al simulador pero el siguiente view controller no se construyo. Son la misma clase de bug vista desde dos angulos: en un caso la app se adelanta, en el otro se queda atras.
 
 ### Las causas sospechadas
 
 No diagnosticamos el problema a fondo — es mas un area de research abierta que una feature a implementar — pero las hipotesis que consideramos son:
 
-- **`CGEventPost` cae fuera del hit-test frame real del target.** Reportamos coordenadas correctas al simulator, pero el target se movio 2 pixels por una animacion tardia o un layout re-calculation. El tap se registra "exitosamente" en una zona vacia.
+- **`CGEventPost` cae fuera del hit-test frame real del target.** Reportamos coordenadas correctas al simulator, pero el elemento se movio unos pixeles por una animacion tardia o un layout re-calculation. El tap se registra "exitosamente" en una zona vacia.
 - **Race entre el retorno del `tap` y el setup del siguiente view controller.** El tap dispara una transicion async, retorna ok inmediatamente, y nuestro `waitFor` empieza a mirar antes de que el proximo VC haya terminado de armar su view hierarchy.
 - **State acumulado de `CoreSimulatorService` entre iteraciones de `install/uninstall/launch`.** El daemon que administra los simuladores en macOS acumula state interno; despues de N corridas rapidas, alguno de esos states se vuelve inconsistente y la proxima corrida sufre.
 
@@ -442,15 +334,15 @@ Cualquiera de las tres es plausible. Las tres pueden ser la misma cosa desde dis
 
 Lo que si sabemos (de notas de bitacora de sesiones anteriores) son las tres salidas cuando la flakiness te muerde:
 
-- **`wait 0.5` entre un tap y el siguiente `waitFor`.** La solucion barata: meter un sleep explicito despues de cualquier tap que dispare una transicion de pantalla. Cuesta medio segundo por flow pero sube el pass rate a 100% en la mayoria de los casos.
+- **`wait 0.5` entre un tap y el siguiente `waitFor`.** La solucion barata: meter un sleep explicito despues de cualquier tap que dispare una transicion de estado. Cuesta medio segundo por script pero sube el pass rate a 100% en la mayoria de los casos.
 - **`xcrun simctl shutdown booted && xcrun simctl boot <udid>`** entre corridas. Reinicia el simulador preservando el data container. Mas lento que un install/uninstall, pero limpia el state acumulado del daemon.
-- **Nuclear: `xcrun simctl erase booted`.** El borron y cuenta nueva absoluto. Libera state y keychain compartido. Es lo que garantiza un estado realmente limpio pero tarda 15-30s y es destructivo para cualquier otra app que hayas configurado en el simulador.
+- **Nuclear: `xcrun simctl erase booted`.** El borron y cuenta nueva absoluto. Libera state y keychain compartido. Es lo que garantiza un estado realmente limpio pero tarda 15-30s y es destructivo para cualquier otro target que hayas configurado en el simulador.
 
 Esos tres workarounds estan documentados ahora como follow-up tracked, con la idea de que eventualmente alguno entre al CLI como un modo `--clean-slate` o similar. Hoy no estan expuestos — intencionalmente, porque los tres tienen costos importantes y no queremos que se usen por default.
 
 ### La leccion (que vale para cualquiera midiendo cambios en sistemas UI)
 
-Cuando estas midiendo el efecto de un cambio tuyo sobre un sistema con componentes que no controlas — simulator, daemon, app target — **tenes que correr el bench varias veces sobre el baseline antes de atribuir cualquier flakiness al cambio**. Dos runs del baseline no alcanzan. Si el baseline tiene un 10% de flakiness inherente y tu cambio introduce un 5% adicional, tu N=3 corridas no te va a dar señal clara. Vas a ver dos passes y un fail y no sabes si fue tu culpa o del dia.
+Cuando estas midiendo el efecto de un cambio tuyo sobre un sistema con componentes que no controlas — simulator, daemon, target — **tenes que correr el bench varias veces sobre el baseline antes de atribuir cualquier flakiness al cambio**. Dos runs del baseline no alcanzan. Si el baseline tiene un 10% de flakiness inherente y tu cambio introduce un 5% adicional, tu N=3 corridas no te va a dar señal clara. Vas a ver dos passes y un fail y no sabes si fue tu culpa o del dia.
 
 En este caso especifico, el bench post-revert de 9 runs fue el que nos dio la foto real. Nos salvo de autoincriminar al codigo estable y nos dio la base honesta para decir "este ~10-15% es piso; cualquier retry del observer tiene que batirlo con margen".
 
@@ -458,9 +350,9 @@ En este caso especifico, el bench post-revert de 9 runs fue el que nos dio la fo
 
 ## `keychain reset` y la promesa cross-platform
 
-El experimento del login expuso un problema concreto: el keychain compartido de iOS sobrevive a `uninstall + install`. Cuando corres el flow dos veces seguidas, la segunda corrida arranca con el email pre-cargado y el boton `No soy yo` visible — porque el keychain guarda al ultimo usuario logueado y el uninstall del bundle individual no borra el access group compartido. Esto lo vimos en la primera parte del capitulo como "la sorpresa del keychain".
+El experimento expuso un problema concreto: el keychain compartido de iOS sobrevive a `uninstall + install`. Al correr el script dos veces seguidas, la segunda corrida arranca con credenciales residuales del ultimo logged-in user, porque el access group compartido no se purga con el uninstall del bundle individual. Esto lo vimos arriba como hallazgo del primer tramo.
 
-La respuesta obvia es agregar un comando al CLI: `keychain reset`. Wipe del keychain del simulator, listo. Una sola linea del script nuevo al principio del `.auto` y el flow vuelve a arrancar desde cero.
+La respuesta obvia es agregar un comando al CLI: `keychain reset`. Wipe del keychain del simulator, listo. Una sola linea al principio del `.auto` y el estado vuelve a ser limpio.
 
 ### La primera iteracion
 
@@ -520,7 +412,7 @@ Misma semantica: deja el dispositivo en un estado donde la proxima launch arranc
 
 ### El edge case conocido
 
-Hay un caso donde el no-op de Android es insuficiente: apps con Google Sign-In que usan `AccountManager` para cachear el account device-wide. El `AccountManager` sobrevive al uninstall del bundle porque pertenece al sistema, no a la app. Si corres un flow de login con Google Sign-In dos veces, la segunda va a arrancar con el account ya seleccionado — el mismo problema del keychain iOS, pero con causa distinta.
+Hay un caso donde el no-op de Android es insuficiente: targets que usan Google Sign-In via `AccountManager` para cachear el account device-wide. El `AccountManager` sobrevive al uninstall del bundle porque pertenece al sistema, no a la app. Una segunda corrida arranca con el account ya seleccionado — el mismo sintoma que el keychain iOS, pero con causa distinta.
 
 El workaround actual es nuclear: `clearState com.google.android.gms`, que borra el state del proveedor de Google Play Services entero. Funciona pero es destructivo para todo el sistema del simulador.
 
@@ -535,9 +427,9 @@ Ninguna esta implementada. La nota existe para que el futuro yo (o cualquier col
 
 Durante la discusion aparecio una sugerencia tentadora: en vez de agregar comandos especificos, por que no exponer un `shell "<cmd>"` generico que le permita al usuario ejecutar lo que quiera en el host? Con eso podrias hacer `shell "xcrun simctl keychain booted reset"` y no necesitarias `keychain reset` como comando del CLI.
 
-La rechazamos por dos razones. La primera es que **rompe la portabilidad**. `shell "xcrun simctl..."` no corre en Linux, no corre en el CI de Android, no corre en un container de tests. Cada `shell` en un `.auto` es un punto donde el script deja de ser cross-platform. Y el dia que alguien quiere portar su flow a un runner donde el simctl no existe, tiene que reescribir la linea.
+La rechazamos por dos razones. La primera es que **rompe la portabilidad**. `shell "xcrun simctl..."` no corre en Linux, no corre en el CI de Android, no corre en un container de tests. Cada `shell` en un `.auto` es un punto donde el script deja de ser cross-platform. Y el dia que alguien quiere portar su script a un runner donde `simctl` no existe, tiene que reescribir la linea.
 
-La segunda es mas sutil: **invita al anti-pattern de "YAML + bash inline"**. Si el usuario puede meter bash en el script, va a meter bash. Primero una linea, despues tres, despues diez, y el `.auto` deja de ser un lenguaje de automatizacion cross-platform para convertirse en un bash script con sintaxis extraña. Ya hay herramientas que hacen eso bien (Maestro lo permite, GitHub Actions lo usa todo el tiempo). Nuestra decision de diseño desde el Capitulo 2 fue que el `.auto` debia ser imperativo pero no arbitrario — suficiente para expresar flows y workarounds, pero no tanto como para que sea un runtime de shell. Cada comando nuevo que agregamos tiene que pelearse con el `shell` imaginario en el banco: si un comando limpio puede cubrir el 90% del caso de uso con semantica cross-platform, ese comando gana.
+La segunda es mas sutil: **invita al anti-pattern de "YAML + bash inline"**. Si el usuario puede meter bash en el script, va a meter bash. Primero una linea, despues tres, despues diez, y el `.auto` deja de ser un lenguaje de automatizacion cross-platform para convertirse en un bash script con sintaxis extraña. Ya hay herramientas que hacen eso bien (Maestro lo permite, GitHub Actions lo usa todo el tiempo). Nuestra decision de diseño desde el Capitulo 2 fue que el `.auto` debia ser imperativo pero no arbitrario — suficiente para expresar secuencias y workarounds, pero no tanto como para que sea un runtime de shell. Cada comando nuevo que agregamos tiene que pelearse con el `shell` imaginario en el banco: si un comando limpio puede cubrir el 90% del caso de uso con semantica cross-platform, ese comando gana.
 
 `keychain reset` cubre el caso del 90%. El edge case del AccountManager (el 10% restante) lo tracked-eamos como follow-up en vez de resolverlo con `shell "adb shell pm clear ..."`. El ecosistema vale mas que la conveniencia de esa feature.
 
@@ -545,7 +437,7 @@ La segunda es mas sutil: **invita al anti-pattern de "YAML + bash inline"**. Si 
 
 ## Benchmark honesto
 
-Con el sidecar estable, el stabilizer bajado a 0.15s, y el hibrido revertido, corrimos un ultimo bench. El mismo flow de ocho steps — `uninstall`, `install`, `launch`, dos `waitFor`, dos `tap`, un step mas — sobre la misma app comercial real. Lo medimos en AutoPilot y, como referencia neutral de wall clock, en una herramienta equivalente:
+Con el sidecar estable, el stabilizer bajado a 0.15s, y el hibrido revertido, corrimos un ultimo bench. El mismo script de ocho steps — `uninstall`, `install`, `launch`, dos `waitFor`, dos `tap`, un step mas — sobre el mismo target real. Lo medimos en AutoPilot y, como referencia neutral de wall clock, en una herramienta equivalente:
 
 | Setup | Total end-to-end |
 |---|---|
@@ -557,7 +449,7 @@ Tres numeros, sin posicionamiento. No hay "AutoPilot es X% mas rapido". No hay "
 
 Lo unico que vale la pena mencionar neutralmente es un detalle de implementacion que descubrimos durante el bench y que es relevante para cualquiera comparando herramientas de automatizacion en general: el parametro `timeout:` de `extendedWaitUntil` en Maestro **le agrega una ventana de espera proporcional al timeout aunque el elemento aparezca mucho antes**. Medimos que con `timeout: 10000`, el comando toma 3 segundos mas de wall clock que sin el parametro, aunque en ambos casos el elemento estuviera visible en menos de 200ms. Parece ser un mecanismo de stabilization interno: "espera a que el elemento este presente Y estable durante un porcentaje del timeout".
 
-No es un bug — es una decision de diseño razonable en una herramienta orientada a robustez. Pero es una trampa conocida cuando comparas numeros. Un usuario bien intencionado setea `timeout: 10000` "por las dudas" en todas sus aserciones y despues mide que el flow es lento. La lentitud percibida no es de la herramienta en abstracto — es del valor del parametro. Para que la comparacion sea justa, el parametro tiene que ser el minimo que el flow tolera, no el maximo que el dev se siente comodo poniendo.
+No es un bug — es una decision de diseño razonable en una herramienta orientada a robustez. Pero es una trampa conocida cuando comparas numeros. Un usuario bien intencionado setea `timeout: 10000` "por las dudas" en todas sus aserciones y despues mide que el script es lento. La lentitud percibida no es de la herramienta en abstracto — es del valor del parametro. Para que la comparacion sea justa, el parametro tiene que ser el minimo que el script tolera, no el maximo que el dev se siente comodo poniendo.
 
 Lo apuntamos aqui porque es el tipo de hallazgo que solo aparece cuando comparas herramientas cabeza a cabeza con instrumentos reales y lees los logs con calma. Es documentacion para la proxima persona que haga el mismo bench; no es un argumento contra nada.
 
@@ -580,7 +472,7 @@ try { await refreshTree({ silent: true }); } catch {}   // bloquea
 setRunning(false);
 ```
 
-El `await refreshTree({ silent: true })` disparaba un tree dump + screenshot + element index reconstruccion. En una app con contenido moderado, eso toma entre 300 y 800ms. Y durante todo ese tiempo, el boton Play quedaba desactivado porque `setRunning(false)` estaba despues del await. El editor no estaba "pensando" — estaba esperando el tree refresh para actualizar el autocomplete, un trabajo que no bloqueaba nada pero que el codigo hacia bloqueante por accidente.
+El `await refreshTree({ silent: true })` disparaba un tree dump + screenshot + element index reconstruccion. Contra un target con contenido moderado, eso toma entre 300 y 800ms. Y durante todo ese tiempo, el boton Play quedaba desactivado porque `setRunning(false)` estaba despues del await. El editor no estaba "pensando" — estaba esperando el tree refresh para actualizar el autocomplete, un trabajo que no bloqueaba nada pero que el codigo hacia bloqueante por accidente.
 
 El fix fue reordenar:
 
@@ -636,11 +528,11 @@ Ninguna es bloqueante. Todas estan en la lista porque la sesion las expuso — n
 
 ## Reflexion final
 
-Lo que empezo como "agregar el feature X" termino siendo una sesion de descubrimiento sobre como el simulator, el CLI, el editor, y nuestra percepcion de "velocidad" interactuan en conjunto. Los numeros medibles — el 6% de mejora del sidecar, los ~6 segundos del flow de login, los ~52ms del cold start — son modestos. Ninguno justifica por si solo un capitulo.
+Lo que empezo como "agregar el feature X" termino siendo una sesion de descubrimiento sobre como el simulator, el CLI, el editor, y nuestra percepcion de "velocidad" interactuan en conjunto. Los numeros medibles — el 6% de mejora del sidecar, los ~6 segundos del script end-to-end, los ~52ms del cold start — son modestos. Ninguno justifica por si solo un capitulo.
 
 Las lecciones son mas valiosas que las metricas. El sidecar no es mejor porque sea mas rapido punto a punto — es mejor porque rompe el modelo de "reiniciar todo entre comandos" y le da al stabilizer memoria real del tiempo. El hibrido del observer no es malo porque el concepto este equivocado — es malo porque el instrumento de medicion contendia con el sistema medido, y sin una query mas barata que el tree dump, el concepto es fisicamente insostenible. El 10-15% de flakiness inherente no es nuestra culpa, pero ahora sabemos que existe y que cualquier bench menor a N=5 no tiene autoridad para hablar de regresiones. El `keychain reset` cross-platform no es una feature tecnica — es un compromiso con la promesa del proyecto de que el mismo script corre en ambas plataformas.
 
-Y los dos fixes chicos de UX — el Play button que no se desbloqueaba, el README que no explicaba el flow del editor — son el recordatorio recurrente de que cada feature nueva abre huecos de documentacion y experiencia que no estaban ahi antes. La definicion de "terminado" incluye esos huecos, aunque sean invisibles cuando escribis el codigo.
+Y los dos fixes chicos de UX — el Play button que no se desbloqueaba, el README que no explicaba el flujo de build del editor — son el recordatorio recurrente de que cada feature nueva abre huecos de documentacion y experiencia que no estaban ahi antes. La definicion de "terminado" incluye esos huecos, aunque sean invisibles cuando escribis el codigo.
 
 Al final del dia, lo que el capitulo documenta no es una sola victoria. Es el tejido de decisiones, mediciones y reverts de una jornada donde casi todo salio razonablemente bien y al menos un experimento salio mal de una forma educativa. Este libro siempre fue mas sobre el proceso que sobre el destino; este dia fue proceso puro.
 
