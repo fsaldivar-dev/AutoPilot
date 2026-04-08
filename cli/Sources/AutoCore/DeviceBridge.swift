@@ -82,6 +82,31 @@ public protocol DeviceBridge {
     func clearState(bundleId: String) throws
     func uninstallApp(bundleId: String) throws
 
+    // MARK: - Secure Storage
+
+    /// Reset the device's shared secure storage ("fresh credentials for
+    /// next launch"). Cross-platform by design so the same `.auto` script
+    /// runs on iOS and Android without branching.
+    ///
+    /// - **iOS Simulator**: wraps `xcrun simctl keychain <udid> reset`,
+    ///   clearing credentials saved by Keychain Services across ALL apps
+    ///   on the booted simulator. There is no per-bundle reset in simctl,
+    ///   this is always device-wide.
+    /// - **Android**: no-op with a printed note. The Android Keystore is
+    ///   per-app and tied to the app's UID, so `uninstall <bundleId>`
+    ///   already releases those keys on the next install. The post-
+    ///   condition "fresh credential state for next launch" holds without
+    ///   doing anything here, as long as the script has an `uninstall`
+    ///   step before `install`.
+    ///
+    /// **Edge case (Android)**: apps that use `AccountManager` (Google
+    /// Sign-In, "Continue with Google", Facebook Login) store their
+    /// accounts in device-wide system services that survive
+    /// `uninstall`. For those, add an explicit
+    /// `clearState "com.google.android.gms"` step next to this one.
+    /// Tracked in the follow-up issue for AccountManager clearing.
+    func resetKeychain() throws
+
     // MARK: - Scroll Search
 
     func scrollTo(target: String, direction: String, maxAttempts: Int) throws
@@ -102,4 +127,28 @@ public protocol DeviceBridge {
 
     func pushFile(localPath: String, remotePath: String) throws
     func pullFile(remotePath: String, localPath: String) throws
+}
+
+// MARK: - Default implementations
+
+/// Default implementations for methods whose behavior is
+/// platform-asymmetric. Conforming types override only where they need
+/// real work — everything else degrades to a documented no-op so the
+/// same `.auto` script runs on iOS and Android without branching.
+public extension DeviceBridge {
+    /// Default: no-op with a printed note. The post-condition "fresh
+    /// credential state for next launch" is already satisfied on Android
+    /// by the per-app Keystore model (uninstall releases the UID and
+    /// drops the keys), so this command has nothing to do there.
+    ///
+    /// The iOS `SimulatorBridge` overrides with a real `xcrun simctl
+    /// keychain reset` because iOS's shared keychain DOES persist
+    /// credentials across uninstall/install of a bundle.
+    ///
+    /// This makes `keychain reset` a safe cross-platform step: iOS wipes
+    /// the device-wide keychain, Android does nothing (which is correct
+    /// because it was already handled by `uninstall`).
+    func resetKeychain() throws {
+        print("Keychain reset: no-op on this platform (Android Keystore is per-app, already cleared by uninstall)")
+    }
 }

@@ -510,6 +510,24 @@ public func executeSharedCommand(_ args: [String], bridge: any DeviceBridge) thr
         let ms = elapsedMs(start)
         print("Uninstalled \(args[1]) (\(ms)ms)")
 
+    case "keychain":
+        // Subcommand-style: `keychain reset`. Leaves room for future
+        // `keychain add-cert` / `add-root-cert` mirroring simctl, without
+        // crowding the top-level command list today.
+        guard args.count >= 2 else {
+            print("Usage: auto keychain reset")
+            return true
+        }
+        switch args[1] {
+        case "reset":
+            try bridge.resetKeychain()
+            let ms = elapsedMs(start)
+            print("Keychain reset (\(ms)ms)")
+        default:
+            print("Usage: auto keychain reset")
+            print("Unknown subcommand: '\(args[1])'")
+        }
+
     // MARK: - Scroll Search
 
     case "scrollTo":
