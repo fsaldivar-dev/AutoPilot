@@ -82,6 +82,18 @@ public protocol DeviceBridge {
     func clearState(bundleId: String) throws
     func uninstallApp(bundleId: String) throws
 
+    // MARK: - Secure Storage
+
+    /// Reset the device's shared secure storage (keychain on iOS).
+    ///
+    /// iOS Simulator: wraps `xcrun simctl keychain <udid> reset`. Clears
+    /// credentials saved by Keychain Services across ALL apps on the
+    /// booted simulator — there is no per-bundle reset in simctl.
+    ///
+    /// Android: unsupported. The per-app Keystore is already cleared by
+    /// `clearState(bundleId:)`.
+    func resetKeychain() throws
+
     // MARK: - Scroll Search
 
     func scrollTo(target: String, direction: String, maxAttempts: Int) throws
@@ -102,4 +114,20 @@ public protocol DeviceBridge {
 
     func pushFile(localPath: String, remotePath: String) throws
     func pullFile(remotePath: String, localPath: String) throws
+}
+
+// MARK: - Default implementations
+
+/// Default implementations for methods that only make sense on one platform.
+/// Conforming types override only the ones they can support — everything else
+/// surfaces a clear "unsupported on this platform" error at runtime without
+/// forcing every bridge to add a stub.
+public extension DeviceBridge {
+    /// Default: throws. Only the iOS `SimulatorBridge` provides a real
+    /// implementation (wrapping `xcrun simctl keychain reset`). Android
+    /// bridges inherit this default because Android Keystore is per-app
+    /// and is cleared by `clearState(bundleId:)`.
+    func resetKeychain() throws {
+        throw BridgeError.unknown("keychain reset is only supported on iOS Simulator")
+    }
 }
