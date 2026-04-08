@@ -21,6 +21,11 @@ func run() throws {
         return
     }
 
+    if cmd == "interactive" {
+        runInteractive()
+        return
+    }
+
     try executeCommand(args)
 }
 
@@ -44,6 +49,61 @@ func runScript(path: String) throws {
 
     let totalMs = elapsedMs(totalStart)
     print("\n\(steps.count) step(s) completed (\(totalMs)ms)")
+}
+
+/// REPL for Android. Keeps the bridge (AgentBridge socket or AdbLegacyBridge)
+/// alive between commands so a persistent client (the editor, a test harness,
+/// etc.) can run a whole .auto flow without paying per-step cold-start.
+///
+/// Android doesn't have an equivalent of the iOS UIStabilizer (the agent
+/// doesn't publish layout events over the socket), so the only gain here is
+/// the warm bridge — but that's already worth the change: spinning up the
+/// socket + reading one tree via adb is the biggest per-step overhead on
+/// Android.
+func runInteractive() {
+    // Line-buffered stdout so each JSON envelope is flushed promptly.
+    setvbuf(stdout, nil, _IOLBF, 0)
+
+    print(InteractiveJSON.ready(platform: "android"))
+    fflush(stdout)
+
+    while let rawLine = readLine(strippingNewline: true) {
+        let trimmed = rawLine.trimmingCharacters(in: .whitespaces)
+
+        if trimmed.isEmpty || trimmed.hasPrefix("#") {
+            print(InteractiveJSON.skipped())
+            fflush(stdout)
+            continue
+        }
+
+        if trimmed == "exit" || trimmed == "quit" {
+            print(InteractiveJSON.bye())
+            fflush(stdout)
+            break
+        }
+
+        let start = CFAbsoluteTimeGetCurrent()
+        let tokens = tokenize(trimmed)
+        if tokens.isEmpty {
+            print(InteractiveJSON.skipped())
+            fflush(stdout)
+            continue
+        }
+
+        let result = captureStdoutThrowing {
+            try executeCommand(tokens)
+        }
+
+        let ms = elapsedMs(start)
+        let out = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let err = result.error {
+            let message = "\(err)"
+            print(InteractiveJSON.error(ms: ms, message: message, out: out))
+        } else {
+            print(InteractiveJSON.ok(ms: ms, out: out))
+        }
+        fflush(stdout)
+    }
 }
 
 func executeCommand(_ args: [String]) throws {
@@ -310,6 +370,126 @@ func executeCommand(_ args: [String]) throws {
     case "help", "--help", "-h":
         printUsage()
 
+    case "setup":
+        // #67: rearma forward + agente automaticamente
+        guard let agent = bridge as? AgentBridge else {
+            print("setup is only available with AgentBridge (do not pass --legacy)")
+            return
+        }
+        agent.autoRecover = false  // we drive the recovery flow ourselves
+        do {
+            try agent.setupAgent(verbose: true)
+            print("\n✓ Setup complete — auto-android is ready")
+        } catch {
+            print("\n✗ Setup failed: \(error)")
+            exit(1)
+        }
+
+    case "doctor":
+        print("AutoPilot Doctor — Android Environment Check\n")
+
+        // 1. ANDROID_HOME
+        let env = ProcessInfo.processInfo.environment
+        print("ANDROID_HOME:")
+        if let home = env["ANDROID_HOME"] {
+            print("  ✓ \(home)")
+        } else if let root = env["ANDROID_SDK_ROOT"] {
+            print("  ~ ANDROID_SDK_ROOT=\(root) (legacy, prefer ANDROID_HOME)")
+        } else {
+            print("  ✗ Not set — IDEs may not inherit shell env vars")
+        }
+
+        // 2. ADB binary
+        print("\nadb:")
+        do {
+            // AdbLegacyBridge exposes adb check via ping/listDevices
+            let legacy = bridge as? AdbLegacyBridge ?? AdbLegacyBridge()
+            let devices = try legacy.listDevices()
+            let adbVer = Process()
+            adbVer.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+            adbVer.arguments = ["adb", "version"]
+            let adbPipe = Pipe()
+            adbVer.standardOutput = adbPipe
+            adbVer.standardError = Pipe()
+            adbVer.environment = env
+            try? adbVer.run()
+            adbVer.waitUntilExit()
+            let verOut = (String(data: adbPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            let firstLine = verOut.components(separatedBy: .newlines).first ?? "found"
+            print("  ✓ \(firstLine)")
+
+            // 3. Connected devices
+            print("\nDevices:")
+            if devices.isEmpty {
+                print("  ✗ No devices connected — run an emulator or connect a device")
+            } else {
+                for device in devices {
+                    let name = (device["name"] as? String) ?? "unknown"
+                    let udid = (device["udid"] as? String) ?? "?"
+                    let state = (device["state"] as? String) ?? "?"
+                    let icon = state == "Booted" ? "✓" : "~"
+                    print("  \(icon) \(name) (\(udid)) — \(state)")
+                }
+            }
+        } catch {
+            print("  ✗ Not found — \(error)")
+            print("  Checked: ANDROID_HOME, ANDROID_SDK_ROOT, ~/Library/Android/sdk, /opt/homebrew, PATH")
+        }
+
+        // 4. Agent bridge (socket)
+        print("\nAgent Socket:")
+        if let agent = bridge as? AgentBridge {
+            do {
+                let _ = try agent.search(query: "__doctor_probe__")
+                print("  ✓ Connected")
+            } catch {
+                print("  ✗ Not connected — ensure agent is running:")
+                print("    adb forward tcp:9008 localabstract:autopilot")
+                print("    adb shell am instrument -w dev.autopilot.agent/.AgentInstrumentation")
+            }
+        } else {
+            print("  ~ Using legacy bridge (--legacy), agent not required")
+        }
+
+        // 5. DNS resolution from inside the emulator.
+        // netsimd caches host DNS at boot — when the WiFi changes, the
+        // emulator keeps pointing at unreachable nameservers and apps see
+        // "no internet" even though `ping 8.8.8.8` works.
+        print("\nEmulator DNS:")
+        do {
+            let legacy = bridge as? AdbLegacyBridge ?? AdbLegacyBridge()
+            let devs = try legacy.listDevices()
+            let booted = devs.first(where: { ($0["state"] as? String) == "Booted" })
+            if let udid = booted?["udid"] as? String {
+                let proc = Process()
+                proc.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+                proc.arguments = ["adb", "-s", udid, "shell", "ping", "-c", "1", "-W", "2", "google.com"]
+                let out = Pipe(); proc.standardOutput = out; proc.standardError = Pipe()
+                proc.environment = env
+                try? proc.run()
+                proc.waitUntilExit()
+                let output = String(data: out.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+                if proc.terminationStatus == 0 && output.contains("bytes from") {
+                    print("  ✓ google.com resolves from inside the emulator")
+                } else {
+                    print("  ✗ google.com does NOT resolve — emulator DNS is stale")
+                    print("    Cause: netsimd cached an unreachable nameserver (common after WiFi change).")
+                    print("    Fix:   cold-boot the emulator with an explicit DNS server")
+                    print("           adb -s \(udid) emu kill")
+                    print("           emulator -avd <name> -dns-server 8.8.8.8,1.1.1.1 -no-snapshot-load")
+                }
+            } else {
+                print("  ~ No booted device — skipped")
+            }
+        } catch {
+            print("  ~ Skipped — \(error)")
+        }
+
+        // 6. Environment
+        print("\nEnvironment:")
+        print("  PATH: \(env["PATH"] ?? "(not set)")")
+        print("  Bridge: \(useLegacy ? "AdbLegacyBridge (--legacy)" : "AgentBridge (default)")")
+
     default:
         // Delegate to shared (platform-agnostic) dispatcher
         let handled = try executeSharedCommand(args, bridge: bridge)
@@ -360,6 +540,7 @@ func printUsage() {
       copyTextFrom <element>             Read text content from element
       clearState <package>               Clear app data (pm clear)
       uninstall <package>                Uninstall app
+      waitUntilGone <label> [timeout]     Wait for element to disappear
       scrollTo <element> [direction]     Scroll until element is visible
       startRecording                     Start screen recording
       stopRecording <file.mp4>           Stop recording and save
@@ -374,6 +555,8 @@ func printUsage() {
       config <key> <value>              Set config value
       record <output.auto>               Record touch interactions to script (Ctrl+C to stop)
       run <script.auto>                 Run automation script
+      doctor                            Check environment setup (adb, devices, agent)
+      setup                             Rearm adb forward + relaunch agent (auto-recovery)
 
     Script format (.auto):
       # Comments start with #

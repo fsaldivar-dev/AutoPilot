@@ -25,6 +25,11 @@ func run() throws {
         return
     }
 
+    if cmd == "interactive" {
+        runInteractive()
+        return
+    }
+
     try executeCommand(args)
 }
 
@@ -44,7 +49,7 @@ func runScript(path: String) throws {
         print("[\(i + 1)] \(label)")
 
         // Auto-wait: let UI stabilize before each action
-        stabilizer.waitForStable(quietPeriod: 0.3, timeout: 3.0)
+        stabilizer.waitForStable(quietPeriod: 0.15, timeout: 3.0)
         stabilizer.resetCounter()
 
         do {
@@ -58,6 +63,111 @@ func runScript(path: String) throws {
     stabilizer.detach()
     let totalMs = elapsedMs(totalStart)
     print("\n\(steps.count) step(s) completed (\(totalMs)ms)")
+}
+
+/// Commands that mutate the simulator UI or observe a transition. Running
+/// `waitForStable` before one of these avoids half-baked states carried over
+/// from a previous animation. Read-only commands (ping, tree, exists,
+/// screenshot, list, doctor) don't need it.
+private let interactiveMutators: Set<String> = [
+    "tap", "doubleTap", "longPress", "tapAt",
+    "type", "clear", "eraseText",
+    "swipe", "scroll", "scrollTo", "drag",
+    "pressKey", "hideKeyboard",
+    "launch", "terminate", "install", "uninstall", "clearState",
+    "rotate", "setAppearance", "lockDevice", "unlockDevice",
+    "permission", "openurl", "media", "paste",
+    "biometric", "faceid", "setLocation",
+    "waitFor", "waitUntilGone",
+]
+
+/// REPL that keeps `bridge` and `stabilizer` alive across commands so a client
+/// (the editor, a test harness, scripts, etc.) can run a whole .auto flow
+/// without paying process cold-start or losing stabilizer state.
+///
+/// Protocol: newline-delimited JSON. See InteractiveJSON for the exact shape.
+func runInteractive() {
+    // Attach the stabilizer up-front. If the Simulator isn't running yet the
+    // attach is a no-op and the first `launch` will work anyway; we just
+    // won't get event-driven stabilization for that very first command.
+    if let pid = bridge.findSimulatorPID() {
+        stabilizer.attach(pid: pid)
+    }
+
+    // Make stdout line-buffered so every print()+fflush gets flushed promptly
+    // to the pipe (the client parses one JSON object per newline).
+    setvbuf(stdout, nil, _IOLBF, 0)
+
+    // Emit the banner so the client knows the REPL is alive and warmed up.
+    print(InteractiveJSON.ready(platform: "ios"))
+    fflush(stdout)
+
+    while let rawLine = readLine(strippingNewline: true) {
+        let trimmed = rawLine.trimmingCharacters(in: .whitespaces)
+
+        // Empty lines and comments are cheap no-ops so scripts with blank
+        // lines / header comments work without any client-side filtering.
+        if trimmed.isEmpty || trimmed.hasPrefix("#") {
+            print(InteractiveJSON.skipped())
+            fflush(stdout)
+            continue
+        }
+
+        // Explicit exit commands for a clean shutdown.
+        if trimmed == "exit" || trimmed == "quit" {
+            print(InteractiveJSON.bye())
+            fflush(stdout)
+            break
+        }
+
+        let start = CFAbsoluteTimeGetCurrent()
+        let tokens = tokenize(trimmed)
+        if tokens.isEmpty {
+            print(InteractiveJSON.skipped())
+            fflush(stdout)
+            continue
+        }
+
+        // Command name sans the [role] suffix, used for stabilizer gating.
+        let rawCmd = tokens[0]
+        let cmdName: String
+        if let bracket = rawCmd.firstIndex(of: "[") {
+            cmdName = String(rawCmd[rawCmd.startIndex..<bracket])
+        } else {
+            cmdName = rawCmd
+        }
+
+        if interactiveMutators.contains(cmdName) {
+            // Wait for the previous frame's animation to settle. The event-
+            // driven stabilizer exits early as soon as `quietPeriod` seconds
+            // pass without any AX change, so this is free when the UI is
+            // already idle (the typical case after the user waits a beat
+            // between script edits). 0.15s tuned empirically — long enough
+            // to let an animation finish, short enough to not over-pay on
+            // apps with continuous AX event traffic.
+            stabilizer.waitForStable(quietPeriod: 0.15, timeout: 3.0)
+            stabilizer.resetCounter()
+        }
+
+        // Run the existing per-command dispatch with stdout redirected to a
+        // pipe so we can wrap its output in a JSON envelope without touching
+        // every `case` in executeCommand / executeSharedCommand.
+        let result = captureStdoutThrowing {
+            try executeCommand(tokens)
+        }
+
+        let ms = elapsedMs(start)
+        let out = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let err = result.error {
+            let message = "\(err)"
+            print(InteractiveJSON.error(ms: ms, message: message, out: out))
+        } else {
+            print(InteractiveJSON.ok(ms: ms, out: out))
+        }
+        fflush(stdout)
+    }
+
+    stabilizer.detach()
 }
 
 func executeCommand(_ args: [String]) throws {
@@ -381,6 +491,56 @@ func executeCommand(_ args: [String]) throws {
     case "help", "--help", "-h":
         printUsage()
 
+    case "doctor":
+        print("AutoPilot Doctor — iOS Environment Check\n")
+
+        // 1. Simulator.app running
+        print("Simulator.app:")
+        if let pid = bridge.findSimulatorPID() {
+            print("  ✓ Running (PID \(pid))")
+        } else {
+            print("  ✗ Not running — open Simulator.app first")
+        }
+
+        // 2. Booted simulator
+        print("\nBooted Simulator:")
+        do {
+            let deviceId = try bridge.getBootedDeviceId()
+            print("  ✓ \(deviceId)")
+        } catch {
+            print("  ✗ No booted simulator — run: xcrun simctl boot <device>")
+        }
+
+        // 3. xcrun
+        print("\nxcrun:")
+        let xcrunCheck = Process()
+        xcrunCheck.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
+        xcrunCheck.arguments = ["--version"]
+        let xcrunPipe = Pipe()
+        xcrunCheck.standardOutput = xcrunPipe
+        xcrunCheck.standardError = Pipe()
+        try? xcrunCheck.run()
+        xcrunCheck.waitUntilExit()
+        if xcrunCheck.terminationStatus == 0 {
+            let ver = (String(data: xcrunPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+            print("  ✓ Found (\(ver))")
+        } else {
+            print("  ✗ xcrun not working — install Xcode Command Line Tools")
+        }
+
+        // 4. Accessibility
+        print("\nAccessibility Permission:")
+        if AXIsProcessTrusted() {
+            print("  ✓ Granted")
+        } else {
+            print("  ✗ Not granted — add this app to: System Settings > Privacy & Security > Accessibility")
+        }
+
+        // 5. Environment
+        print("\nEnvironment:")
+        print("  PATH: \(ProcessInfo.processInfo.environment["PATH"] ?? "(not set)")")
+        print("  DEVELOPER_DIR: \(ProcessInfo.processInfo.environment["DEVELOPER_DIR"] ?? "(not set)")")
+
     default:
         // Delegate to shared (platform-agnostic) dispatcher
         let handled = try executeSharedCommand(args, bridge: bridge)
@@ -436,6 +596,7 @@ func printUsage() {
       copyTextFrom <element>             Read text content from element
       clearState <bundleId>              Clear app data and permissions
       uninstall <bundleId>               Uninstall app from simulator
+      waitUntilGone <label> [timeout]     Wait for element to disappear
       scrollTo <element> [direction]     Scroll until element is visible
       startRecording                     Start screen recording
       stopRecording <file.mp4>           Stop recording and save
@@ -452,6 +613,7 @@ func printUsage() {
       build <xcodebuild args...>        Build with explicit args
       record <output.auto>               Record interactions to script (Ctrl+C to stop)
       run <script.auto>                 Run automation script
+      doctor                            Check environment setup (Simulator, AX, xcrun)
 
     Script format (.auto):
       # Comments start with #

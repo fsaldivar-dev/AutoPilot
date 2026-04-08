@@ -40,9 +40,23 @@ La regla es simple: si el comando funciona igual en ambas plataformas, esta en e
 | `type` (con target) | `auto type <target> <text>` | Ambas | Hace tap en el target y luego escribe el texto | `auto type "Email" "user@test.com"` |
 | `clear` | `auto clear <label>` | Ambas | Limpia el contenido de un campo de texto | `auto clear "Username"` |
 | `scroll` | `auto scroll <label> <dir>` | Ambas | Scroll en un elemento. Direcciones: up, down, left, right | `auto scroll "List" down` |
+| `scrollTo` | `auto scrollTo <label> [dir]` | Ambas | Scroll automatico hasta traer un elemento al viewport | `auto scrollTo "Submit" down` |
 | `swipe` | `auto swipe <dir>` | Ambas | Swipe global. Direcciones: up, down, left, right | `auto swipe up` |
+| `pressKey` | `auto pressKey <key>` | Ambas | Envia una tecla fisica al dispositivo. Teclas validas dependen de plataforma (ver nota abajo) | `auto pressKey home` / `auto-android pressKey back` |
+| `hideKeyboard` | `auto hideKeyboard` | Ambas | Intenta cerrar el teclado virtual | `auto hideKeyboard` |
+| `eraseText` | `auto eraseText [n]` | Ambas | Borra N caracteres del campo enfocado. Default 1 | `auto eraseText 5` |
 | `waitFor` | `auto waitFor <label> [timeout]` | Ambas | Espera hasta que un elemento aparezca. Polling cada 500ms. Default 10s. Sale con exit(1) si timeout | `auto waitFor "Welcome" 15` |
 | `wait` / `sleep` | `auto wait <secs>` | Ambas | Pausa la ejecucion N segundos. Default 1s | `auto wait 2` |
+
+> **Nota sobre `pressKey`:** Las teclas validas dependen de la plataforma.
+> - **iOS:** `home`, `enter`, `delete`, `tab`, `escape`, `volumeUp`, `volumeDown`.
+> - **Android:** `home`, `back`, `enter`, `delete`, `volumeUp`, `volumeDown`, `power`.
+>
+> La tecla `back` es **Android-only** y es critica para cerrar el teclado virtual en Android cuando `hideKeyboard` no funciona (ver nota abajo). Las teclas `tab` y `escape` son iOS-only. Un script que use teclas especificas de plataforma no es portable: hay que mantener dos `.auto` separados o usar solo las teclas comunes (`home`, `enter`, `delete`, `volumeUp`, `volumeDown`).
+
+> **Nota sobre `hideKeyboard`:** En Android este comando reporta `Keyboard dismissed` con exit 0 pero **NO cierra efectivamente el teclado**. Hay que usar `pressKey back` como workaround, seguido de `wait 2` para que Compose recomponga el formulario. Ver [Apendice D — Troubleshooting](troubleshooting.md#hidekeyboard-android).
+
+> **Nota sobre `scrollTo`:** En Android, `scrollTo` tiene actualmente un bug de parsing del argumento de direccion: cualquier llamada retorna `Error: ADB failed: Invalid direction: . Use up/down/left/right`. Como workaround, usar `swipe up` / `swipe down` o cerrar el teclado con `pressKey back` si el elemento estaba tapado por el IME. Ver [Apendice D — Troubleshooting](troubleshooting.md#scrollto-direction).
 
 ## App
 
@@ -52,6 +66,10 @@ La regla es simple: si el comando funciona igual en ambas plataformas, esta en e
 | `launch` | `auto-android launch <package>` | Android | Lanza app. Lee bundleId de `.autopilot` si no se pasa | `auto-android launch dev.autopilot.test.Explorea` |
 | `terminate` | `auto terminate <bundleId>` | Ambas | Termina (kill) la app | `auto terminate com.example.app` |
 | `install` | `auto install <path>` | Ambas | Instala app en el dispositivo (.app en iOS, .apk en Android) | `auto install build/App.app` |
+| `uninstall` | `auto uninstall <bundleId>` | Ambas | Desinstala la app del dispositivo | `auto uninstall com.example.app` |
+| `clearState` | `auto clearState <bundleId>` | Ambas | Borra los datos y preferencias de la app sin desinstalarla | `auto clearState com.example.app` |
+
+> **Nota sobre `clearState` en iOS:** Borra los datos del Application Support del bundle, pero **NO borra el keychain compartido** del bundle. Si la app guarda credenciales en el keychain (patron comun para recordar la sesion del usuario), la proxima ejecucion va a recordar al ultimo usuario logueado aun despues de haber corrido `clearState`. Lo mismo pasa con `uninstall` + `install`: el keychain sobrevive al reinstalo del `.app`. Ver [Apendice D — Troubleshooting](troubleshooting.md#uninstall-no-limpio).
 
 ## Dispositivo
 
@@ -127,6 +145,6 @@ Comandos **solo iOS**: `ping` (via AX), `index`, `tap $N`, `tap Label[N]`, `insp
 
 Comandos **solo Android**: `ping` (via ADB), `launch` (simplificado, sin inject).
 
-Comandos **compartidos** (CommandDispatcher): `tree`, `tree -s`, `tap`, `longPress`, `doubleTap`, `clear`, `type`, `scroll`, `swipe`, `screenshot`, `exists`, `elementAt`, `tapAt`, `media`, `paste`, `boot`, `shutdown`, `install`, `list`, `openurl`, `waitFor`, `wait`/`sleep`, `terminate`, `config`, `biometric`/`faceid`.
+Comandos **compartidos** (CommandDispatcher): `tree`, `tree -s`, `tap`, `longPress`, `doubleTap`, `clear`, `type`, `scroll`, `scrollTo`, `swipe`, `pressKey`, `hideKeyboard`, `eraseText`, `screenshot`, `exists`, `elementAt`, `tapAt`, `media`, `paste`, `boot`, `shutdown`, `install`, `uninstall`, `clearState`, `list`, `openurl`, `waitFor`, `wait`/`sleep`, `terminate`, `config`, `biometric`/`faceid`.
 
 > El flag `--legacy` en `auto-android` cambia el bridge de `AgentBridge` (socket TCP, rapido) a `AdbLegacyBridge` (adb shell + uiautomator dump, lento). Se usa para benchmarks comparativos. Ver [Capitulo 9](../09-el-agente-android.md).
