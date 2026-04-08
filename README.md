@@ -172,6 +172,41 @@ $ auto run login.auto
 7 step(s) completed (5004ms)
 ```
 
+### Editor visual (Tauri + Monaco)
+
+Editor con autocomplete, tree inspector, recorder, y Play button para correr scripts `.auto` sin salir de la UI. Dos flujos: **dev** (hot reload) y **release** (`.app` instalable).
+
+**Setup inicial — una vez por maquina:**
+
+```bash
+cd editor && ./setup.sh
+```
+
+Detecta Node/Rust/Swift/ADB, instala lo que falte, corre `swift build` del CLI, y copia los binarios `auto` y `auto-android` a los dos lugares que Tauri necesita: `../{auto,auto-android}` (para `tauri dev`) y `src-tauri/binaries/auto-*-<target-triple>` (para `tauri build`, que los bundlea dentro del `.app`).
+
+**Dev — hot reload de React + rebuild automatico del Rust:**
+
+```bash
+cd editor && npm run tauri dev
+```
+
+**Release — generar `.app` e instalar:**
+
+```bash
+cd editor && npm run tauri build
+cp -r src-tauri/target/release/bundle/macos/AutoPilot\ Editor.app /Applications/
+```
+
+> **⚠ Cada vez que modifiques `cli/Sources/...` tenes que re-sincronizar los binarios del editor antes de rebuild.** Tauri bundlea desde `editor/src-tauri/binaries/` que NO se actualiza automaticamente cuando recompilas el CLI. Flujo correcto:
+>
+> ```bash
+> cd cli && swift build && cd ..
+> ./editor/refresh-binaries.sh        # copia el CLI fresco a binaries/
+> cd editor && npm run tauri build    # ahora bundlea el CLI actualizado
+> ```
+>
+> Sin este paso, el `.app` queda con la version anterior del `auto` binario y cualquier comando nuevo del CLI falla en el editor con `Unknown command: ...`. Fix permanente (hook post-build automatico) tracked en [#81](https://github.com/fsaldivar-dev/AutoPilot/issues/81).
+
 ---
 
 ## Alternativas
