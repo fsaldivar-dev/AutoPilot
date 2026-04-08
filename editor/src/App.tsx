@@ -11,95 +11,113 @@ const DEFAULT_SCRIPT = `# Mi script de automatizacion
 ping
 `;
 
+// Comandos que necesitan quiet period despues. Hay dos categorias:
+// 1) Mutadores directos: tap/type/swipe/launch/etc — disparan transiciones.
+// 2) Observadores de transicion: waitFor/waitUntilGone — retornan el instante
+//    que el elemento aparece/desaparece, pero la animacion puede seguir
+//    corriendo. Sin el delay, el siguiente `tap` queda mid-transition y falla.
+// Read-only puro (ping, tree, exists, screenshot, list, doctor) NO necesita
+// delay — no toca la UI ni observa transiciones. Eso ahorra ~5-10% del runtime.
+const NEEDS_QUIET = new Set([
+  // Mutadores
+  "tap", "doubleTap", "longPress", "tapAt",
+  "type", "clear", "eraseText",
+  "swipe", "scroll", "scrollTo", "drag",
+  "pressKey", "hideKeyboard",
+  "launch", "terminate", "install", "uninstall", "clearState",
+  "rotate", "setAppearance", "lockDevice", "unlockDevice",
+  "permission", "openurl", "media", "paste",
+  "biometric", "faceid", "setLocation",
+  // Observadores de transicion (la UI puede seguir asentandose)
+  "waitFor", "waitUntilGone",
+]);
+
 const AUTO_COMMANDS = [
-  // Conexión
+  // Conexion
   { label: "ping", detail: "Verificar conexion" },
   { label: "list", detail: "Listar dispositivos" },
   { label: "boot", detail: "Encender dispositivo", insertText: 'boot "${1:iPhone 17 Pro}"' },
   { label: "shutdown", detail: "Apagar dispositivo", insertText: 'shutdown "${1:device}"' },
 
-  // Inspección
-  { label: "tree", detail: "Arbol de accesibilidad" },
-  { label: "tree -s", detail: "Buscar elementos", insertText: 'tree -s "${1:query}"' },
-  { label: "exists", detail: "Verificar existencia", insertText: 'exists "${1:element}"' },
-  { label: "waitFor", detail: "Esperar elemento", insertText: 'waitFor "${1:element}" ${2:10}' },
-  { label: "elementAt", detail: "Elemento en coordenada", insertText: "elementAt ${1:x} ${2:y}" },
-  { label: "index", detail: "Listar elementos con $N" },
-  { label: "inspect", detail: "Inspeccionar elemento", insertText: 'inspect "${1:query}"' },
-  { label: "inspect --context", detail: "Parent chain + within suggestions", insertText: 'inspect "${1:query}" --context' },
+  // Inspeccion
+  { label: "tree", detail: "Arbol de accesibilidad (opcional: -s 'query' para buscar)", insertText: 'tree${1| ,-s "query"|}' },
+  { label: "exists", detail: "Verificar si un elemento esta en el tree", insertText: 'exists "${1:element}"' },
+  { label: "waitFor", detail: "Esperar a que un elemento aparezca (timeout en segundos, default 10)", insertText: 'waitFor "${1:element}" ${2:10}' },
+  { label: "waitUntilGone", detail: "Esperar a que un elemento desaparezca (inverso de waitFor)", insertText: 'waitUntilGone "${1:element}" ${2:10}' },
+  { label: "elementAt", detail: "Elemento en coordenada (x,y)", insertText: "elementAt ${1:x} ${2:y}" },
+  { label: "index", detail: "Listar elementos con $N (despues podes usar 'tap $N')" },
+  { label: "inspect", detail: "Inspeccionar elemento (--context muestra parent chain)", insertText: 'inspect "${1:query}"${2| ,--context|}' },
 
-  // Interacción
-  { label: "tap", detail: "Tap en elemento", insertText: 'tap "${1:element}"' },
-  { label: "tap[role]", detail: "Tap con role verification", insertText: 'tap[${1|button,textField,textArea,checkBox,slider,tab|}] "${2:element}"' },
-  { label: "tap within", detail: "Tap con scope", insertText: 'tap "${1:element}" within "${2:scope}"' },
-  { label: "tap[role] within", detail: "Tap con role + scope", insertText: 'tap[${1|button,textField,textArea|}] "${2:element}" within "${3:scope}"' },
-  { label: "tap (multi)", detail: "Tap varios elementos", insertText: "tap ${1:a,b,c}" },
+  // Interaccion
+  { label: "tap", detail: "Tap en elemento (por label o id)", insertText: 'tap "${1:element}"' },
+  { label: "tap[role]", detail: "Tap con role verification (preferible cuando hay siblings ambiguos)", insertText: 'tap[${1|button,textfield,checkbox,radiobutton,popupbutton,slider,link,menuitem,tab,cell,switch,toggle,segmentedcontrol,picker,stepper|}] "${2:element}"' },
+  { label: "tap within", detail: "Tap con scope: search restringido a un container", insertText: 'tap "${1:element}" within "${2:scope}"' },
+  { label: 'tap "label[N]"', detail: "Tap N-esima ocurrencia del mismo label (1-indexed)", insertText: 'tap "${1:label}[${2:2}]"' },
+  { label: "tap $N", detail: "Tap por element index (requiere 'index' previo)", insertText: "tap \\$${1:0}" },
   { label: "doubleTap", detail: "Doble tap", insertText: 'doubleTap "${1:element}"' },
-  { label: "longPress", detail: "Presion larga", insertText: 'longPress "${1:element}" ${2:1}' },
-  { label: "tapAt", detail: "Tap coordenadas", insertText: "tapAt ${1:x} ${2:y}" },
-  { label: "type", detail: "Escribir texto", insertText: 'type "${1:text}"' },
-  { label: "type (en campo)", detail: "Tap campo + escribir", insertText: 'type "${1:campo}" "${2:texto}"' },
-  { label: "clear", detail: "Limpiar campo", insertText: 'clear "${1:field}"' },
-  { label: "swipe", detail: "Deslizar", insertText: "swipe ${1|up,down,left,right|}" },
-  { label: "scroll", detail: "Scroll elemento", insertText: 'scroll "${1:element}" ${2|down,up|}' },
+  { label: "longPress", detail: "Presion larga (segundos)", insertText: 'longPress "${1:element}" ${2:1}' },
+  { label: "tapAt", detail: "Tap por coordenadas absolutas", insertText: "tapAt ${1:x} ${2:y}" },
+  { label: "type", detail: "Escribir texto en el field actualmente focused", insertText: 'type "${1:text}"' },
+  { label: 'type "campo" "texto"', detail: "Tap field por label + escribir (smart: prefiere text inputs sobre StaticText sibling)", insertText: 'type "${1:campo}" "${2:texto}"' },
+  { label: "type[N]", detail: "Tap el N-esimo text input del tree + escribir (filtra por rol)", insertText: 'type[${1|1,2,3|}] "${2:text}"' },
+  { label: "clear", detail: "Limpiar text field", insertText: 'clear "${1:field}"' },
+  { label: "swipe", detail: "Deslizar (gesture global)", insertText: "swipe ${1|up,down,left,right|}" },
+  { label: "scroll", detail: "Scroll dentro de un elemento", insertText: 'scroll "${1:element}" ${2|down,up,left,right|}' },
 
-  // App
-  { label: "launch", detail: "Abrir app", insertText: "launch ${1:dev.autopilot.test.Explorea}" },
-  { label: "terminate", detail: "Cerrar app", insertText: "terminate ${1:dev.autopilot.test.Explorea}" },
-  { label: "install", detail: "Instalar app", insertText: "install ${1:/path/to/app}" },
+  // App lifecycle
+  { label: "launch", detail: "Abrir app", insertText: "launch ${1:com.example.app}" },
+  { label: "terminate", detail: "Cerrar app", insertText: "terminate ${1:com.example.app}" },
+  { label: "install", detail: "Instalar app (.app iOS / .apk Android)", insertText: "install ${1:/path/to/app}" },
+  { label: "uninstall", detail: "Desinstalar app", insertText: 'uninstall "${1:com.example.app}"' },
+  { label: "clearState", detail: "Borrar datos de app (no borra keychain compartido en iOS)", insertText: 'clearState "${1:com.example.app}"' },
 
   // Timing
   { label: "wait", detail: "Pausar N segundos", insertText: "wait ${1:2}" },
-  { label: "sleep", detail: "Alias de wait", insertText: "sleep ${1:1}" },
 
   // Captura
-  { label: "screenshot", detail: "Captura de pantalla", insertText: "screenshot ${1:file.png}" },
+  { label: "screenshot", detail: "Captura de pantalla (PNG)", insertText: "screenshot ${1:file.png}" },
 
-  // Biometría
-  { label: "biometric enroll", detail: "Enrollar biometría (idempotente)" },
-  { label: "biometric unenroll", detail: "Des-enrollar biometría" },
-  { label: "biometric match", detail: "Biometría exitosa" },
-  { label: "biometric fail", detail: "Biometría fallida" },
-  { label: "biometric status", detail: "Estado biometría" },
+  // Biometria
+  { label: "biometric enroll", detail: "Enrollar biometria (idempotente)" },
+  { label: "biometric unenroll", detail: "Des-enrollar biometria" },
+  { label: "biometric match", detail: "Biometria exitosa (Face ID / fingerprint OK)" },
+  { label: "biometric fail", detail: "Biometria fallida" },
+  { label: "biometric status", detail: "Estado biometria" },
 
-  // Cámara
-  { label: "camera start", detail: "Iniciar camara virtual", insertText: "camera start ${1:image.jpg}" },
-  { label: "camera feed", detail: "Actualizar imagen", insertText: "camera feed ${1:image.jpg}" },
-  { label: "camera stop", detail: "Detener camara" },
-  { label: "camera status", detail: "Estado camara" },
-  { label: "inject", detail: "Cambiar imagen mock (iOS)", insertText: "inject ${1:image.jpg}" },
+  // Camara (iOS only)
+  { label: "camera start", detail: "Iniciar camara virtual con imagen", insertText: "camera start ${1:image.jpg}", platform: "ios" as const },
+  { label: "camera feed", detail: "Actualizar imagen del feed (hot swap)", insertText: "camera feed ${1:image.jpg}", platform: "ios" as const },
+  { label: "camera stop", detail: "Detener camara virtual", platform: "ios" as const },
+  { label: "camera status", detail: "Estado camara", platform: "ios" as const },
+  { label: "inject", detail: "Hot-swap imagen mock sin relaunch", insertText: "inject ${1:image.jpg}", platform: "ios" as const },
 
-  // Build (iOS)
+  // Build (iOS only)
   { label: "build", detail: "Compilar con mock", insertText: "build -project ${1:App.xcodeproj} -scheme ${2:App}", platform: "ios" as const },
 
   // Drag
   { label: "drag", detail: "Arrastrar entre elementos", insertText: 'drag "${1:from}" "${2:to}"' },
   { label: "drag (coords)", detail: "Arrastrar entre coordenadas", insertText: "drag ${1:x1},${2:y1} ${3:x2},${4:y2}" },
 
-  // Rotacion
+  // Orientacion
   { label: "rotate", detail: "Rotar dispositivo", insertText: "rotate ${1|left,right,portrait,landscape|}" },
 
   // Teclado
-  { label: "pressKey", detail: "Presionar tecla", insertText: 'pressKey "${1|home,back,enter,delete,volumeUp,volumeDown,power,tab,escape|}"' },
-  { label: "hideKeyboard", detail: "Ocultar teclado" },
-  { label: "eraseText", detail: "Borrar N caracteres", insertText: "eraseText ${1:10}" },
+  { label: "pressKey", detail: "Presionar tecla (iOS: home/enter/delete/tab/escape/volumeUp/down — Android: home/back/enter/delete/volumeUp/down/power)", insertText: 'pressKey "${1|home,back,enter,delete,tab,escape,volumeUp,volumeDown,power|}"' },
+  { label: "hideKeyboard", detail: "Ocultar teclado virtual" },
+  { label: "eraseText", detail: "Borrar N caracteres del field actual", insertText: "eraseText ${1:10}" },
 
-  // Texto
-  { label: "copyTextFrom", detail: "Leer texto de elemento", insertText: 'copyTextFrom "${1:elemento}"' },
+  // Lectura de texto
+  { label: "copyTextFrom", detail: "Leer texto de un elemento", insertText: 'copyTextFrom "${1:elemento}"' },
 
-  // App Data
-  { label: "clearState", detail: "Borrar datos de app", insertText: 'clearState "${1:com.example.app}"' },
-  { label: "uninstall", detail: "Desinstalar app", insertText: 'uninstall "${1:com.example.app}"' },
+  // Scroll busqueda
+  { label: "scrollTo", detail: "Scroll hasta hacer visible un elemento", insertText: 'scrollTo "${1:elemento}"' },
 
-  // Scroll
-  { label: "scrollTo", detail: "Scroll hasta encontrar elemento", insertText: 'scrollTo "${1:elemento}"' },
+  // Grabacion de pantalla
+  { label: "startRecording", detail: "Iniciar grabacion de pantalla (video)" },
+  { label: "stopRecording", detail: "Detener grabacion y guardar a archivo", insertText: 'stopRecording "${1:video.mp4}"' },
 
-  // Grabacion
-  { label: "startRecording", detail: "Iniciar grabacion de pantalla" },
-  { label: "stopRecording", detail: "Detener grabacion", insertText: 'stopRecording "${1:video.mp4}"' },
-
-  // Entorno
-  { label: "setLocation", detail: "GPS simulado", insertText: "setLocation ${1:19.4326} ${2:-99.1332}" },
+  // Entorno del dispositivo
+  { label: "setLocation", detail: "GPS simulado (lat lon)", insertText: "setLocation ${1:lat} ${2:lon}" },
   { label: "setAppearance", detail: "Modo oscuro/claro", insertText: 'setAppearance "${1|dark,light|}"' },
   { label: "lockDevice", detail: "Bloquear pantalla" },
   { label: "unlockDevice", detail: "Desbloquear pantalla" },
@@ -109,23 +127,28 @@ const AUTO_COMMANDS = [
   { label: "pullFile", detail: "Traer archivo del dispositivo", insertText: 'pullFile "${1:/remote/path}" "${2:local/path}"' },
 
   // Permisos
-  { label: "permission", detail: "Permisos de app", insertText: 'permission ${1|grant,revoke,reset|} ${2|camera,photos,location,all|} ${3:com.example.app}' },
+  { label: "permission", detail: "Permisos de app (grant/revoke/reset)", insertText: 'permission ${1|grant,revoke,reset|} ${2|camera,microphone,photos,contacts,calendars,reminders,location,bluetooth,health,homekit,notifications,all|} ${3:com.example.app}' },
 
   // Logs
-  { label: "logs", detail: "Ver logs de app", insertText: 'logs "${1:com.example.app}"' },
-  { label: "logs (system)", detail: "Logs del sistema", insertText: "logs --system" },
+  { label: "logs", detail: "Logs de app o del sistema", insertText: 'logs ${1|"com.example.app",--system|}' },
 
-  // Media y datos
-  { label: "media", detail: "Inyectar foto a galeria", insertText: "media ${1:photo.jpg}" },
-  { label: "paste", detail: "Portapapeles", insertText: 'paste "${1:text}"' },
-  { label: "openurl", detail: "Abrir URL", insertText: 'openurl "${1:miapp://ruta}"' },
+  // Media y clipboard
+  { label: "media", detail: "Inyectar foto a la galeria", insertText: "media ${1:photo.jpg}" },
+  { label: "paste", detail: "Portapapeles (sin args = leer; con texto = escribir)", insertText: 'paste "${1:text}"' },
+  { label: "openurl", detail: "Abrir URL via deeplink", insertText: 'openurl "${1:miapp://ruta}"' },
 
-  // Config
-  { label: "config", detail: "Ver configuracion" },
-  { label: "config (set)", detail: "Configurar valor", insertText: "config ${1:bundle} ${2:dev.autopilot.test.Explorea}" },
+  // Diagnostico y setup
+  { label: "doctor", detail: "Diagnosticar el bridge (Simulator AX, agente Android, DNS, etc.)" },
+  { label: "setup", detail: "Re-armar adb forward + relanzar agente nativo", platform: "android" as const },
+  { label: "--legacy", detail: "Usar AdbLegacyBridge en lugar del AgentBridge default", insertText: "--legacy ${1:command}", platform: "android" as const },
 
-  // Script
-  { label: "run", detail: "Ejecutar script", insertText: "run ${1:script.auto}" },
+  // Config (.autopilot)
+  { label: "config", detail: "Ver configuracion .autopilot" },
+  { label: "config (set)", detail: "Setear valor del .autopilot", insertText: "config ${1:bundle} ${2:com.example.app}" },
+
+  // Scripts
+  { label: "run", detail: "Ejecutar script .auto", insertText: "run ${1:script.auto}" },
+  { label: "record", detail: "Grabar acciones del usuario a un .auto (Ctrl+C para detener)", insertText: "record ${1:script.auto}" },
 ];
 
 interface AXElement {
@@ -165,6 +188,26 @@ function App() {
     setScript((prev) => prev.trimEnd() + "\n" + text + "\n");
   }, []);
 
+  const refreshTree = useCallback(async (opts?: { silent?: boolean }) => {
+    const silent = opts?.silent === true;
+    try {
+      if (!silent) appendOutput("--- Capturing screenshot + tree + index... ---");
+      const result = await invoke<{ screenshot: string; elements: AXElement[]; labels: string[]; indexed: any[] }>("inspect", { platform });
+      setTreeElements(result.elements);
+      setLabels(result.labels);
+      setIndexed(result.indexed || []);
+      indexedRef.current = result.indexed || [];
+      labelsRef.current = result.labels;
+      if (!silent) {
+        setScreenshot(result.screenshot);
+        setShowTree(true);
+        appendOutput("--- Inspector: " + result.elements.length + " elements, " + (result.indexed?.length || 0) + " indexed ---");
+      }
+    } catch (err: any) {
+      if (!silent) appendOutput(`Inspect error: ${err}`);
+    }
+  }, [appendOutput, platform]);
+
   const runScript = useCallback(async () => {
     setRunning(true);
     abortRef.current = false;
@@ -193,6 +236,19 @@ function App() {
         const args = parseCommand(trimmed);
         const result = await invoke<string>("run_auto", { args, platform });
         if (result.trim()) appendOutput(result.trim());
+        // Mini-quiet-period entre steps que mutan la UI. El CLI `auto run` usa
+        // UIStabilizer (waitForStable 0.3s/3s) para esperar a que la UI se
+        // asiente entre acciones. El editor invoca cada step en un proceso
+        // `auto` aislado, sin acceso al stabilizer compartido. Replicamos el
+        // quiet period con sleep fijo, pero solo para comandos que de hecho
+        // mutan estado (tap/type/swipe/launch/etc). Read-only (ping, tree,
+        // waitFor, exists, screenshot) no lo necesitan — ahorra ~15% del
+        // tiempo total. Si esto sigue siendo flaky, mover a un `auto step`
+        // con stabilizer dedicado en el CLI.
+        const cmdName = args[0]?.replace(/\[.*$/, "") ?? "";
+        if (NEEDS_QUIET.has(cmdName)) {
+          await new Promise((resolve) => setTimeout(resolve, 300));
+        }
       } catch (err: any) {
         appendOutput(`ERROR: ${err}`);
         break;
@@ -202,27 +258,14 @@ function App() {
     if (editor) editor.deltaDecorations(decorations, []);
     appendOutput(`\n${stepNum} step(s) completed`);
     setCurrentStep(-1);
+    // Auto-refresh tree silenciosamente para que el autocomplete prediga
+    // los elementos del estado final estable de la app (post observation
+    // protocol). No contamina el panel de output ni abre el inspector visual.
+    try { await refreshTree({ silent: true }); } catch {}
     setRunning(false);
-  }, [script, appendOutput, platform]);
+  }, [script, appendOutput, platform, refreshTree]);
 
   const stopScript = useCallback(() => { abortRef.current = true; }, []);
-
-  const refreshTree = useCallback(async () => {
-    try {
-      appendOutput("--- Capturing screenshot + tree + index... ---");
-      const result = await invoke<{ screenshot: string; elements: AXElement[]; labels: string[]; indexed: any[] }>("inspect", { platform });
-      setTreeElements(result.elements);
-      setLabels(result.labels);
-      setIndexed(result.indexed || []);
-      indexedRef.current = result.indexed || [];
-      labelsRef.current = result.labels;
-      setScreenshot(result.screenshot);
-      setShowTree(true);
-      appendOutput("--- Inspector: " + result.elements.length + " elements, " + (result.indexed?.length || 0) + " indexed ---");
-    } catch (err: any) {
-      appendOutput(`Inspect error: ${err}`);
-    }
-  }, [appendOutput, platform]);
 
   const handleEditorMount: OnMount = (editor, monaco) => {
     editorRef.current = editor;
