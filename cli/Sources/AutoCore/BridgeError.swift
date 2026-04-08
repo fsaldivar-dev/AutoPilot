@@ -17,6 +17,7 @@ public enum BridgeError: Error, CustomStringConvertible {
     case adbNotFound
     case adbFailed(String)
     case eventTapFailed
+    case timeout(String)
     case unknown(String)
 
     public var description: String {
@@ -37,6 +38,7 @@ public enum BridgeError: Error, CustomStringConvertible {
         case .adbNotFound: return "ADB not found. Set ANDROID_HOME or add adb to PATH."
         case .adbFailed(let msg): return "ADB failed: \(msg)"
         case .eventTapFailed: return "CGEventTap creation failed. Grant Accessibility permissions in: System Settings > Privacy & Security > Accessibility."
+        case .timeout(let msg): return msg
         case .unknown(let msg): return msg
         }
     }

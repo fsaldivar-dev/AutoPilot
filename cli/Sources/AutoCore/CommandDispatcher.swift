@@ -77,12 +77,44 @@ public func executeSharedCommand(_ args: [String], bridge: any DeviceBridge) thr
         print("Cleared '\(args[1])' (\(ms)ms)")
 
     case "type":
+        // Parse type[N] for "Nth text input" syntax. The bracket part is in
+        // rawCmd because the switch above stripped it. Numeric -> index of
+        // text input in tree (1-based, only AXTextField/AXSecureTextField/EditText).
+        var nthInputIndex: Int? = nil
+        if let bracket = rawCmd.firstIndex(of: "["),
+           let end = rawCmd.lastIndex(of: "]"),
+           bracket < end {
+            let inner = String(rawCmd[rawCmd.index(after: bracket)..<end])
+            nthInputIndex = Int(inner)
+        }
+
         guard args.count >= 2 else {
             print("Usage: auto type <text>")
+            print("       auto type <target> <text>      (tap target, then type)")
+            print("       auto type[N] <text>            (tap Nth text input, then type)")
             return true
         }
-        if args.count >= 3 {
-            try bridge.tap(target: args[1])
+
+        if let n = nthInputIndex {
+            // type[N] "text" — find Nth text input in tree, tap its center, then type.
+            // Filters by role (AXTextField/AXSecureTextField/EditText) so it never
+            // resolves to a sibling AXStaticText with the same label.
+            try tapNthTextInput(bridge: bridge, index: n)
+            usleep(200_000)
+            try bridge.typeText(args[1])
+        } else if args.count >= 3 {
+            // type "target" "text" — smart resolution: prefer the text input whose
+            // label/value/identifier matches the target over a sibling AXStaticText
+            // with the same label. This is what makes
+            //   type "Email o DNI" "user@example.com"
+            // work even when the form has both an AXStaticText (visible label above
+            // the field) and an AXTextField (placeholder text inside the field) with
+            // the same string.
+            if try !tapTextInputByLabel(bridge: bridge, label: args[1]) {
+                // Fallback to plain bridge.tap when no text input matches the label
+                // (the target may be a button, link, etc.)
+                try bridge.tap(target: args[1])
+            }
             usleep(200_000)
             try bridge.typeText(args[2])
         } else {
@@ -263,8 +295,38 @@ public func executeSharedCommand(_ args: [String], bridge: any DeviceBridge) thr
         if found {
             print("Found '\(target)' (\(ms)ms)")
         } else {
-            print("Timeout: '\(target)' not found after \(timeout)s")
-            exit(1)
+            throw BridgeError.timeout("Timeout: '\(target)' not found after \(timeout)s")
+        }
+
+    case "waitUntilGone":
+        guard args.count >= 2 else {
+            print("Usage: auto waitUntilGone <identifier|label> [timeout_seconds]")
+            return true
+        }
+        let target = args[1]
+        let timeout = args.count >= 3 ? Double(args[2]) ?? 10.0 : 10.0
+        let pollInterval: useconds_t = 500_000
+        let maxAttempts = Int(timeout * 2)
+
+        // Support label[N] syntax: waitUntilGone "Item[2]" waits until fewer than 2 matches
+        let (searchLabel, requiredCount) = TargetResolverShared.parse(target)
+        let minMatches = requiredCount ?? 1
+
+        var gone = false
+        for _ in 0..<maxAttempts {
+            let results = (try? bridge.search(query: searchLabel)) ?? []
+            if results.count < minMatches {
+                gone = true
+                break
+            }
+            usleep(pollInterval)
+        }
+
+        let wms = elapsedMs(start)
+        if gone {
+            print("Gone '\(target)' (\(wms)ms)")
+        } else {
+            throw BridgeError.timeout("Timeout: '\(target)' still present after \(timeout)s")
         }
 
     case "config":
@@ -559,4 +621,91 @@ public func printElement(_ el: [String: Any]) {
         line += "  [\(f["x"] ?? 0),\(f["y"] ?? 0) \(f["width"] ?? 0)x\(f["height"] ?? 0)]"
     }
     print(line)
+}
+
+// MARK: - type[N] support
+
+/// Recursively collects every text-input element from the tree, in document order.
+/// Used by `type[N]` to resolve the Nth text input regardless of label/sibling noise.
+/// iOS roles: AXTextField, AXSecureTextField. Android roles: anything ending in EditText.
+private func collectTextInputs(_ elements: [[String: Any]], into result: inout [[String: Any]]) {
+    for el in elements {
+        if let role = el["role"] as? String {
+            let isTextInput = role == "AXTextField"
+                || role == "AXSecureTextField"
+                || role == "EditText"
+                || role.hasSuffix(".EditText")
+                || role.hasSuffix("EditText")
+            if isTextInput {
+                result.append(el)
+            }
+        }
+        if let children = el["children"] as? [[String: Any]] {
+            collectTextInputs(children, into: &result)
+        }
+    }
+}
+
+/// Finds the Nth text input in the live tree (1-indexed) and taps the center of its frame.
+/// Throws BridgeError if N is out of range or the element has no usable frame.
+func tapNthTextInput(bridge: any DeviceBridge, index: Int) throws {
+    let tree = try bridge.tree()
+    var inputs: [[String: Any]] = []
+    collectTextInputs(tree, into: &inputs)
+
+    guard !inputs.isEmpty else {
+        throw BridgeError.elementNotFound("type[\(index)]: no text inputs found in current tree")
+    }
+    guard index >= 1 && index <= inputs.count else {
+        throw BridgeError.elementNotFound("type[\(index)]: only \(inputs.count) text input(s) in current tree")
+    }
+
+    try tapElementCenter(inputs[index - 1], hint: "text input [\(index)]", bridge: bridge)
+}
+
+/// Finds the first text input whose label/value/title/identifier matches `label`
+/// and taps the center of its frame. Returns true on success, false if no text
+/// input matches (caller can fallback to a plain `bridge.tap`).
+///
+/// This is the smart resolver used by `auto type <target> <text>` (3 args). It
+/// prefers a text input over a sibling AXStaticText with the same label, which
+/// is what allows `type "Email o DNI" "user@example.com"` to work even when the
+/// form has both a label-only StaticText and a TextField with the same string.
+func tapTextInputByLabel(bridge: any DeviceBridge, label: String) throws -> Bool {
+    let tree = try bridge.tree()
+    var inputs: [[String: Any]] = []
+    collectTextInputs(tree, into: &inputs)
+    if inputs.isEmpty { return false }
+
+    let needle = label.lowercased()
+    for field in inputs {
+        let candidates: [String] = [
+            (field["label"] as? String) ?? "",
+            (field["title"] as? String) ?? "",
+            (field["value"] as? String) ?? "",
+            (field["identifier"] as? String) ?? "",
+            (field["placeholder"] as? String) ?? "",
+        ]
+        for candidate in candidates where !candidate.isEmpty {
+            if candidate.lowercased() == needle || candidate.lowercased().contains(needle) {
+                try tapElementCenter(field, hint: "text input '\(label)'", bridge: bridge)
+                return true
+            }
+        }
+    }
+    return false
+}
+
+/// Tap the center of `element`'s frame via `bridge`. Throws if no frame.
+private func tapElementCenter(_ element: [String: Any], hint: String, bridge: any DeviceBridge) throws {
+    guard let frame = element["frame"] as? [String: Any],
+          let fx = frame["x"] as? Int,
+          let fy = frame["y"] as? Int,
+          let fw = frame["width"] as? Int,
+          let fh = frame["height"] as? Int else {
+        throw BridgeError.noFrame(hint)
+    }
+    let cx = Double(fx + fw / 2)
+    let cy = Double(fy + fh / 2)
+    try bridge.tapAtCoordinate(x: cx, y: cy)
 }

@@ -32,6 +32,7 @@ Documentamos todo el proceso — los errores, los callejones sin salida, las dec
 11. **[El benchmark](11-el-benchmark.md)** — AutoPilot vs Maestro vs WDA: metodología, resultados, y por qué Maestro es 2.5x más lento por diseño
 12. **[Permisos de accesibilidad](12-permisos-accesibilidad.md)** — Por qué el Inspector dejó de funcionar, cómo macOS hereda permisos TCC, y por qué no hay alternativa a AXUIElement
 13. **[El recorder semantico](13-el-recorder-semantico.md)** — CGEventTap (iOS) + getevent (Android): captura pasiva, selectores semanticos, y por qué el scroll es el ultimo problema
+14. **[Validacion en una app real](14-validacion-en-una-app-real.md)** — El experimento: automatizar el login completo de una app comercial real desde estado limpio, usando solo el CLI, sin tools externas
 
 ### Apendices
 
@@ -46,6 +47,7 @@ Documentamos todo el proceso — los errores, los callejones sin salida, las dec
 - **[Roadmap](../../ROADMAP.md)** — Fases futuras (Android, web, recorder)
 - **[Bitacora — Camara](../camera/BITACORA.md)** — Diario de laboratorio crudo de la camara virtual
 - **[Bitacora — Recorder](../recorder/BITACORA.md)** — Diario del recorder semantico (CGEventTap, getevent, bugs)
+- **[Bitacora — Validacion](../validacion/BITACORA.md)** — Diario crudo de los experimentos de validacion en apps comerciales reales
 - **[Hallazgos — Recorder](../recorder/HALLAZGOS.md)** — Limitaciones, metricas, comparativa para benchmark
 - **[Android backend](../android/README.md)** — AgentBridge, agente nativo, comandos implementados
 
