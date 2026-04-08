@@ -11,27 +11,6 @@ const DEFAULT_SCRIPT = `# Mi script de automatizacion
 ping
 `;
 
-// Comandos que necesitan quiet period despues. Hay dos categorias:
-// 1) Mutadores directos: tap/type/swipe/launch/etc — disparan transiciones.
-// 2) Observadores de transicion: waitFor/waitUntilGone — retornan el instante
-//    que el elemento aparece/desaparece, pero la animacion puede seguir
-//    corriendo. Sin el delay, el siguiente `tap` queda mid-transition y falla.
-// Read-only puro (ping, tree, exists, screenshot, list, doctor) NO necesita
-// delay — no toca la UI ni observa transiciones. Eso ahorra ~5-10% del runtime.
-const NEEDS_QUIET = new Set([
-  // Mutadores
-  "tap", "doubleTap", "longPress", "tapAt",
-  "type", "clear", "eraseText",
-  "swipe", "scroll", "scrollTo", "drag",
-  "pressKey", "hideKeyboard",
-  "launch", "terminate", "install", "uninstall", "clearState",
-  "rotate", "setAppearance", "lockDevice", "unlockDevice",
-  "permission", "openurl", "media", "paste",
-  "biometric", "faceid", "setLocation",
-  // Observadores de transicion (la UI puede seguir asentandose)
-  "waitFor", "waitUntilGone",
-]);
-
 const AUTO_COMMANDS = [
   // Conexion
   { label: "ping", detail: "Verificar conexion" },
@@ -212,6 +191,28 @@ function App() {
     setRunning(true);
     abortRef.current = false;
     setOutput("");
+
+    // Start (or re-start) the interactive sidecar. The CLI's REPL keeps a
+    // warm bridge + UIStabilizer alive across commands, so we no longer need
+    // a client-side quiet period between steps — the stabilizer does it
+    // right before each mutator, based on real AX events rather than a
+    // fixed sleep.
+    try {
+      const banner = await invoke<string>("interactive_start", { platform });
+      // Banner is a JSON line like {"ready":true,"platform":"ios"}. Surface
+      // a friendlier message; fall back to the raw banner if parsing fails.
+      let bannerText = banner;
+      try {
+        const parsed = JSON.parse(banner);
+        if (parsed.ready) bannerText = `ready (${parsed.platform ?? platform})`;
+      } catch {}
+      appendOutput(`--- sidecar ${bannerText} ---`);
+    } catch (err: any) {
+      appendOutput(`ERROR starting interactive sidecar: ${err}`);
+      setRunning(false);
+      return;
+    }
+
     const editor = editorRef.current;
     let decorations: string[] = [];
     const lines = script.split("\n");
@@ -233,24 +234,30 @@ function App() {
       }
       appendOutput(`[${stepNum}] ${trimmed}`);
       try {
-        const args = parseCommand(trimmed);
-        const result = await invoke<string>("run_auto", { args, platform });
-        if (result.trim()) appendOutput(result.trim());
-        // Mini-quiet-period entre steps que mutan la UI. El CLI `auto run` usa
-        // UIStabilizer (waitForStable 0.3s/3s) para esperar a que la UI se
-        // asiente entre acciones. El editor invoca cada step en un proceso
-        // `auto` aislado, sin acceso al stabilizer compartido. Replicamos el
-        // quiet period con sleep fijo, pero solo para comandos que de hecho
-        // mutan estado (tap/type/swipe/launch/etc). Read-only (ping, tree,
-        // waitFor, exists, screenshot) no lo necesitan — ahorra ~15% del
-        // tiempo total. Si esto sigue siendo flaky, mover a un `auto step`
-        // con stabilizer dedicado en el CLI.
-        const cmdName = args[0]?.replace(/\[.*$/, "") ?? "";
-        if (NEEDS_QUIET.has(cmdName)) {
-          await new Promise((resolve) => setTimeout(resolve, 300));
+        const responseStr = await invoke<string>("interactive_send", { line: trimmed });
+        // Protocol: one NDJSON envelope per line. Fields: ok, ms, out?, err?.
+        let response: any;
+        try {
+          response = JSON.parse(responseStr);
+        } catch {
+          appendOutput(`ERROR: malformed sidecar response: ${responseStr}`);
+          break;
+        }
+        if (response.out) appendOutput(response.out);
+        if (!response.ok) {
+          appendOutput(`ERROR: ${response.err ?? "command failed"}`);
+          break;
         }
       } catch (err: any) {
-        appendOutput(`ERROR: ${err}`);
+        // If the user hit Stop mid-run, interactive_stop() closes the
+        // sidecar's stdin/stdout underneath us and the current
+        // interactive_send() call rejects. Treat that as a clean abort
+        // rather than an error.
+        if (abortRef.current) {
+          appendOutput("\n--- STOPPED ---");
+        } else {
+          appendOutput(`ERROR: ${err}`);
+        }
         break;
       }
     }
@@ -265,7 +272,20 @@ function App() {
     setRunning(false);
   }, [script, appendOutput, platform, refreshTree]);
 
-  const stopScript = useCallback(() => { abortRef.current = true; }, []);
+  const stopScript = useCallback(async () => {
+    abortRef.current = true;
+    try { await invoke("interactive_stop"); } catch {}
+  }, []);
+
+  // Switching platforms tears down the sidecar so the next run starts fresh
+  // on the new platform's bridge. We also tear it down on unmount to avoid
+  // orphaned subprocesses if the window closes mid-run.
+  useEffect(() => {
+    return () => { invoke("interactive_stop").catch(() => {}); };
+  }, [platform]);
+  useEffect(() => {
+    return () => { invoke("interactive_stop").catch(() => {}); };
+  }, []);
 
   const handleEditorMount: OnMount = (editor, monaco) => {
     editorRef.current = editor;
@@ -510,7 +530,7 @@ function App() {
               disabled={running}
             >Android</button>
           </div>
-          <button className="btn btn-tree" onClick={refreshTree} disabled={running} title="Inspect Simulator UI (⌘I)">
+          <button className="btn btn-tree" onClick={() => refreshTree()} disabled={running} title="Inspect Simulator UI (⌘I)">
             <span className="btn-icon">🌳</span> Inspect
           </button>
           {!running ? (
@@ -591,23 +611,6 @@ function App() {
       </footer>
     </div>
   );
-}
-
-function parseCommand(line: string): string[] {
-  const args: string[] = [];
-  let current = "";
-  let inQuote = false;
-  let quoteChar = "";
-  for (const c of line) {
-    if (inQuote) {
-      if (c === quoteChar) { inQuote = false; args.push(current); current = ""; }
-      else { current += c; }
-    } else if (c === '"' || c === "'") { inQuote = true; quoteChar = c; }
-    else if (c === " ") { if (current) { args.push(current); current = ""; } }
-    else { current += c; }
-  }
-  if (current) args.push(current);
-  return args;
 }
 
 export default App;
