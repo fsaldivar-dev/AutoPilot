@@ -49,6 +49,7 @@ const AUTO_COMMANDS = [
   { label: "install", detail: "Instalar app (.app iOS / .apk Android)", insertText: "install ${1:/path/to/app}" },
   { label: "uninstall", detail: "Desinstalar app", insertText: 'uninstall "${1:com.example.app}"' },
   { label: "clearState", detail: "Borrar datos de app (no borra keychain compartido en iOS)", insertText: 'clearState "${1:com.example.app}"' },
+  { label: "keychain reset", detail: "Reset credencial state para fresh-install login. iOS: wipes shared keychain (device-wide). Android: no-op (Keystore es per-app, ya cubierto por uninstall)", insertText: "keychain reset" },
 
   // Timing
   { label: "wait", detail: "Pausar N segundos", insertText: "wait ${1:2}" },
