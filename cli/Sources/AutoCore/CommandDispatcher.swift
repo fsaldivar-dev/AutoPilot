@@ -295,8 +295,7 @@ public func executeSharedCommand(_ args: [String], bridge: any DeviceBridge) thr
         if found {
             print("Found '\(target)' (\(ms)ms)")
         } else {
-            print("Timeout: '\(target)' not found after \(timeout)s")
-            exit(1)
+            throw BridgeError.timeout("Timeout: '\(target)' not found after \(timeout)s")
         }
 
     case "waitUntilGone":
@@ -327,8 +326,7 @@ public func executeSharedCommand(_ args: [String], bridge: any DeviceBridge) thr
         if gone {
             print("Gone '\(target)' (\(wms)ms)")
         } else {
-            print("Timeout: '\(target)' still present after \(timeout)s")
-            exit(1)
+            throw BridgeError.timeout("Timeout: '\(target)' still present after \(timeout)s")
         }
 
     case "config":

@@ -41,7 +41,7 @@ public final class UIStabilizer {
     /// Wait until no AX changes have occurred for `quietPeriod` seconds.
     /// Returns immediately if UI is already stable.
     /// Times out after `timeout` seconds.
-    public func waitForStable(quietPeriod: TimeInterval = 0.3, timeout: TimeInterval = 5.0) {
+    public func waitForStable(quietPeriod: TimeInterval = 0.15, timeout: TimeInterval = 5.0) {
         let deadline = CFAbsoluteTimeGetCurrent() + timeout
 
         while CFAbsoluteTimeGetCurrent() < deadline {

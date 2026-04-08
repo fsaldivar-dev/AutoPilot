@@ -21,6 +21,11 @@ func run() throws {
         return
     }
 
+    if cmd == "interactive" {
+        runInteractive()
+        return
+    }
+
     try executeCommand(args)
 }
 
@@ -44,6 +49,61 @@ func runScript(path: String) throws {
 
     let totalMs = elapsedMs(totalStart)
     print("\n\(steps.count) step(s) completed (\(totalMs)ms)")
+}
+
+/// REPL for Android. Keeps the bridge (AgentBridge socket or AdbLegacyBridge)
+/// alive between commands so a persistent client (the editor, a test harness,
+/// etc.) can run a whole .auto flow without paying per-step cold-start.
+///
+/// Android doesn't have an equivalent of the iOS UIStabilizer (the agent
+/// doesn't publish layout events over the socket), so the only gain here is
+/// the warm bridge — but that's already worth the change: spinning up the
+/// socket + reading one tree via adb is the biggest per-step overhead on
+/// Android.
+func runInteractive() {
+    // Line-buffered stdout so each JSON envelope is flushed promptly.
+    setvbuf(stdout, nil, _IOLBF, 0)
+
+    print(InteractiveJSON.ready(platform: "android"))
+    fflush(stdout)
+
+    while let rawLine = readLine(strippingNewline: true) {
+        let trimmed = rawLine.trimmingCharacters(in: .whitespaces)
+
+        if trimmed.isEmpty || trimmed.hasPrefix("#") {
+            print(InteractiveJSON.skipped())
+            fflush(stdout)
+            continue
+        }
+
+        if trimmed == "exit" || trimmed == "quit" {
+            print(InteractiveJSON.bye())
+            fflush(stdout)
+            break
+        }
+
+        let start = CFAbsoluteTimeGetCurrent()
+        let tokens = tokenize(trimmed)
+        if tokens.isEmpty {
+            print(InteractiveJSON.skipped())
+            fflush(stdout)
+            continue
+        }
+
+        let result = captureStdoutThrowing {
+            try executeCommand(tokens)
+        }
+
+        let ms = elapsedMs(start)
+        let out = result.output.trimmingCharacters(in: .whitespacesAndNewlines)
+        if let err = result.error {
+            let message = "\(err)"
+            print(InteractiveJSON.error(ms: ms, message: message, out: out))
+        } else {
+            print(InteractiveJSON.ok(ms: ms, out: out))
+        }
+        fflush(stdout)
+    }
 }
 
 func executeCommand(_ args: [String]) throws {

@@ -1,7 +1,8 @@
-use std::process::Command;
+use std::process::{Command, Child, ChildStdin, ChildStdout, Stdio};
 use std::path::PathBuf;
-use std::sync::mpsc;
+use std::sync::{mpsc, Mutex};
 use std::time::Duration;
+use std::io::{BufRead, BufReader, Write};
 use serde_json::Value;
 
 fn find_binary(name: &str) -> PathBuf {
@@ -432,6 +433,165 @@ fn inspect(platform: Option<String>) -> Result<Value, String> {
     }))
 }
 
+// =============================================================================
+// Interactive REPL sidecar
+// =============================================================================
+//
+// Long-lived `auto interactive` / `auto-android interactive` subprocess. The
+// frontend calls interactive_start() to boot a REPL, then interactive_send()
+// per script step, then interactive_stop() when done. This avoids paying the
+// ~100ms cold-start per step and keeps the iOS UIStabilizer warm between
+// commands so the editor doesn't need its own `setTimeout` quiet period.
+//
+// One session per Tauri app. Switching platforms (iOS <-> Android) kills the
+// old sidecar and spawns a fresh one.
+
+/// Mutable state wrapping the child process and its stdio handles. `Drop` is
+/// implemented so the child is killed if the app window closes without the
+/// frontend calling interactive_stop() explicitly.
+struct InteractiveState {
+    child: Option<Child>,
+    stdin: Option<ChildStdin>,
+    stdout: Option<BufReader<ChildStdout>>,
+    platform: Option<String>,
+}
+
+impl InteractiveState {
+    fn new() -> Self {
+        Self { child: None, stdin: None, stdout: None, platform: None }
+    }
+
+    /// Terminate the sidecar gracefully (send `exit` then SIGKILL) and clear
+    /// all handles. Safe to call even if nothing is running.
+    fn shutdown(&mut self) {
+        // Try a graceful shutdown first — the REPL recognises `exit` and
+        // returns a `bye` envelope before closing its stdin loop.
+        if let Some(mut stdin) = self.stdin.take() {
+            let _ = writeln!(stdin, "exit");
+            let _ = stdin.flush();
+        }
+        // Drop stdout so the reader closes.
+        self.stdout = None;
+        // Give the child a brief window to exit on its own, then kill it.
+        if let Some(mut child) = self.child.take() {
+            std::thread::sleep(Duration::from_millis(150));
+            let _ = child.kill();
+            let _ = child.wait();
+        }
+        self.platform = None;
+    }
+}
+
+impl Drop for InteractiveState {
+    fn drop(&mut self) {
+        self.shutdown();
+    }
+}
+
+/// Start the interactive sidecar for the given platform. If a sidecar is
+/// already running it's torn down first so callers can treat this as
+/// idempotent.
+#[tauri::command]
+fn interactive_start(
+    platform: String,
+    state: tauri::State<'_, Mutex<InteractiveState>>,
+) -> Result<String, String> {
+    let mut s = state.lock().map_err(|e| format!("lock poisoned: {}", e))?;
+
+    // Reset any previous session (idempotent).
+    s.shutdown();
+
+    let bin = auto_binary(&platform);
+    let extended_path = extended_path();
+
+    let mut child = Command::new(&bin)
+        .arg("interactive")
+        .env("PATH", &extended_path)
+        .env("ANDROID_HOME", android_home())
+        .stdin(Stdio::piped())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("Failed to spawn interactive sidecar: {} (bin={})", e, bin.display()))?;
+
+    let stdin = child.stdin.take().ok_or_else(|| "no stdin handle".to_string())?;
+    let stdout = child.stdout.take().ok_or_else(|| "no stdout handle".to_string())?;
+    let mut reader = BufReader::new(stdout);
+
+    // Wait for the ready banner so the caller knows the REPL is primed.
+    // Reading a full line is blocking; this is fine because the banner is
+    // the very first thing printed and our child is line-buffered.
+    let mut banner = String::new();
+    reader
+        .read_line(&mut banner)
+        .map_err(|e| format!("Failed to read ready banner: {}", e))?;
+
+    s.child = Some(child);
+    s.stdin = Some(stdin);
+    s.stdout = Some(reader);
+    s.platform = Some(platform);
+
+    Ok(banner.trim().to_string())
+}
+
+/// Send one command line to the sidecar and read exactly one JSON envelope
+/// back. The sidecar always replies with one newline-delimited JSON object
+/// per input line (including for empty/comment lines), so read_line() is
+/// guaranteed to make progress.
+#[tauri::command]
+fn interactive_send(
+    line: String,
+    state: tauri::State<'_, Mutex<InteractiveState>>,
+) -> Result<String, String> {
+    let mut s = state.lock().map_err(|e| format!("lock poisoned: {}", e))?;
+
+    // Write the command.
+    {
+        let stdin = s
+            .stdin
+            .as_mut()
+            .ok_or_else(|| "no interactive session — call interactive_start first".to_string())?;
+        writeln!(stdin, "{}", line).map_err(|e| format!("write: {}", e))?;
+        stdin.flush().map_err(|e| format!("flush: {}", e))?;
+    }
+
+    // Read exactly one response line. Scoped so the `stdout` borrow is
+    // released before we potentially call `s.shutdown()` on EOF.
+    let mut response = String::new();
+    let read_result: Result<usize, std::io::Error> = {
+        let stdout = s
+            .stdout
+            .as_mut()
+            .ok_or_else(|| "no stdout reader".to_string())?;
+        stdout.read_line(&mut response)
+    };
+
+    let n = match read_result {
+        Ok(n) => n,
+        Err(e) => {
+            // Read error likely means the sidecar died — tear down so the
+            // next interactive_start() begins with a clean slate.
+            s.shutdown();
+            return Err(format!("read: {}", e));
+        }
+    };
+    if n == 0 {
+        // EOF — the sidecar died. Clean up so the next interactive_start()
+        // begins with a clean slate.
+        s.shutdown();
+        return Err("interactive sidecar exited unexpectedly".to_string());
+    }
+    Ok(response.trim().to_string())
+}
+
+/// Stop the sidecar (if any). Safe to call multiple times.
+#[tauri::command]
+fn interactive_stop(state: tauri::State<'_, Mutex<InteractiveState>>) -> Result<(), String> {
+    let mut s = state.lock().map_err(|e| format!("lock poisoned: {}", e))?;
+    s.shutdown();
+    Ok(())
+}
+
 #[tauri::command]
 fn open_screenshots() -> Result<String, String> {
     let dir = std::env::current_dir()
@@ -450,7 +610,17 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
-        .invoke_handler(tauri::generate_handler![run_auto, get_ax_tree, get_element_index, inspect, open_screenshots])
+        .manage(Mutex::new(InteractiveState::new()))
+        .invoke_handler(tauri::generate_handler![
+            run_auto,
+            get_ax_tree,
+            get_element_index,
+            inspect,
+            open_screenshots,
+            interactive_start,
+            interactive_send,
+            interactive_stop,
+        ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
