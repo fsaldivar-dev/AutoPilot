@@ -15,6 +15,11 @@ Si encontras un bug nuevo o un patron que no esta aca, agregalo siguiendo el mis
 5. ["Element not found" en Compose Android tras tipear](#compose-lazy-tree)
 6. [`pressKey back` es Android-only y no esta en la doc principal](#presskey-back)
 7. [Las credenciales en scripts `.auto` colisionan con secret scanners](#secrets-en-scripts)
+8. ["Unknown command: interactive" al apretar Play en el editor](#editor-unknown-interactive)
+9. [El editor muestra "0ms" pero el boton Play queda muerto ~500ms](#editor-play-freeze)
+10. [`waitFor` funciona la primera vez, despues falla en scripts de login iOS](#waitfor-keychain)
+11. [`waitFor` timeout aunque el elemento aparecio un momento](#waitfor-flakiness)
+12. [Editor se queda con binarios stale despues de `cargo clean`](#editor-cargo-clean)
 
 ---
 
@@ -286,6 +291,231 @@ Esto pierde la ventaja de tener un script `.auto` versionado, pero al menos no e
 **Fix propuesto (futuro, P0):** Que `ScriptParser.swift` haga expansion de `$VAR` y `${VAR}` antes de tokenizar. Esto seria un cambio chico (~20 lineas) pero abriria la puerta a tener scripts `.auto` parametrizables y seguros para versionar.
 
 **Estado:** Limitacion conocida del parser. Es una de las primeras prioridades del backlog porque impacta directamente cualquier flujo que necesite credenciales reales.
+
+---
+
+## 8. "Unknown command: interactive" al apretar Play en el editor <a id="editor-unknown-interactive"></a>
+
+**Sintoma:** Sobre una maquina limpia, despues de clonar el repo y correr `npm run tauri build` en `editor/`, al abrir el `.app` resultante y apretar Play en un script cualquiera el panel de output muestra:
+
+```
+--- sidecar Unknown command: interactive ---
+ERROR: write: Broken pipe (os error 32)
+```
+
+El boton Play queda deshabilitado y ningun step se ejecuta.
+
+**Diagnostico:** A partir del commit `fecf578` (PR #72), el editor dejo de hacer spawn de `auto <step>` por comando y paso a usar un sidecar persistente via `auto interactive` / `auto-android interactive`. Tauri bundlea el binario desde `editor/src-tauri/binaries/auto-<target-triple>`, pero ese directorio esta en `.gitignore`: sobre un clone limpio solo tiene el `.gitignore` y ningun binario. `npm run tauri build` no falla — empaqueta lo que encuentre, que puede ser nada o un `auto` stale si el usuario tenia una copia vieja por ahi. El `.app` resultante spawnea ese binario viejo, que no conoce el comando `interactive`, y tira el error literal del CLI.
+
+Reproduccion minima:
+
+```
+$ git clone <repo> fresh
+$ cd fresh/editor
+$ npm install
+$ npm run tauri build
+$ open src-tauri/target/release/bundle/macos/AutoPilot.app
+# apretar Play en un ping → "Unknown command: interactive"
+```
+
+**Workaround validado:** Correr el script de setup del editor **antes** del primer `tauri build`. Esto compila el CLI en release y copia ambos binarios (`auto`, `auto-android`) a los dos lugares que Tauri necesita (`target/debug/` y `binaries/<target-triple>`):
+
+```bash
+# primera vez en la maquina
+cd editor
+./setup.sh
+npm run tauri build
+```
+
+Si ya cambiaste algo en `cli/Sources/...` y necesitas refrescar el bundle:
+
+```bash
+cd cli && swift build && cd ..
+./editor/refresh-binaries.sh
+cd editor && npm run tauri build
+```
+
+La documentacion oficial del flow esta en la seccion "Editor visual (Tauri + Monaco)" del README, agregada por PR #82 (commit `4e60ba4`) despues de que este bug apareciera exactamente asi en maquina limpia.
+
+**Estado:** Limitacion conocida con workaround documentado. Fix permanente tracked en [#81](https://github.com/fsaldivar-dev/AutoPilot/issues/81): hook automatico post-build de `cargo` que sincronice los binarios del CLI sin requerir el script manual.
+
+---
+
+## 9. El editor muestra "0ms" pero el boton Play queda muerto ~500ms <a id="editor-play-freeze"></a>
+
+**Sintoma:** Un script de un solo `ping` muestra casi inmediato `Simulator found (0ms)` y `1 step(s) completed` en el panel de output, pero el boton Play del editor no vuelve a habilitarse por otro medio segundo. El usuario percibe "el step corrio en 0ms pero se siente lento" y no hay feedback visual que explique el gap.
+
+**Diagnostico:** En `editor/src/App.tsx` la funcion `runScript` tenia este bloque al final:
+
+```typescript
+appendOutput(`\n${stepNum} step(s) completed`);
+setCurrentStep(-1);
+try { await refreshTree({ silent: true }); } catch {}
+setRunning(false);
+```
+
+El `await refreshTree({ silent: true })` dispara un tree dump + screenshot + reconstruccion del element index, que en una app razonable tarda entre 300ms y 800ms. Durante ese `await` el estado `running` sigue en `true`, asi que el boton Play sigue deshabilitado aunque el step ya termino y el usuario ya vio el mensaje de "completed". Como el refresh es silencioso (`silent: true`), tampoco hay mensajes intermedios en el output — es un freeze sin rastro.
+
+Medicion con el bench de un solo step (`ping`) sobre `fecf578`:
+
+- Tiempo que tarda el ping: ~40-60ms (sidecar warm) o ~100ms (cold start)
+- Tiempo entre "completed" y Play habilitado de nuevo: ~500ms promedio sobre la app de prueba
+- Gap observable: ~450ms en los que la UI esta "como congelada"
+
+**Workaround validado:** reordenar el bloque para llamar `setRunning(false)` inmediatamente despues del output de "completed", y lanzar el `refreshTree` como fire-and-forget. El autocomplete se actualiza en background mientras el Play ya esta disponible:
+
+```typescript
+appendOutput(`\n${stepNum} step(s) completed`);
+setCurrentStep(-1);
+setRunning(false);
+refreshTree({ silent: true }).catch(() => {});
+```
+
+Con este patch el Play button queda disponible en ~60ms despues del "completed", consistente con el overhead real del sidecar. El refresh del tree sigue pasando pero ya no bloquea la UI.
+
+**Estado:** Fix en PR #83 (commit `00a1dbf`), OPEN MERGEABLE a la hora de escribir esta entrada. Regla general: cualquier `await` silencioso post-script va como fire-and-forget. Si alguien agrega un nuevo refresh silencioso en el futuro, tiene que seguir el mismo patron.
+
+---
+
+## 10. `waitFor` funciona la primera vez, despues falla en scripts de login iOS <a id="waitfor-keychain"></a>
+
+**Sintoma:** Un script `.auto` que automatiza un login desde cero (`uninstall → install → launch → waitFor "Iniciar sesion" → tap → type → ...`) pasa la primera vez que se corre, pero en la segunda y tercera corrida falla en el primer `waitFor` con:
+
+```
+Error: Timeout: 'Iniciar sesion' not found after 10.0s
+```
+
+Al tomar un screenshot justo antes del timeout se ve que la app ya esta en una pantalla post-login tipo "Hola, Maria" o directamente en el home — el flujo de "primer uso" nunca aparece, el script intenta tappear un boton que nunca se muestra.
+
+**Diagnostico:** Esta es la misma clase de bug que el [#3](#uninstall-no-limpio), escalada al caso en el que ya existe un usuario logueado en la iteracion anterior. En iOS el keychain compartido pertenece al **device**, no al bundle — `xcrun simctl uninstall` + `install` no limpia el keychain. El siguiente `launch` lee las credenciales guardadas, skippea el screen de login y entra directo a la home. Desde el punto de vista del script, `waitFor "Iniciar sesion" 10` hace exactamente lo que tiene que hacer: esperar un elemento que no existe y timeout-ear.
+
+Reproduccion sobre una app bancaria de prueba, tres iteraciones seguidas del mismo script:
+
+```
+$ auto run login.auto  # run 1
+ping → ok
+uninstall → ok
+install → ok
+launch → ok
+waitFor "Iniciar sesion" → found in 2.1s
+... resto del script pasa ...
+
+$ auto run login.auto  # run 2
+ping → ok
+uninstall → ok
+install → ok
+launch → ok
+waitFor "Iniciar sesion" → Timeout: 'Iniciar sesion' not found after 10.0s
+```
+
+**Workaround validado:** Agregar `keychain reset` entre `uninstall` e `install`. El comando fue introducido en PR #85 (commits `d121565` + `860c770`) justamente para este caso:
+
+```auto
+uninstall com.example.app
+keychain reset
+install /path/to/App.app
+launch com.example.app
+waitFor "Iniciar sesion" 10
+```
+
+En iOS esto llama `xcrun simctl keychain <udid> reset`, un wipe device-wide del keychain compartido del Simulador (465ms en el smoke test). En Android el mismo comando es un **no-op con nota impresa**, porque el Android Keystore es per-app (tied a la UID del proceso) y `pm uninstall` ya libera esas keys cuando desinstala la app:
+
+```
+$ auto-android keychain reset
+Keychain reset: no-op on this platform (Android Keystore is per-app, already cleared by uninstall)
+Keychain reset (0ms)
+```
+
+El mismo script `.auto` corre bien en ambas plataformas sin ramas condicionales. Ese fue el motivo explicito de diseñar el comando como no-op en Android en lugar de tirar "unsupported on this platform" — la promesa del proyecto es que el mismo script funciona en iOS y Android cambiando solo el binario.
+
+**Edge case conocido (no resuelto aun):** Apps con Google Sign-In via `AccountManager` de Android guardan accounts device-wide que **sobreviven** el `uninstall`. El `keychain reset` no las toca. Workaround temporal: `clearState com.google.android.gms` (nuclear, resetea todos los servicios de Google del emulador). Tracked en [#86](https://github.com/fsaldivar-dev/AutoPilot/issues/86) como follow-up con tres niveles propuestos (alias de `keychain reset`, `accounts remove` quirurgico, Credential Manager API 34+).
+
+**Estado:** Fix en PR #85, OPEN MERGEABLE. Ver tambien [Capitulo 14](../14-validacion-en-una-app-real.md) y el [BITACORA de validacion](../../validacion/BITACORA.md) para el diario crudo del descubrimiento.
+
+---
+
+## 11. `waitFor` timeout aunque el elemento aparecio un momento <a id="waitfor-flakiness"></a>
+
+**Sintoma:** En scripts de login sobre una app comercial real, `waitFor "Argentina" 10` termina con timeout, pero inmediatamente despues el `waitFor "No permitir" 10` del step siguiente encuentra el dialogo de permisos en ~100ms. Queda claro que la app paso por "Argentina" (de hecho ya avanzo al dialogo del sistema), pero el polling de `waitFor` no llego a verlo. No es deterministico: en una de cada seis u ocho corridas contra la misma app, con el mismo script, falla en un `waitFor` distinto y al siguiente step ya esta todo adelantado.
+
+**Diagnostico:** Hay ~10-15% de flakiness inherente en `waitFor` despues de un `tap` sobre system dialogs, medida sobre el codigo estable `fecf578` (sin ningun experimento de observer hybrid encima — ver el post-mortem en la memoria del proyecto). Los modos de falla observados en 9 corridas del bench de login sobre una app comercial real:
+
+1. `Timeout: 'Argentina' not found after 10.0s` pero el subsiguiente `waitFor 'No permitir'` lo encuentra inmediato.
+2. `Timeout: 'No permitir' not found after 10.0s` despues de un `tap 'Argentina'` que retorno ok.
+
+Causas sospechadas (no diagnosticadas definitivamente):
+
+- El `CGEventPost` del `tap` reporta exito pero el evento cae en un pixel que esta fuera del hit-test frame del target (race con una animacion de layout).
+- Race entre el tap retornando y el siguiente view controller construyendo su view hierarchy — el polling arranca antes de que el nuevo screen se haya registrado en el AX tree.
+- State acumulado del Simulator tras N iteraciones de install/uninstall/launch en la misma sesion del bench.
+- Transiciones muy breves (un picker de pais que aparece <200ms y se cierra solo) que el poll de 500ms literalmente se pierde entre un check y el siguiente.
+
+**Workarounds conocidos** (en orden de invasividad creciente):
+
+1. **Agregar `wait 0.5` entre el `tap` y el siguiente `waitFor`.** Le da aire al Simulator para renderizar el siguiente screen antes de empezar a polear. Es el workaround mas barato y cubre la mayoria de los casos.
+
+   ```auto
+   tap "Argentina"
+   wait 0.5
+   waitFor "No permitir" 10
+   ```
+
+2. **Reboot del Simulator entre runs del bench.** Si estas corriendo el mismo script en loop para medir, reiniciar el booted device entre iteraciones reduce el state acumulado:
+
+   ```bash
+   xcrun simctl shutdown booted && xcrun simctl boot <udid>
+   ```
+
+3. **Nuclear: `xcrun simctl erase booted`.** Borra todo el state del device (no solo la app). Ultimo recurso para runs de diagnostico.
+
+**Lo que NO funciono:** durante la sesion 2026-04-08 se intento reemplazar el poll de 500ms de `waitFor` por un hybrid observer+poll (AXObserver despertando el check en cada evento AX). El pass rate cayo a 3/6 (50%) porque el tree dump en cada evento contendia con la inicializacion interna del Simulator. Revertido limpio, detalle completo en la memoria `feedback_observer_hybrid.md` del proyecto. Leccion meta: el poll de 500ms "funcionaba por accidente" porque su lentitud le daba aire al Simulator para renderizar.
+
+**Estado:** Limitacion conocida, tracked en [#80](https://github.com/fsaldivar-dev/AutoPilot/issues/80). Los bloqueantes para un retry del observer hybrid estan listados en [#79](https://github.com/fsaldivar-dev/AutoPilot/issues/79): (1) necesitar una query AX ~5ms en lugar del tree dump de 30-50ms, (2) debounce agresivo del observer para no oversamplear con bursts de 20-30 eventos/s durante el app init.
+
+---
+
+## 12. Editor se queda con binarios stale despues de `cargo clean` <a id="editor-cargo-clean"></a>
+
+**Sintoma:** Despues de correr `cargo clean` en `editor/src-tauri` (tipicamente porque un rebuild fallo raro y uno quiere empezar de cero), al volver a correr `npm run tauri dev` el editor arranca pero el comportamiento del sidecar no matchea lo que esta en `cli/Sources/...`. A veces el Play tira errores de comandos que no deberian existir, a veces corre una version anterior que ya no tiene un fix que se commiteo localmente.
+
+**Diagnostico:** `cargo clean` borra `editor/src-tauri/target/` entero, incluyendo cualquier `auto` o `auto-android` que se haya copiado ahi manualmente. Cargo no conoce esos binarios — son artefactos Swift, externos al crate — asi que no los rebuilds, no los restaura, ni los trackea como dependencies. Al proximo `tauri dev`, Tauri busca el binario y o no lo encuentra (y el editor falla mas ruidosamente), o pica un candidato stale de otra ubicacion del sistema PATH que no es el de la workspace.
+
+Reproduccion minima:
+
+```
+$ cd editor/src-tauri
+$ ls target/debug/auto*
+target/debug/auto          target/debug/auto-android
+
+$ cargo clean
+$ ls target/debug/auto* 2>&1
+ls: target/debug/auto*: No such file or directory
+
+$ cd ../.. && cd editor && npm run tauri dev
+# → el editor arranca pero el sidecar corre un binario que no es el actual
+```
+
+**Workaround validado:** Despues de cada `cargo clean`, copiar los binarios del CLI manualmente antes de volver a arrancar el editor:
+
+```bash
+cp cli/.build/debug/auto editor/src-tauri/target/debug/auto
+cp cli/.build/debug/auto-android editor/src-tauri/target/debug/auto-android
+```
+
+O, mas prolijo, correr el helper que hace exactamente esto ademas de actualizar el directorio `binaries/`:
+
+```bash
+./editor/refresh-binaries.sh
+```
+
+Si el CLI tampoco esta compilado, primero:
+
+```bash
+cd cli && swift build && cd ..
+./editor/refresh-binaries.sh
+```
+
+**Estado:** Limitacion conocida con workaround. Fix permanente propuesto en [#81](https://github.com/fsaldivar-dev/AutoPilot/issues/81): hook post-build de `cargo` (via `build.rs` o script del workspace) que sincronice automaticamente los binarios del CLI en `target/debug/` y `target/release/` despues de cada compilacion, sin requerir el refresh manual. Related: este mismo problema en su variante "maquina limpia primera vez" es el problema [#8](#editor-unknown-interactive).
 
 ---
 
