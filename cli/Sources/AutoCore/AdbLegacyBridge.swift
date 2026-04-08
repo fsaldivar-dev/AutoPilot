@@ -35,7 +35,23 @@ public final class AdbLegacyBridge: DeviceBridge {
             }
         }
 
-        // Try which
+        // Fallback: common default paths (IDEs like Cursor don't inherit shell env) (#65)
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        let defaultPaths = [
+            "\(home)/Library/Android/sdk/platform-tools/adb",           // Android Studio default (macOS)
+            "/opt/homebrew/share/android-commandlinetools/platform-tools/adb", // Homebrew ARM
+            "/usr/local/share/android-commandlinetools/platform-tools/adb",   // Homebrew Intel
+            "/opt/homebrew/bin/adb",                                          // Homebrew direct
+            "/usr/local/bin/adb",                                             // Manual install
+        ]
+        for path in defaultPaths {
+            if FileManager.default.isExecutableFile(atPath: path) {
+                cachedAdbPath = path
+                return path
+            }
+        }
+
+        // Try which (may fail in IDEs with limited PATH)
         let which = Process()
         which.executableURL = URL(fileURLWithPath: "/usr/bin/which")
         which.arguments = ["adb"]
@@ -61,6 +77,11 @@ public final class AdbLegacyBridge: DeviceBridge {
     @discardableResult
     public func runAdbPublic(_ arguments: [String]) throws -> String {
         return try runAdb(arguments)
+    }
+
+    /// Public accessor for the resolved adb binary path.
+    public func adbPathPublic() throws -> String {
+        return try adbPath()
     }
 
     @discardableResult

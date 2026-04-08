@@ -9,6 +9,9 @@ public final class AgentBridge: DeviceBridge {
     private let port: Int
     private let legacy: AdbLegacyBridge
 
+    /// Set to false to skip auto-recovery (for setup command, doctor, tests)
+    public var autoRecover: Bool = true
+
     public init(host: String = "127.0.0.1", port: Int = 9008) {
         self.host = host
         self.port = port
@@ -18,6 +21,10 @@ public final class AgentBridge: DeviceBridge {
     // MARK: - Socket Communication
 
     private func sendCommand(_ method: String, params: [String: Any]? = nil) throws -> Any {
+        return try sendCommandInternal(method, params: params, allowRecover: autoRecover)
+    }
+
+    private func sendCommandInternal(_ method: String, params: [String: Any]?, allowRecover: Bool) throws -> Any {
         var request: [String: Any] = ["method": method]
         if let params = params {
             request["params"] = params
@@ -29,8 +36,19 @@ public final class AgentBridge: DeviceBridge {
         }
         requestString += "\n"
 
-        // Connect
-        let socket = try createSocket()
+        // Connect (with auto-recovery on Connection refused)
+        let socket: Int32
+        do {
+            socket = try createSocket()
+        } catch {
+            if allowRecover {
+                // Try to recover: rearm forward + (optionally) relaunch agent
+                try recoverAgent()
+                // Retry once with recovery disabled to avoid infinite loop
+                return try sendCommandInternal(method, params: params, allowRecover: false)
+            }
+            throw error
+        }
         defer { close(socket) }
 
         // Send
@@ -60,7 +78,12 @@ public final class AgentBridge: DeviceBridge {
         }
 
         guard !responseData.isEmpty else {
-            throw BridgeError.adbFailed("Empty response from agent")
+            // Empty response = socket closed mid-read (agent crashed). Recover if allowed.
+            if allowRecover {
+                try recoverAgent()
+                return try sendCommandInternal(method, params: params, allowRecover: false)
+            }
+            throw BridgeError.adbFailed("Empty response from agent (agent may have crashed)")
         }
 
         // Parse JSON
@@ -100,6 +123,112 @@ public final class AgentBridge: DeviceBridge {
         }
 
         return sock
+    }
+
+    // MARK: - Auto-Recovery (#66, #67, #68)
+
+    /// Internal recovery: rearma adb forward y, si el socket sigue caido, relanza el agente.
+    /// Es invocado automaticamente por sendCommand cuando detecta socket cerrado / Connection refused.
+    private func recoverAgent() throws {
+        // Step 1: rearm adb forward (cheap, fixes most cases)
+        do {
+            try legacy.runAdbPublic(["forward", "tcp:\(port)", "localabstract:autopilot"])
+        } catch {
+            // adb may not be available — propagate clear error
+            throw BridgeError.adbFailed("Recovery failed: cannot run 'adb forward' — \(error)")
+        }
+
+        // Step 2: probe socket — if forward alone fixed it, no need to relaunch agent
+        if probeSocket() { return }
+
+        // Step 3: relaunch agent via instrumentation. Detached so it survives this process.
+        relaunchAgentDetached()
+
+        // Step 4: wait up to 3s for agent to come up
+        for _ in 0..<15 {
+            usleep(200_000) // 200ms
+            if probeSocket() { return }
+        }
+
+        // Step 5: still down — propagate clear error
+        throw BridgeError.adbFailed("""
+            Agent did not respond after recovery. Check:
+              1. APK installed: adb install agent/app/build/outputs/apk/debug/app-debug.apk
+              2. Manually launch: adb shell am instrument -w dev.autopilot.agent/.AgentInstrumentation
+              3. Run: auto-android doctor
+            """)
+    }
+
+    /// Probe non-throwing: returns true only if a real ping round-trip succeeds.
+    /// Trusting connect() alone is unsafe — `adb forward` makes the macOS side
+    /// accept any connect() against localhost:9008 regardless of whether the
+    /// Android side actually has the `localabstract:autopilot` socket bound,
+    /// because adb only forwards bytes lazily and never validates the remote
+    /// socket on connect. We need a real round-trip (ping + response within
+    /// a short timeout) to know the agent is alive.
+    private func probeSocket() -> Bool {
+        guard let sock = try? createSocket() else { return false }
+        defer { close(sock) }
+
+        // Send a real ping JSON.
+        let ping = "{\"method\":\"ping\"}\n"
+        guard let data = ping.data(using: .utf8) else { return false }
+        let sent = data.withUnsafeBytes { ptr in
+            send(sock, ptr.baseAddress!, data.count, 0)
+        }
+        if sent <= 0 { return false }
+
+        // Read response with a 1s timeout. The agent's ping handler is
+        // sub-millisecond when alive; recv returns -1 (EAGAIN) on timeout.
+        var tv = timeval(tv_sec: 1, tv_usec: 0)
+        setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
+
+        var buf = [UInt8](repeating: 0, count: 256)
+        let bytesRead = recv(sock, &buf, buf.count, 0)
+        return bytesRead > 0
+    }
+
+    /// Launch the agent via `am instrument` in background, detached from this process.
+    private func relaunchAgentDetached() {
+        guard let adb = try? legacy.adbPathPublic() else { return }
+        // Double-fork pattern: /bin/sh spawns a subshell that backgrounds the
+        // adb command, then the outer sh exits. The backgrounded process is
+        // reparented to launchd/init so it survives this CLI exiting.
+        // Without this the instrumentation dies the moment the swift parent
+        // exits, and the next CLI invocation sees an "Empty response".
+        let cmd = "( \"\(adb)\" shell am instrument -w dev.autopilot.agent/.AgentInstrumentation </dev/null >/dev/null 2>&1 & )"
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: "/bin/sh")
+        proc.arguments = ["-c", cmd]
+        proc.standardOutput = Pipe()
+        proc.standardError = Pipe()
+        try? proc.run()
+        proc.waitUntilExit() // safe — the inner adb is already detached
+    }
+
+    /// Public setup entry point — used by `auto-android setup` command (#67).
+    /// Runs the same recovery flow but with verbose output.
+    public func setupAgent(verbose: Bool = true) throws {
+        if verbose { print("→ adb forward tcp:\(port) localabstract:autopilot") }
+        try legacy.runAdbPublic(["forward", "tcp:\(port)", "localabstract:autopilot"])
+
+        if probeSocket() {
+            if verbose { print("✓ Agent already running and reachable") }
+            return
+        }
+
+        if verbose { print("→ Launching agent via am instrument") }
+        relaunchAgentDetached()
+
+        for i in 0..<15 {
+            usleep(200_000)
+            if probeSocket() {
+                if verbose { print("✓ Agent ready (\((i + 1) * 200)ms)") }
+                return
+            }
+        }
+
+        throw BridgeError.adbFailed("Agent did not come up after 3s. Check that the APK is installed.")
     }
 
     // MARK: - DeviceBridge: Tree (via agent)

@@ -305,6 +305,7 @@ public final class RecordingSession {
                 let line = "scroll \"\(selector)\" \(direction)"
                 generator.appendRaw(line)
                 printRecorded(line)
+                appendPostScrollWait()
                 return
             }
         }
@@ -313,6 +314,14 @@ public final class RecordingSession {
         let line = "swipe \(direction)"
         generator.appendRaw(line)
         printRecorded(line)
+        appendPostScrollWait()
+    }
+
+    /// Auto-inject wait after scroll/swipe so the AX tree settles before next tap (#63)
+    private func appendPostScrollWait() {
+        let waitLine = "wait 0.5"
+        generator.appendRaw(waitLine)
+        printRecorded(waitLine)
     }
 
     /// Find a scrollable element near the given point for scroll commands.

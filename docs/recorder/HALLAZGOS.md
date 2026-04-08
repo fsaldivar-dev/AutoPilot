@@ -79,15 +79,17 @@ Para comparar contra Maestro Studio y Appium Inspector en el benchmark.
 
 **Para el benchmark**: Este problema es unico de AutoPilot. Maestro captura screenshots, no AX tree. Appium usa session logs del WebDriver.
 
-### 5. Modals y sheets — botones no expuestos en AX
+### 5. Modals y sheets — botones no expuestos en AX (wontfix #57)
 
-**Problema**: Algunos botones en SwiftUI sheets/modals no aparecen en el AX tree del Simulator. Especificamente, botones de toolbar (`.toolbar { }`) en sheets pueden no tener AX representation.
+**Problema**: Botones en `.toolbar { }` de SwiftUI sheets/modals no aparecen en el AX tree del Simulator macOS. Especificamente, "Cancelar" y "Guardar" en un `NavigationView` dentro de `.sheet { }`.
 
-**Evidencia**: "Cancelar" y "Guardar" en un sheet modal de `NavigationView` no aparecen con `tree -s "Cancelar"`. El AXGroup del sheet tiene height 49px (solo la barra de titulo), los botones estan fuera.
+**Evidencia**: `tree -s "Cancelar"` → No elements found. El AXGroup del sheet tiene height 49px (solo la barra de titulo). `AXToolbarItems` (ya consultado en AXDebug.swift) retorna vacio para estos elementos. `AXUIElementCopyElementAtPosition` tampoco los encuentra — es el mismo AX tree subyacente.
 
-**Workaround actual**: El tap cae a `tapAt` (coordenadas) — funciona pero es fragil.
+**Causa raiz**: Limite de Apple — macOS Accessibility no expone correctamente los toolbar items de sheets del iOS Simulator. El toolbar vive en un layer que no tiene children AX.
 
-**Para el benchmark**: Maestro y Appium tienen el mismo problema con SwiftUI toolbars. Es un limite de Apple, no del tool. Documentar como "AX tree gap de SwiftUI".
+**Status: wontfix** — Maestro y Appium tienen exactamente el mismo limite. No hay fix posible desde el tool. El workaround (`tapAt x y`) funciona.
+
+**Recomendacion para devs**: Agregar `.accessibilityIdentifier("cancelar")` al boton en SwiftUI para que aparezca en el tree. Esto beneficia tanto al automation como al testing con XCTest.
 
 ### 6. Solo iOS — Android no soportado
 
@@ -113,7 +115,8 @@ Cosas que el usuario tiene que hacer a mano despues de grabar:
 
 | Intervencion | Cuando | Script generado | Fix manual |
 |---|---|---|---|
-| Agregar scroll | Usuario scrolleo en la app | Nada (scroll no detectable) | Agregar `swipe up/down` antes del tap |
+| Agregar scroll | Usuario scrolleo en la app | Nada (scroll no detectable en iOS) | Agregar `swipe up/down` antes del tap |
+| ~~Wait post-scroll~~ | ~~Android: tree no asentado despues de swipe~~ | ~~Nada~~ | **RESUELTO**: recorder inyecta `wait 0.5` automaticamente post-swipe |
 | zsh escaping | Ejecutar `tap[button]` en terminal | N/A | Usar `'tap[button]'` o `tap\[button\]` |
 | Ajustar waits | Transicion muy rapida o lenta | `waitFor` si gap >1.5s | Agregar `wait N` o `waitFor "X"` |
 | Buttons en modals | Sheet con toolbar SwiftUI | `tapAt x y` (coordenadas) | Dejar como esta o agregar identifier al codigo |
@@ -222,3 +225,63 @@ El bloqueante principal para 100% replicabilidad raw (sin edicion) es el scroll:
 - `scrollTo "elemento"` con verificacion de visibilidad (frame dentro del viewport)
 - Requiere fix del AX tree que reporta elementos offscreen como encontrados
 - Alternativa: `scrollUntilVisible "X"` que hace diff de posiciones entre scrolls
+
+---
+
+## Sesion 2026-04-07 — validacion login Uala (iOS + Android)
+
+Validacion end-to-end de los fixes commiteados en `c894d36` (type reliability + DNS doctor) y `69ac6b9` (agent double-fork + AX setvalue) corriendo el flow completo de login Uala STAGE en ambas plataformas con apps frescas (uninstall + reinstall iOS, `pm clear` Android).
+
+### iOS — flow validado completo
+
+Pantallas extras del onboarding fresh que NO estaban en la receta original de `uala_login_recipes.md`:
+
+1. **Selecciona tu pais** (Argentina / Mexico / Colombia) — solo aparece en primera ejecucion
+2. **Permission de notificaciones** ("¿Ualá-Stage quiere enviarte notificaciones?") — sistema, AX-accessible
+3. **Welcome screen** ("El lugar mas facil y seguro...") con boton `Iniciar sesion` (minuscula)
+4. **"¡Hola, Joseph!"** screen — la app recuerda el username del login anterior aunque hagamos uninstall+reinstall (las creds quedan en keychain compartido por bundle id). Workaround: tap **"No soy yo"** que limpia y muestra Email + Contraseña.
+
+Validado: typeText con caracteres `+` `@` `!` funciona en email Y password fields (los WIPs de `69ac6b9` resuelven los password fields que bloquean paste).
+
+### Android — flow validado completo
+
+Pantallas extras del onboarding fresh:
+
+1. **Selecciona tu pais** — IDs `arg`, `col`, `mex_abc`
+2. **Permission de notificaciones del sistema** (Allow / Don't allow) — boton usa apostrofe tipografico `'` (U+2019), tap por id `permission_deny_button` es mas confiable que por label
+3. **"Habilitar notificaciones" segundo dialog** (CANCELAR / ABRIR CONFIGURACION)
+4. **Welcome screen** con `id=login_button`
+5. **Form**: `id=login_input_uname`, `id=pswd_input`, `id=login_button`. Tap por id evita el problema de reindex del keyboard que esta documentado en la memoria.
+
+Validado: typeText agente Android maneja `+` `@` `!` correctamente. Password fields no exponen value via accessibility tree (esperado, por seguridad Android).
+
+### Bug encontrado y arreglado: `probeSocket()` false positive (#68 incompleto)
+
+**Problema**: el commit `3bc7281` que dice resolver el issue #68 ("AgentBridge no detecta agente caido y no auto-relanza") tiene un detector de "agent reachable" que da false positives.
+
+```swift
+// AgentBridge.swift:163 — version pre-fix
+private func probeSocket() -> Bool {
+    guard let sock = try? createSocket() else { return false }
+    close(sock)
+    return true  // ← solo verifica connect()
+}
+```
+
+**Por que falla**: cuando `adb forward tcp:9008 localabstract:autopilot` esta armado, cualquier `connect()` a `localhost:9008` tiene exito porque el adb daemon de macOS acepta el connect inmediatamente. ADB solo intenta el forwarding al lado Android cuando hay datos a transferir — y si el lado Android no tiene el socket bound, devuelve EOF en el primer recv. Pero `probeSocket` nunca llega a leer.
+
+**Consecuencia**: el flow de recovery (`recoverAgent` → step 2: `if probeSocket() return`) nunca llega a `relaunchAgentDetached()`. El WIP del double-fork pattern queda inactivo y los comandos reales (tree, tap, type) siempre fallan con "Empty response from agent" cuando el agente esta muerto.
+
+**Evidencia**: con APK instalado pero `pkill -9 -f autopilot` + `forward --remove-all`, `auto-android setup` reportaba "✓ Agent already running and reachable" pese a que `ps -A | grep autopilot` estaba vacio.
+
+**Fix aplicado**: `probeSocket()` ahora envia un ping JSON real y espera respuesta con timeout de 1s via `SO_RCVTIMEO`. Solo retorna `true` si recibe bytes del agente. Tras el fix, el setup correctamente detecta el agente muerto, llama `relaunchAgentDetached()`, y el agente sobrevive (validando indirectamente el WIP del double-fork).
+
+### Limitacion conocida: iOS save-password system dialog no es AX-accessible
+
+**Problema**: tras el primer login exitoso en Uala iOS aparece el dialog del sistema **"¿Guardar contraseña?"** (UIKit `_UISystemKeyboardSavePassword` o similar). Este dialog NO se expone en el AX tree del simulator porque es renderizado por iOS, no por la app. Tampoco responde a `pressKey escape` ni `pressKey enter` enviados via `osascript keystroke`.
+
+**Workaround usado**: `auto terminate <bundleId>` + `auto launch <bundleId>`. Tras el segundo launch la app abre directamente al form de password (recordando al usuario), el dialog del sistema ya no vuelve a aparecer y se puede continuar el flow.
+
+**Workaround alternativo**: tap en coordenadas absolutas del boton "Ahora no". Requiere medir coordenadas a mano para cada device size porque el dialog no esta en AX. No implementado en esta sesion.
+
+**Para el benchmark / recorder**: este dialog NO se puede grabar ni reproducir con `auto`. Maestro tampoco lo maneja (cae al mismo problema). Solucion futura: agregar `auto tap <x> <y>` por coordenadas absolutas, o un comando `auto dismissSystemDialog`.

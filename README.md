@@ -76,6 +76,14 @@ cp .build/release/auto /usr/local/bin/auto
 cp .build/release/auto-android /usr/local/bin/auto-android
 ```
 
+Para desarrollo iterativo (build + instalar a `~/bin/` atomicamente):
+
+```bash
+./cli/dev-install.sh             # debug
+./cli/dev-install.sh --release   # release
+./cli/dev-install.sh --editor    # tambien refresca binarios del editor (Tauri)
+```
+
 ### iOS
 ```bash
 open -a Simulator    # Abrir Simulador + dar permisos de Accesibilidad
@@ -84,13 +92,18 @@ auto tree
 auto tap "General"
 ```
 
+> **Nota**: Los comandos iOS que usan el AX tree (`tree`, `tap`, `inspect`) requieren permiso de Accesibilidad para el **proceso que ejecuta** `auto`. Si usas Terminal.app, agrega Terminal en System Settings > Privacy & Security > Accessibility. Si usas el editor o un IDE (Cursor, VS Code), agrega ese IDE. Cada recompilacion con `swift build` puede invalidar el permiso del binario. [Detalles en Cap. 12](docs/libro/12-permisos-accesibilidad.md)
+
 ### Android
 ```bash
 adb devices          # Verificar emulador/dispositivo conectado
+auto-android setup   # Rearma adb forward + lanza el agente
 auto-android ping
 auto-android tree
 auto-android tap "Login"
 ```
+
+> **Setup canonico**: si tienes problemas con Android SDK paths o el agente se cae al usar Maestro, ver [docs/android/SDK-SETUP.md](docs/android/SDK-SETUP.md) y [docs/benchmark/MAESTRO-RECOVERY.md](docs/benchmark/MAESTRO-RECOVERY.md). Para diagnosticar el entorno: `auto-android doctor`.
 
 ### Cámara virtual (sin recompilar)
 

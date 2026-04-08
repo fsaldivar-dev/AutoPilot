@@ -139,34 +139,218 @@ public final class SimulatorBridge {
         delUp?.postToPid(pid)
     }
 
+    /// Characters that are unreliable through CGEvent + shift modifier
+    /// (postToPid drops these intermittently, especially `+`, `@`, `!`, `#`, `$`).
+    /// When the input contains any of these we route the entire string through
+    /// the simulator pasteboard + Cmd+V for a deterministic paste.
+    private static let trickyTypeChars: Set<Character> = [
+        "+", "@", "!", "#", "$", "%", "^", "&", "*",
+        "(", ")", "_", "{", "}", "|", ":", "\"",
+        "<", ">", "?", "~", "`"
+    ]
+
     /// Type text by sending keyboard events to the Simulator.
+    /// If the text contains characters that drop unreliably with CGEvent shift
+    /// (`+`, `@`, `!`, ...), the whole string is pasted via `simctl pbcopy` + Cmd+V.
     public func typeText(_ text: String) throws {
         guard let pid = simulatorPID ?? findSimulatorPID() else {
             throw BridgeError.simulatorNotRunning
         }
+
+        // Make sure Connect Hardware Keyboard is enabled, otherwise CGEvents
+        // posted to the simulator process are silently dropped.
+        ensureHardwareKeyboardEnabled()
 
         // Bring simulator to front
         let simApp = NSRunningApplication(processIdentifier: pid)
         simApp?.activate()
         usleep(200_000)
 
-        let src = CGEventSource(stateID: .combinedSessionState)
+        // Strategy for tricky chars (`+`, `@`, `!`, ...):
+        //   1. AX setvalue on the focused element (silent, instant). Often fails
+        //      on iOS app fields because focus lives inside the iframe.
+        //   2. simctl pbcopy + Cmd+V via osascript. This path is independent
+        //      of keyboard layout (US/Latin American/etc) but triggers the iOS 17+
+        //      pasteboard privacy dialog. We auto-dismiss that dialog by tapping
+        //      "Permitir pegar" / "Allow Paste" right after the paste.
+        //   3. (intentionally no char-by-char fallback: per-key CGEvents with
+        //      shift modifiers depend on the macOS keyboard layout, which on
+        //      Latin American layouts maps shift+2 to `"` instead of `@`,
+        //      shift+= to garbage instead of `+`, etc.)
+        if text.contains(where: { Self.trickyTypeChars.contains($0) }) {
+            if trySetFocusedFieldValue(text) {
+                return
+            }
+            try pasteViaPasteboard(text, pid: pid)
+            autoDismissPasteboardDialog()
+            return
+        }
 
+        let src = CGEventSource(stateID: .combinedSessionState)
+        let shiftKeyCode: CGKeyCode = 56 // left shift
+
+        for char in text {
+            guard let keyCode = keyCodeForChar(char) else { continue }
+            let needsShift = char.isUppercase || shiftChars.contains(char)
+
+            let keyDown = CGEvent(keyboardEventSource: src, virtualKey: keyCode, keyDown: true)
+            let keyUp = CGEvent(keyboardEventSource: src, virtualKey: keyCode, keyDown: false)
+
+            // iOS Simulator does not reliably honor `flags = .maskShift` on a
+            // single CGEvent. Post explicit shift down → key → shift up instead.
+            if needsShift {
+                let shiftDown = CGEvent(keyboardEventSource: src, virtualKey: shiftKeyCode, keyDown: true)
+                let shiftUp = CGEvent(keyboardEventSource: src, virtualKey: shiftKeyCode, keyDown: false)
+                keyDown?.flags = .maskShift
+                keyUp?.flags = .maskShift
+                shiftDown?.postToPid(pid)
+                usleep(5_000)
+                keyDown?.postToPid(pid)
+                keyUp?.postToPid(pid)
+                shiftUp?.postToPid(pid)
+            } else {
+                keyDown?.postToPid(pid)
+                keyUp?.postToPid(pid)
+            }
+            usleep(30_000) // 30ms between keys
+        }
+    }
+
+    /// Walks the simulator AX tree to find the currently focused element and
+    /// sets its AXValue to `text`. Returns `true` on success, `false` if there
+    /// is no focused element, no settable AXValue, or any AX call fails.
+    /// This is the most reliable path for password fields that disable paste.
+    private func trySetFocusedFieldValue(_ text: String) -> Bool {
+        guard let pid = simulatorPID ?? findSimulatorPID() else { return false }
+        let app = AXUIElementCreateApplication(pid)
+
+        var focusedAny: CFTypeRef?
+        let focusedResult = AXUIElementCopyAttributeValue(app, kAXFocusedUIElementAttribute as CFString, &focusedAny)
+        guard focusedResult == .success, let focused = focusedAny, CFGetTypeID(focused) == AXUIElementGetTypeID() else {
+            return false
+        }
+        let focusedEl = focused as! AXUIElement
+
+        var settable: DarwinBoolean = false
+        let settableResult = AXUIElementIsAttributeSettable(focusedEl, kAXValueAttribute as CFString, &settable)
+        guard settableResult == .success, settable.boolValue else {
+            return false
+        }
+
+        let setResult = AXUIElementSetAttributeValue(focusedEl, kAXValueAttribute as CFString, text as CFTypeRef)
+        return setResult == .success
+    }
+
+    /// Toggles `Simulator → I/O → Keyboard → Connect Hardware Keyboard` ON
+    /// if it is currently OFF. Without this, CGEvents posted to the simulator
+    /// process are silently dropped. Idempotent — does nothing when already ON.
+    private func ensureHardwareKeyboardEnabled() {
+        let script = """
+        tell application "System Events"
+            tell process "Simulator"
+                try
+                    set markVal to value of attribute "AXMenuItemMarkChar" of menu item "Connect Hardware Keyboard" of menu 1 of menu item "Keyboard" of menu 1 of menu bar item "I/O" of menu bar 1
+                    if markVal is missing value then
+                        click menu item "Connect Hardware Keyboard" of menu 1 of menu item "Keyboard" of menu 1 of menu bar item "I/O" of menu bar 1
+                    end if
+                end try
+            end tell
+        end tell
+        """
+        let proc = Process()
+        proc.launchPath = "/usr/bin/osascript"
+        proc.arguments = ["-e", script]
+        proc.standardOutput = Pipe()
+        proc.standardError = Pipe()
+        do {
+            try proc.run()
+            proc.waitUntilExit()
+        } catch {
+            // Best-effort: if AppleScript fails (no AX permissions, simulator
+            // not at front, etc.) we still try the type — the user gets a clear
+            // empty-field symptom rather than a crash here.
+        }
+    }
+
+    /// Copies `text` to the booted simulator pasteboard via `xcrun simctl pbcopy`
+    /// and then sends Cmd+V to the Simulator via osascript keystroke (the
+    /// CGEvent path is unreliable for Cmd+V into the simulator window).
+    /// If the focused field rejects paste (e.g. some password fields), the
+    /// caller should fall back to per-character typing.
+    /// Throws on pbcopy failure; the paste keystroke itself is best-effort.
+    private func pasteViaPasteboard(_ text: String, pid: pid_t) throws {
+        // 1. Pipe `text` into `xcrun simctl pbcopy booted`
+        let pbcopy = Process()
+        pbcopy.launchPath = "/usr/bin/xcrun"
+        pbcopy.arguments = ["simctl", "pbcopy", "booted"]
+        let stdinPipe = Pipe()
+        pbcopy.standardInput = stdinPipe
+        pbcopy.standardOutput = Pipe()
+        pbcopy.standardError = Pipe()
+        try pbcopy.run()
+        if let data = text.data(using: .utf8) {
+            stdinPipe.fileHandleForWriting.write(data)
+        }
+        stdinPipe.fileHandleForWriting.closeFile()
+        pbcopy.waitUntilExit()
+        guard pbcopy.terminationStatus == 0 else {
+            throw BridgeError.appleScriptFailed("simctl pbcopy failed (status=\(pbcopy.terminationStatus))")
+        }
+
+        // 2. Bring Simulator to front and Cmd+V via System Events. This is the
+        // path that actually triggers iOS Paste; CGEvent postToPid does not.
+        let script = """
+        tell application "Simulator" to activate
+        delay 0.4
+        tell application "System Events"
+            keystroke "v" using command down
+        end tell
+        """
+        let osa = Process()
+        osa.launchPath = "/usr/bin/osascript"
+        osa.arguments = ["-e", script]
+        osa.standardOutput = Pipe()
+        osa.standardError = Pipe()
+        try? osa.run()
+        osa.waitUntilExit()
+        usleep(200_000)
+    }
+
+    /// After a `pasteViaPasteboard` call, iOS 17+ shows a privacy dialog asking
+    /// the user to allow paste from CoreSimulatorBridge. The dialog IS in the
+    /// Simulator AX tree (unlike Save Password), so we can find and tap
+    /// "Permitir pegar" / "Allow Paste" automatically. No-op if the dialog
+    /// is not present (iOS may have remembered the previous answer).
+    private func autoDismissPasteboardDialog() {
+        usleep(300_000) // give iOS a moment to render the dialog
+        guard let root = try? findSimulatorContent() else { return }
+        let candidateLabels = ["Permitir pegar", "Allow Paste", "Allow"]
+        for label in candidateLabels {
+            if let element = findAXElement(in: root, matching: label, depth: 0, maxDepth: 12) {
+                tapElement(element)
+                usleep(150_000)
+                return
+            }
+        }
+    }
+
+    /// Per-character typing using CGEvent keycodes. This is the original
+    /// reliable path for plain ASCII letters/digits/space. Used as a fallback
+    /// when the field rejects paste (some password fields disable Cmd+V).
+    private func typeCharByChar(_ text: String, pid: pid_t) {
+        let src = CGEventSource(stateID: .combinedSessionState)
         for char in text {
             if let keyCode = keyCodeForChar(char) {
                 let needsShift = char.isUppercase || shiftChars.contains(char)
-
                 let keyDown = CGEvent(keyboardEventSource: src, virtualKey: keyCode, keyDown: true)
-                let keyUp = CGEvent(keyboardEventSource: src, virtualKey: keyCode, keyDown: false)
-
+                let keyUp   = CGEvent(keyboardEventSource: src, virtualKey: keyCode, keyDown: false)
                 if needsShift {
                     keyDown?.flags = .maskShift
-                    keyUp?.flags = .maskShift
+                    keyUp?.flags   = .maskShift
                 }
-
                 keyDown?.postToPid(pid)
                 keyUp?.postToPid(pid)
-                usleep(30_000) // 30ms between keys
+                usleep(30_000)
             }
         }
     }
@@ -1190,8 +1374,8 @@ public final class SimulatorBridge {
     private let shiftChars: Set<Character> = Set("~!@#$%^&*()_+{}|:\"<>?")
 
     private func keyCodeForChar(_ char: Character) -> CGKeyCode? {
-        let lower = char.lowercased()
-        let map: [String: CGKeyCode] = [
+        // Direct lookup table for unshifted chars (lowercase letters, digits, common punctuation)
+        let unshifted: [String: CGKeyCode] = [
             "a": 0, "s": 1, "d": 2, "f": 3, "h": 4, "g": 5, "z": 6, "x": 7,
             "c": 8, "v": 9, "b": 11, "q": 12, "w": 13, "e": 14, "r": 15,
             "y": 16, "t": 17, "1": 18, "2": 19, "3": 20, "4": 21, "6": 22,
@@ -1200,9 +1384,18 @@ public final class SimulatorBridge {
             "j": 38, "'": 39, "k": 40, ";": 41, "\\": 42, ",": 43, "/": 44,
             "n": 45, "m": 46, ".": 47, " ": 49, "`": 50,
         ]
-        if lower == "\n" || lower == "\r" { return 36 }
-        if lower == "\t" { return 48 }
-        return map[lower]
+        // Shifted symbols map to the keyCode of their base char (caller must apply shift).
+        let shiftedSymbols: [Character: CGKeyCode] = [
+            "!": 18, "@": 19, "#": 20, "$": 21, "%": 23, "^": 22,
+            "&": 26, "*": 28, "(": 25, ")": 29, "_": 27, "+": 24,
+            "{": 33, "}": 30, "|": 42, ":": 41, "\"": 39,
+            "<": 43, ">": 47, "?": 44, "~": 50,
+        ]
+        if char == "\n" || char == "\r" { return 36 }
+        if char == "\t" { return 48 }
+        if let kc = shiftedSymbols[char] { return kc }
+        // Uppercase letters and lowercase chars share the same keyCode (lowercased lookup).
+        return unshifted[char.lowercased()]
     }
 
     // MARK: - Build
