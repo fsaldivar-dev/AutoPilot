@@ -265,11 +265,17 @@ function App() {
     if (editor) editor.deltaDecorations(decorations, []);
     appendOutput(`\n${stepNum} step(s) completed`);
     setCurrentStep(-1);
-    // Auto-refresh tree silenciosamente para que el autocomplete prediga
-    // los elementos del estado final estable de la app (post observation
-    // protocol). No contamina el panel de output ni abre el inspector visual.
-    try { await refreshTree({ silent: true }); } catch {}
+    // Libera el boton Play inmediatamente. Antes de este cambio, el
+    // refreshTree({silent}) de abajo se hacia `await` aqui y bloqueaba
+    // el Play por 300-800ms (tree dump + screenshot + element index)
+    // despues de mostrar "N step(s) completed", dando sensacion de
+    // "se colgo" en scripts cortos.
     setRunning(false);
+    // Auto-refresh tree en background (fire-and-forget) para que el
+    // autocomplete prediga los elementos del estado final estable de
+    // la app. No bloquea el boton Play — si el usuario aprieta otro
+    // Play antes de que termine, el fetch se abandona silenciosamente.
+    refreshTree({ silent: true }).catch(() => {});
   }, [script, appendOutput, platform, refreshTree]);
 
   const stopScript = useCallback(async () => {
