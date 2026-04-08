@@ -1684,6 +1684,35 @@ extension SimulatorBridge: DeviceBridge {
         }
     }
 
+    // MARK: - Secure Storage
+
+    /// Reset the booted simulator's shared keychain. Wraps
+    /// `xcrun simctl keychain <udid> reset` — clears credentials saved
+    /// by Keychain Services across ALL apps on the device. There is no
+    /// per-bundle reset at the simctl level.
+    ///
+    /// This is the critical piece of the "fresh install" flow for login
+    /// automation: iOS keeps keychain entries across `uninstall` +
+    /// `install` of a bundle, so re-running a login script on a simulator
+    /// that already logged in once will skip past the login screen
+    /// because the app reads the saved credentials. Calling this before
+    /// `install` guarantees a true first-run state.
+    public func resetKeychain() throws {
+        let deviceId = try getBootedDeviceId()
+        let process = Process()
+        let errPipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
+        process.arguments = ["simctl", "keychain", deviceId, "reset"]
+        process.standardError = errPipe
+        try process.run()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
+            let errMsg = String(data: errData, encoding: .utf8) ?? "Unknown error"
+            throw BridgeError.simctlFailed(errMsg)
+        }
+    }
+
     // MARK: - Scroll To Element
 
     public func scrollTo(target: String, direction: String, maxAttempts: Int) throws {
