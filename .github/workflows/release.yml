@@ -74,7 +74,7 @@ jobs:
         if: steps.bump.outputs.type != 'skip'
         run: cd cli && swift test
 
-      - name: Build universal binary
+      - name: Build universal binaries (auto + autopilotd)
         if: steps.bump.outputs.type != 'skip'
         run: |
           cd cli
@@ -84,13 +84,44 @@ jobs:
             .build/arm64-apple-macosx/release/auto \
             .build/x86_64-apple-macosx/release/auto \
             -output ../auto-universal
+          lipo -create \
+            .build/arm64-apple-macosx/release/autopilotd \
+            .build/x86_64-apple-macosx/release/autopilotd \
+            -output ../autopilotd-universal
           cd ..
-          chmod +x auto-universal
+          chmod +x auto-universal autopilotd-universal
+
+      - name: Build XCTest runner bundle
+        if: steps.bump.outputs.type != 'skip'
+        run: |
+          # Pick first available iPhone simulator
+          UDID=$(xcrun simctl list devices available -j | \
+            jq -r '.devices | to_entries | map(.value[]) | flatten[] | select(.name | contains("iPhone")) | .udid' | \
+            head -1)
+          echo "Using simulator: $UDID"
+
+          cd "Demo/iOS/Test Automatitacion"
+          xcodebuild build-for-testing \
+            -project "Test Automatitacion.xcodeproj" \
+            -scheme "Test Automatitacion" \
+            -destination "platform=iOS Simulator,id=$UDID" \
+            -derivedDataPath ./DerivedData \
+            | tail -10
+
+          RUNNER_APP=$(find ./DerivedData/Build/Products -name "*UITests-Runner.app" -type d | head -1)
+          XCTESTRUN=$(find ./DerivedData/Build/Products -name "*.xctestrun" | head -1)
+
+          cd ../../..
+          mkdir -p runner-bundle
+          cp -R "$RUNNER_APP" runner-bundle/
+          cp "$XCTESTRUN" runner-bundle/
+          tar -czf autopilot-runner.tar.gz -C runner-bundle .
+          ls -lh autopilot-runner.tar.gz
 
       - name: Generate checksums
         if: steps.bump.outputs.type != 'skip'
         run: |
-          shasum -a 256 auto-universal > checksums.txt
+          shasum -a 256 auto-universal autopilotd-universal autopilot-runner.tar.gz > checksums.txt
           cat checksums.txt
 
       - name: Create release
@@ -111,10 +142,15 @@ jobs:
           ## Installation
 
           \`\`\`bash
-          # Download binary
+          # Download CLI binaries
           curl -L https://github.com/${{ github.repository }}/releases/download/${VERSION}/auto-universal -o auto
-          chmod +x auto
-          sudo mv auto /usr/local/bin/
+          curl -L https://github.com/${{ github.repository }}/releases/download/${VERSION}/autopilotd-universal -o autopilotd
+          chmod +x auto autopilotd
+          sudo mv auto autopilotd /usr/local/bin/
+
+          # (Optional) Download XCTest runner bundle for NavBar SwiftUI support
+          curl -L https://github.com/${{ github.repository }}/releases/download/${VERSION}/autopilot-runner.tar.gz -o runner.tar.gz
+          mkdir -p \$HOME/.autopilot/runner && tar -xzf runner.tar.gz -C \$HOME/.autopilot/runner
 
           # Or build from source
           cd cli && swift build -c release
@@ -124,7 +160,7 @@ jobs:
           \`\`\`
           $(cat checksums.txt)
           \`\`\`" \
-            auto-universal checksums.txt
+            auto-universal autopilotd-universal autopilot-runner.tar.gz checksums.txt
 
       - name: Create labels if missing
         if: steps.bump.outputs.type != 'skip'

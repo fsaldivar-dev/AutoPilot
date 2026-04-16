@@ -20,3 +20,66 @@ jobs:
 
       - name: Build Release
         run: cd cli && swift build -c release
+
+      - name: Verify daemon binary
+        run: |
+          test -f cli/.build/release/autopilotd || (echo "autopilotd missing"; exit 1)
+          echo "autopilotd binary built: $(ls -lh cli/.build/release/autopilotd)"
+
+  build-runner:
+    name: Build XCTest runner bundle
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode
+        run: sudo xcode-select -s /Applications/Xcode.app
+
+      - name: Pick simulator destination
+        id: sim
+        run: |
+          # Pick the first available iPhone simulator
+          UDID=$(xcrun simctl list devices available -j | \
+            jq -r '.devices | to_entries | map(.value[]) | flatten[] | select(.name | contains("iPhone")) | .udid' | \
+            head -1)
+          echo "udid=$UDID" >> $GITHUB_OUTPUT
+          echo "Using simulator: $UDID"
+
+      - name: Build runner bundle (build-for-testing)
+        run: |
+          cd "Demo/iOS/Test Automatitacion"
+          xcodebuild build-for-testing \
+            -project "Test Automatitacion.xcodeproj" \
+            -scheme "Test Automatitacion" \
+            -destination "platform=iOS Simulator,id=${{ steps.sim.outputs.udid }}" \
+            -derivedDataPath ./DerivedData \
+            | tail -20
+
+      - name: Locate runner artifacts
+        id: artifacts
+        run: |
+          cd "Demo/iOS/Test Automatitacion"
+          RUNNER_APP=$(find ./DerivedData/Build/Products -name "*UITests-Runner.app" -type d | head -1)
+          XCTESTRUN=$(find ./DerivedData/Build/Products -name "*.xctestrun" | head -1)
+          echo "runner_app=$RUNNER_APP" >> $GITHUB_OUTPUT
+          echo "xctestrun=$XCTESTRUN" >> $GITHUB_OUTPUT
+          echo "Runner: $RUNNER_APP"
+          echo "xctestrun: $XCTESTRUN"
+
+      - name: Package runner bundle
+        run: |
+          cd "Demo/iOS/Test Automatitacion"
+          mkdir -p ../../../runner-bundle
+          cp -R "${{ steps.artifacts.outputs.runner_app }}" ../../../runner-bundle/
+          cp "${{ steps.artifacts.outputs.xctestrun }}" ../../../runner-bundle/
+          cd ../../..
+          ls -la runner-bundle/
+          tar -czf autopilot-runner.tar.gz -C runner-bundle .
+          ls -lh autopilot-runner.tar.gz
+
+      - name: Upload runner artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: autopilot-runner
+          path: autopilot-runner.tar.gz
+          retention-days: 30
