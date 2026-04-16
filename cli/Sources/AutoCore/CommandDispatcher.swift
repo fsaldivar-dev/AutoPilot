@@ -2,7 +2,13 @@ import Foundation
 
 /// Handles platform-agnostic commands via any DeviceBridge.
 /// Returns true if the command was handled, false if unrecognized (for platform-specific fallthrough).
-public func executeSharedCommand(_ args: [String], bridge: any DeviceBridge) throws -> Bool {
+///
+/// - Parameters:
+///   - args: command-line arguments (first is the verb)
+///   - bridge: the primary DeviceBridge (usually HybridBridge on iOS, AgentBridge on Android)
+///   - deepBridge: optional deep-only bridge (e.g. XCUIBridge on iOS). When provided,
+///                 `tree deep` and `tree full` subcommands will use it. On Android this is nil.
+public func executeSharedCommand(_ args: [String], bridge: any DeviceBridge, deepBridge: (any DeviceBridge)? = nil) throws -> Bool {
     guard let rawCmd = args.first else { return false }
 
     // Strip [role] suffix for switch matching: "tap[button]" → "tap"
@@ -29,6 +35,35 @@ public func executeSharedCommand(_ args: [String], bridge: any DeviceBridge) thr
                     printElement(el)
                 }
             }
+        } else if args.count >= 2 && args[1] == "deep" {
+            // Force deep bridge (XCUI on iOS) — slow, sees everything SwiftUI exposes
+            guard let deep = deepBridge else {
+                print("tree deep: no deep bridge available on this platform (iOS only)")
+                return true
+            }
+            let tree = try deep.tree()
+            let ms = elapsedMs(start)
+            TreePrinter.printAX(tree)
+            print("\n(\(ms)ms — deep)")
+        } else if args.count >= 2 && args[1] == "full" {
+            // Fast + deep merged — deep adds what fast missed (NavBar buttons, etc.)
+            let fastTree = (try? bridge.tree()) ?? []
+            let deepTree: [[String: Any]]
+            if let deep = deepBridge {
+                deepTree = (try? deep.tree()) ?? []
+            } else {
+                deepTree = []
+            }
+            let ms = elapsedMs(start)
+            print("=== fast (AX macOS) ===")
+            TreePrinter.printAX(fastTree)
+            if !deepTree.isEmpty {
+                print("\n=== deep (XCUI runner) ===")
+                TreePrinter.printAX(deepTree)
+            } else if deepBridge == nil {
+                print("\n(no deep bridge available on this platform)")
+            }
+            print("\n(\(ms)ms — full)")
         } else {
             let tree = try bridge.tree()
             let ms = elapsedMs(start)

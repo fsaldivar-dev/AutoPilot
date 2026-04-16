@@ -4,9 +4,28 @@ import ApplicationServices
 import AutoCore
 import AutoLibiOS
 
-let bridge = SimulatorBridge()
+// SimulatorBridge is always available for iOS-specific operations (AX, ping, index, etc.)
+let simulatorBridge = SimulatorBridge()
+// Dedicated deep bridge for `tree deep` / `tree full` — separate from the default
+// bridge so the user can opt-in to deep view even when AUTO_BRIDGE=simulator.
+let xcuiBridge = XCUIBridge()
+let bridge: DeviceBridge = makeBridge(simulatorBridge)
 let stabilizer = UIStabilizer()
 let elementIndex = ElementIndex()
+
+func makeBridge(_ simBridge: SimulatorBridge) -> DeviceBridge {
+    let mode = ProcessInfo.processInfo.environment["AUTO_BRIDGE"] ?? "hybrid"
+    switch mode {
+    case "simulator":
+        return simBridge
+    case "xcui":
+        return XCUIBridge()
+    case "hybrid":
+        return HybridBridge(fast: simBridge, deep: XCUIBridge())
+    default:
+        return HybridBridge(fast: simBridge, deep: XCUIBridge())
+    }
+}
 
 func run() throws {
     let args = Array(CommandLine.arguments.dropFirst())
@@ -38,7 +57,7 @@ func runScript(path: String) throws {
     let steps = parseScript(content)
 
     // Attach stabilizer for auto-wait between steps
-    if let pid = bridge.findSimulatorPID() {
+    if let pid = simulatorBridge.findSimulatorPID() {
         stabilizer.attach(pid: pid)
     }
 
@@ -90,7 +109,7 @@ func runInteractive() {
     // Attach the stabilizer up-front. If the Simulator isn't running yet the
     // attach is a no-op and the first `launch` will work anyway; we just
     // won't get event-driven stabilization for that very first command.
-    if let pid = bridge.findSimulatorPID() {
+    if let pid = simulatorBridge.findSimulatorPID() {
         stabilizer.attach(pid: pid)
     }
 
@@ -187,12 +206,12 @@ func executeCommand(_ args: [String]) throws {
     switch cmd {
 
     case "ping":
-        let _ = try bridge.findSimulator()
+        let _ = try simulatorBridge.findSimulator()
         let ms = elapsedMs(start)
         print("Simulator found (\(ms)ms)")
 
     case "index":
-        let root = try bridge.findSimulatorContent()
+        let root = try simulatorBridge.findSimulatorContent()
         elementIndex.rebuild(from: root)
         let ms = elapsedMs(start)
         if args.count >= 2 {
@@ -226,10 +245,10 @@ func executeCommand(_ args: [String]) throws {
 
         // New path: role and/or within syntax
         if let parsed = parseCommand(args), (parsed.role != nil || parsed.within != nil) {
-            let element = try bridge.findAXElementScoped(
+            let element = try simulatorBridge.findAXElementScoped(
                 target: parsed.target, role: parsed.role, within: parsed.within
             )
-            bridge.tapElement(element)
+            simulatorBridge.tapElement(element)
             var desc = "Tapped '\(parsed.target)'"
             if let role = parsed.role { desc += " [\(role)]" }
             if let within = parsed.within { desc += " within '\(within)'" }
@@ -243,7 +262,7 @@ func executeCommand(_ args: [String]) throws {
             // $N syntax — resolve by element index
             if target.hasPrefix("$"), let n = Int(target.dropFirst()) {
                 if elementIndex.count == 0 {
-                    let root = try bridge.findSimulatorContent()
+                    let root = try simulatorBridge.findSimulatorContent()
                     elementIndex.rebuild(from: root)
                 }
                 guard let entry = elementIndex.get(n) else {
@@ -258,7 +277,7 @@ func executeCommand(_ args: [String]) throws {
                 let (label, occurrence) = TargetResolver.parse(target)
 
                 if let occurrence {
-                    let root = try bridge.findSimulatorContent()
+                    let root = try simulatorBridge.findSimulatorContent()
                     let matches = TargetResolver.findAll(in: root, matching: label)
                     guard occurrence >= 1 && occurrence <= matches.count else {
                         if matches.isEmpty {
@@ -338,7 +357,7 @@ func executeCommand(_ args: [String]) throws {
                 try injector.recompile()
             }
 
-            try bridge.injectAndLaunch(bundleId: bundleId, imagePath: imgPath, extraEnv: envVars)
+            try simulatorBridge.injectAndLaunch(bundleId: bundleId, imagePath: imgPath, extraEnv: envVars)
             let ms = elapsedMs(start)
             print("Launched \(bundleId) with camera mock → \(imgPath) (\(ms)ms)")
         } else {
@@ -362,7 +381,7 @@ func executeCommand(_ args: [String]) throws {
                 print("Usage: auto camera start <image.jpg>")
                 return
             }
-            try bridge.cameraStart(imagePath: args[2])
+            try simulatorBridge.cameraStart(imagePath: args[2])
             let ms = elapsedMs(start)
             print("Camera started with '\(args[2])' (\(ms)ms)")
         case "feed":
@@ -370,15 +389,15 @@ func executeCommand(_ args: [String]) throws {
                 print("Usage: auto camera feed <image.jpg>")
                 return
             }
-            try bridge.cameraFeed(imagePath: args[2])
+            try simulatorBridge.cameraFeed(imagePath: args[2])
             let ms = elapsedMs(start)
             print("Camera feed updated: '\(args[2])' (\(ms)ms)")
         case "stop":
-            bridge.cameraStop()
+            simulatorBridge.cameraStop()
             let ms = elapsedMs(start)
             print("Camera stopped (\(ms)ms)")
         case "status":
-            let status = bridge.cameraStatus()
+            let status = simulatorBridge.cameraStatus()
             let ms = elapsedMs(start)
             if status.active {
                 print("ACTIVE — feed: \(status.imagePath ?? "none") (\(ms)ms)")
@@ -395,7 +414,7 @@ func executeCommand(_ args: [String]) throws {
             print("Changes the mock camera image without relaunching the app.")
             return
         }
-        try bridge.setInjectImage(args[1])
+        try simulatorBridge.setInjectImage(args[1])
         print("Camera image updated → \(SimulatorBridge.injectImagePath)")
 
     case "build":
@@ -432,7 +451,7 @@ func executeCommand(_ args: [String]) throws {
             }
         }
 
-        try bridge.buildWithCameraMock(args: buildArgs)
+        try simulatorBridge.buildWithCameraMock(args: buildArgs)
         let ms = elapsedMs(start)
         print("Build completed (\(ms)ms)")
 
@@ -444,11 +463,11 @@ func executeCommand(_ args: [String]) throws {
         }
 
         if args.contains("--context") {
-            let root = try bridge.findSimulatorContent()
+            let root = try simulatorBridge.findSimulatorContent()
             let result = AXDebug.inspectWithContext(root: root, query: args[1])
             print(result)
         } else {
-            let app = try bridge.findSimulator()
+            let app = try simulatorBridge.findSimulator()
             let result = AXDebug.inspect(root: app, query: args[1])
             if result.isEmpty {
                 print("No matches in AX tree for '\(args[1])'")
@@ -468,7 +487,7 @@ func executeCommand(_ args: [String]) throws {
             print("Records interactions with the Simulator to a .auto script.")
             return
         }
-        let session = RecordingSession(bridge: bridge, outputPath: args[1])
+        let session = RecordingSession(bridge: simulatorBridge, outputPath: args[1])
         try session.start()
 
         // Graceful Ctrl+C
@@ -488,6 +507,38 @@ func executeCommand(_ args: [String]) throws {
         // Pump run loop for AX events
         dispatchMain()
 
+    case "list":
+        // `auto list`                     → legacy: list simulators (via shared dispatcher)
+        // `auto list <type>`              → NEW: fast typed UI listing via XCUI
+        //    type: all | buttons | labels | textfields | cells | switches | links | images | navbars
+        let allowedTypes: Set<String> = [
+            "all", "buttons", "labels", "statictexts", "textfields",
+            "cells", "switches", "links", "images", "navbars", "navigationbars"
+        ]
+        if args.count >= 2 {
+            let listType = args[1].lowercased()
+            if allowedTypes.contains(listType) {
+                try handleListCommand(type: listType)
+                return
+            }
+            // Unknown arg → fall through to shared dispatcher (will print usage)
+        }
+        // No args or unrecognized arg → legacy "list simulators"
+        _ = try executeSharedCommand(args, bridge: bridge, deepBridge: xcuiBridge)
+
+    case "stats":
+        if let hybrid = bridge as? HybridBridge {
+            print(hybrid.stats())
+        } else {
+            print("bridge: \(type(of: bridge))")
+        }
+
+    case "daemon":
+        try handleDaemonCommand(Array(args.dropFirst()))
+
+    case "runner":
+        try handleRunnerCommand(Array(args.dropFirst()))
+
     case "help", "--help", "-h":
         printUsage()
 
@@ -496,7 +547,7 @@ func executeCommand(_ args: [String]) throws {
 
         // 1. Simulator.app running
         print("Simulator.app:")
-        if let pid = bridge.findSimulatorPID() {
+        if let pid = simulatorBridge.findSimulatorPID() {
             print("  ✓ Running (PID \(pid))")
         } else {
             print("  ✗ Not running — open Simulator.app first")
@@ -543,7 +594,7 @@ func executeCommand(_ args: [String]) throws {
 
     default:
         // Delegate to shared (platform-agnostic) dispatcher
-        let handled = try executeSharedCommand(args, bridge: bridge)
+        let handled = try executeSharedCommand(args, bridge: bridge, deepBridge: xcuiBridge)
         if !handled {
             print("Unknown command: \(cmd)")
             printUsage()
@@ -561,6 +612,12 @@ func printUsage() {
       ping                              Check Simulator is running
       tree                              Print accessibility tree
       tree -s "query"                   Search elements
+      tree deep                         Deep tree via XCUI runner (slow, sees NavBar SwiftUI)
+      tree full                         Fast + deep tree side by side
+      list <type>                       Fast typed UI listing via XCUI runner (~1s vs 13s tree deep)
+                                        type: all | buttons | labels | textfields | cells |
+                                              switches | links | images | navbars
+                                        (sin args → lista simuladores, ver abajo)
       launch <bundleId> [--inject img]   Launch app (--inject for camera mock)
       tap <id|title|label>              Tap element
       tap[role] "label" within "scope"  Tap with role verification + scoped search
@@ -614,6 +671,11 @@ func printUsage() {
       record <output.auto>               Record interactions to script (Ctrl+C to stop)
       run <script.auto>                 Run automation script
       doctor                            Check environment setup (Simulator, AX, xcrun)
+      daemon start [--udid U] [--timeout S]  Start sidecar daemon for XCTest runner
+      daemon stop [--udid U]             Stop sidecar daemon
+      daemon status [--udid U]           Show daemon and runner status
+      runner install <Runner.app> [--udid U]  Install XCTest runner bundle
+      runner status                      Show installed runner info
 
     Script format (.auto):
       # Comments start with #
@@ -638,6 +700,168 @@ func printUsage() {
       - Simulator.app must be running
       - Accessibility permissions (System Settings > Privacy > Accessibility)
     """)
+}
+
+// MARK: - Daemon subcommand
+
+// MARK: - List subcommand
+
+/// Prints a typed listing of elements via the XCUI runner.
+/// Much faster than `tree deep` because it only materializes the requested type(s).
+func handleListCommand(type: String) throws {
+    let start = CFAbsoluteTimeGetCurrent()
+    let items = try xcuiBridge.list(type: type)
+    let ms = Int((CFAbsoluteTimeGetCurrent() - start) * 1000)
+
+    if items.isEmpty {
+        print("No elements found for type '\(type)' (\(ms)ms)")
+        return
+    }
+
+    print("Found \(items.count) element(s) of type '\(type)' (\(ms)ms):\n")
+    for item in items {
+        let role = item["role"] as? String ?? "?"
+        let label = item["label"] as? String ?? ""
+        let ident = item["identifier"] as? String ?? ""
+        let value = item["value"] as? String ?? ""
+        let enabled = item["enabled"] as? Bool ?? true
+        let frame = (item["frame"] as? [String: Int]).map {
+            "[\($0["x"] ?? 0),\($0["y"] ?? 0) \($0["width"] ?? 0)x\($0["height"] ?? 0)]"
+        } ?? ""
+
+        var line = role
+        if !label.isEmpty { line += "  label=\"\(label)\"" }
+        if !ident.isEmpty { line += "  id=\(ident)" }
+        if !value.isEmpty && value != label { line += "  value=\"\(value)\"" }
+        if !enabled { line += "  (disabled)" }
+        line += "  \(frame)"
+        print(line)
+    }
+}
+
+func handleDaemonCommand(_ args: [String]) throws {
+    guard let sub = args.first, ["start", "stop", "status"].contains(sub) else {
+        print("Usage: auto daemon <start|stop|status> [--udid <UDID>] [--timeout <seconds>]")
+        return
+    }
+
+    // Locate the autopilotd binary next to auto
+    let autoPath = CommandLine.arguments[0]
+    let autoDir = URL(fileURLWithPath: autoPath).deletingLastPathComponent().path
+    let daemonPath = "\(autoDir)/autopilotd"
+
+    guard FileManager.default.fileExists(atPath: daemonPath) else {
+        print("error: autopilotd not found at \(daemonPath)")
+        print("hint: run 'swift build' to compile the daemon")
+        exit(1)
+    }
+
+    // Validate and filter arguments: only allow known flags with safe values
+    var sanitizedArgs: [String] = [sub]
+    let remaining = Array(args.dropFirst())
+    var i = 0
+    while i < remaining.count {
+        let arg = remaining[i]
+        if arg == "--udid", i + 1 < remaining.count {
+            // UDID: alphanumeric + hyphens only
+            let udid = remaining[i + 1]
+            let safe = udid.allSatisfy { $0.isLetter || $0.isNumber || $0 == "-" }
+            guard safe, udid.count <= 40 else {
+                print("error: invalid UDID format")
+                return
+            }
+            sanitizedArgs += ["--udid", udid]
+            i += 2
+        } else if arg == "--timeout", i + 1 < remaining.count {
+            guard let _ = Double(remaining[i + 1]) else {
+                print("error: --timeout must be a number")
+                return
+            }
+            sanitizedArgs += ["--timeout", remaining[i + 1]]
+            i += 2
+        } else {
+            i += 1 // skip unknown flags
+        }
+    }
+
+    switch sub {
+    case "start":
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: daemonPath)
+        proc.arguments = sanitizedArgs
+        proc.standardOutput = FileHandle.standardOutput
+        proc.standardError = FileHandle.standardError
+        try proc.run()
+        print("daemon launched (pid=\(proc.processIdentifier))")
+
+    case "stop", "status":
+        let proc = Process()
+        proc.executableURL = URL(fileURLWithPath: daemonPath)
+        proc.arguments = sanitizedArgs
+        proc.standardOutput = FileHandle.standardOutput
+        proc.standardError = FileHandle.standardError
+        try proc.run()
+        proc.waitUntilExit()
+
+    default:
+        break
+    }
+}
+
+// MARK: - Runner subcommand
+
+func handleRunnerCommand(_ args: [String]) throws {
+    guard let sub = args.first, ["install", "status"].contains(sub) else {
+        print("Usage: auto runner <install|status>")
+        return
+    }
+
+    let installer = RunnerInstaller()
+
+    switch sub {
+    case "install":
+        guard args.count >= 2 else {
+            print("Usage: auto runner install <path/to/Runner.app> [--udid <UDID>]")
+            return
+        }
+        let bundlePath = args[1]
+        // Validate bundle path exists and is a directory
+        var isDir: ObjCBool = false
+        guard FileManager.default.fileExists(atPath: bundlePath, isDirectory: &isDir), isDir.boolValue else {
+            print("error: \(bundlePath) does not exist or is not a directory")
+            return
+        }
+
+        let udid: String
+        if let udidIdx = args.firstIndex(of: "--udid"), udidIdx + 1 < args.count {
+            let raw = args[udidIdx + 1]
+            guard raw.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" }), raw.count <= 40 else {
+                print("error: invalid UDID format")
+                return
+            }
+            udid = raw
+        } else {
+            udid = try bridge.getBootedDeviceId()
+        }
+        let result = try installer.installIfNeeded(sourceBundlePath: bundlePath, udid: udid)
+        print("installed: \(result.appPath)")
+        print("xctestrun: \(result.xctestRunPath)")
+        print("version: \(result.version.prefix(8))")
+
+    case "status":
+        let baseDir = RunnerInstaller.runnerBaseDir
+        let hashFile = RunnerInstaller.hashFile
+        if let hash = try? String(contentsOfFile: hashFile, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines) {
+            print("runner: installed (hash=\(hash.prefix(8)))")
+            print("path: \(baseDir)")
+        } else {
+            print("runner: not installed")
+            print("hint: auto runner install <path/to/Runner.app>")
+        }
+
+    default:
+        break
+    }
 }
 
 do {
