@@ -86,12 +86,16 @@ docs/                    → Documentacion por modulo
 
 ### Swift (CLI)
 - `DeviceBridge` protocolo — 22 metodos que iOS y Android implementan
-- `SimulatorBridge` (iOS): AXUIElement + CGEvent + xcrun simctl
+- `SimulatorBridge` (iOS, fast): AXUIElement + CGEvent + xcrun simctl
+- `XCUIBridge` (iOS, deep): cliente Unix socket al daemon `autopilotd` → runner XCTest dentro del sim con `XCUIApplication`
+- `HybridBridge` (iOS, default): wrapper que intenta fast primero, escala a deep si `elementNotFound`
+- `autopilotd` (iOS sidecar): proceso daemon en Mac que mantiene el runner vivo entre comandos
 - `AgentBridge` (Android, default): socket TCP al agente nativo con UiAutomation directa
 - `AdbLegacyBridge` (Android, `--legacy`): adb shell + uiautomator dump (archivado para benchmarks)
 - `CommandDispatcher` — logica compartida de comandos
 - Errores tipados con `BridgeError` enum
 - `public` solo para lo que necesita el CLI, `private` para el resto
+- Env var `AUTO_BRIDGE=simulator|xcui|hybrid` para debug del motor iOS (default: hybrid)
 
 ### TypeScript (Editor)
 - Componentes funcionales con hooks
@@ -110,12 +114,23 @@ docs/                    → Documentacion por modulo
 ### Scripts .auto
 ```bash
 ping                    # Verificar conexion
-tap Elemento            # Tap por label
+tap Elemento            # Tap por label (hybrid: fast → escala a XCUI si falla)
 tap Camera[2]           # Segundo duplicado
 tap 1,2,3,4,Confirmar  # Multi-tap
 waitFor "texto" 10          # Esperar elemento
 waitUntilGone "Loading" 10  # Esperar que desaparezca
 screenshot file.png          # Evidencia
+tree                         # Arbol AX macOS (rapido, ~300ms)
+tree deep                    # Arbol XCUI completo (lento, ~13s, ve NavBar SwiftUI)
+list                         # Elementos interactivos via XCUI (~1s)
+list buttons|labels|textfields|cells|switches|links|images|navbars
+```
+
+### Exploracion rapida de UI (recomendado sobre `tree deep`)
+```bash
+auto list buttons       # solo botones con labels y frames (~1s)
+auto list textfields    # solo inputs
+auto exists "Guardar"   # boolean rapido, hybrid decide fast/deep
 ```
 
 ### CI/CD
@@ -136,9 +151,10 @@ auto launch
 ## Limitaciones conocidas
 
 ### iOS
-- SwiftUI NavigationBar buttons no se exponen via macOS AX (AXChildren=[0])
+- SwiftUI NavigationBar buttons no se exponen via macOS AX (solucionado: el HybridBridge default escala automaticamente a XCUIBridge que si los ve — ver docs/ios/XCUI-BRIDGE.md)
 - El preview de camara es imagen estatica (sin feed en tiempo real)
 - `ENABLE_DEBUG_DYLIB=NO` necesario en Xcode 26 para force_load
+- XCUIBridge (motor deep) requiere daemon `autopilotd` corriendo y runner xctest instalado (`auto daemon start` + `auto runner install`)
 
 ### Android
 - Con `--legacy`: `uiautomator dump` toma 1-2 segundos (el AgentBridge default no tiene este problema)

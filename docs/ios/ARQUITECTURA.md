@@ -2,6 +2,8 @@
 
 Este documento explica en detalle como AutoPilot controla el Simulador iOS. Todo esta documentado para que la comunidad entienda, contribuya y construya sobre esta base.
 
+> **Nota**: desde la versión con `HybridBridge`, AutoPilot usa **dos motores en escalera**: el `SimulatorBridge` documentado aquí (fast-path, AX de macOS) y un `XCUIBridge` opcional (deep-path, XCTest runner dentro del sim) que resuelve elementos que el AX externo no ve, como botones de NavigationBar SwiftUI. El detalle de ese motor está en **[XCUI-BRIDGE.md](./XCUI-BRIDGE.md)**.
+
 ---
 
 ## Diagrama de Componentes
