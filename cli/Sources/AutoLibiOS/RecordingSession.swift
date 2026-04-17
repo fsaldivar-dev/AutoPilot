@@ -446,13 +446,14 @@ public final class RecordingSession {
             }
         }
 
-        // Scroll detection: if the tapped element was found via AX but we had to
-        // scroll to reach it (element exists in tree but user scrolled to see it),
-        // inject scrollTo before the tap. We detect this by checking if the element
-        // is semantic (not tapAt) and exists in the tree — the user must have scrolled.
-        // Note: scroll detection is not possible via CGEventTap (trackpad gestures
-        // go directly to Simulator). Users should add `swipe down` manually where needed.
-        // TODO: fix scrollTo to check element visibility, not just existence in AX tree.
+        // Auto-inject scrollUntilVisible if the tapped element exists in the tree
+        // but is offscreen. The user scrolled to it with a trackpad gesture that
+        // CGEventTap can't capture (those go straight to the Simulator), so
+        // without this the replay fails: the AX tree includes offscreen elements
+        // so the tap "finds" a target, but the coordinates don't hit anything.
+        if action.command == "tap" && !action.selector.isEmpty {
+            injectScrollIfOffscreen(for: action)
+        }
 
         // Phase 4b: waitFor injection based on time gap between actions
         let outputLines = generator.process(action, uiChanges: 0)
@@ -460,6 +461,20 @@ public final class RecordingSession {
         for line in outputLines {
             printRecorded(line)
         }
+    }
+
+    /// If the target selector resolves to an element whose frame is outside
+    /// the viewport, emit a `scrollUntilVisible` line before the tap.
+    private func injectScrollIfOffscreen(for action: ResolvedAction) {
+        guard let tree = try? bridge.tree(),
+              let screen = bridge.getSimulatorWindowFrame(),
+              let line = RecorderScrollHelper.scrollLine(forSelector: action.selector,
+                                                         in: tree,
+                                                         viewport: screen) else {
+            return
+        }
+        generator.appendRaw(line)
+        printRecorded(line)
     }
 
 

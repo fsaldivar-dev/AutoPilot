@@ -49,17 +49,29 @@ Para comparar contra Maestro Studio y Appium Inspector en el benchmark.
 
 **Fix propuesto**: Detectar scroll indirectamente comparando las posiciones de los children del AXGroup contenedor entre frames (si los children se movieron, hubo scroll). Requiere un background thread que monitoree posiciones.
 
-### 2. scrollTo no verifica visibilidad
+### 2. scrollTo no verifica visibilidad — RESUELTO (2026-04-17, issues #49 #58 #61)
 
-**Problema**: `scrollTo "X"` busca el elemento con `search()` que recorre todo el AX tree. En iOS, el AX tree incluye elementos offscreen (fuera del viewport). Entonces `scrollTo` retorna "encontrado" inmediatamente sin scrollear porque el elemento existe en el tree aunque no sea visible.
+**Problema original**: `scrollTo "X"` buscaba el elemento con `search()` que recorre todo el AX tree. En iOS y Android, el AX tree incluye elementos offscreen (fuera del viewport). Entonces `scrollTo` retornaba "encontrado" inmediatamente sin scrollear porque el elemento existe en el tree aunque no sea visible.
 
-**Evidencia**: `scrollTo "Cerrar sesion"` retorna OK pero el boton esta abajo del fold. El `search` lo encuentra porque esta en el AX tree con frame fuera de [128, 925].
+**Fix implementado**:
 
-**Workaround actual**: Usar `swipe up` + `waitFor "X"` en vez de `scrollTo`.
+1. **Helper `ViewportUtil`** en `AutoCore`: funciones puras `rect(from:)`, `isVisible(frame:inViewport:)`, `resolveViewport(for:in:screenBounds:)` con cobertura minima 50% por area.
+2. **`DeviceBridge.viewport()`**: nuevo metodo del protocolo que cada bridge implementa con su API nativa (`getSimulatorWindowFrame` en iOS fast, `app.frame` via runner en XCUI, `adb shell wm size` en Android).
+3. **`scrollTo` reescrito** en los 4 bridges (SimulatorBridge, XCUIBridge, AgentBridge, AdbLegacyBridge) para validar `isVisible` sobre el frame antes de retornar "found". Si esta offscreen, continua scrolleando.
+4. **Alias `scrollUntilVisible`** en `CommandDispatcher` — nombre semantico que el recorder emite.
+5. **Recorder auto-inyecta `scrollUntilVisible`** (iOS + Android) cuando el elemento tapeado esta en el tree pero fuera del viewport.
 
-**Para el benchmark**: Esto afecta la replicabilidad en scripts con scroll. Maestro tiene `scrollUntilVisible` que hace screenshot diff. Appium tiene `scrollTo` via XPath.
+**Resultado**: scripts grabados por el recorder se reproducen sin edicion manual. Replicabilidad raw: 0% → 100% esperado.
 
-**Fix propuesto**: Verificar que el frame del elemento esta dentro del viewport visible antes de reportar "encontrado". Si no, scrollear primero.
+**Archivos clave**:
+- `cli/Sources/AutoCore/ViewportUtil.swift` (nuevo)
+- `cli/Sources/AutoCore/DeviceBridge.swift:115-125` (viewport protocol)
+- `cli/Sources/AutoLibiOS/SimulatorBridge.swift:1716-1750` (fix iOS fast)
+- `cli/Sources/AutoLibiOS/XCUIBridge.swift:211-240` (fix iOS deep)
+- `cli/Sources/AutoCore/AgentBridge.swift:697-731` (fix Android agent)
+- `cli/Sources/AutoCore/AdbLegacyBridge.swift:744-790` (fix Android legacy)
+- `cli/Sources/AutoLibiOS/RecordingSession.swift:437-490` (inyeccion iOS)
+- `cli/Sources/AutoCore/AndroidRecordingSession.swift:278-315` (inyeccion Android)
 
 ### 3. mouseUp no llega consistentemente
 
