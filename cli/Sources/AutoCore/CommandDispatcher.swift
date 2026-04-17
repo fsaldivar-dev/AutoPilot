@@ -317,7 +317,9 @@ public func executeSharedCommand(_ args: [String], bridge: any DeviceBridge, dee
         let minMatches = requiredCount ?? 1
 
         var found = false
+        var pollCount = 0
         for _ in 0..<maxAttempts {
+            pollCount += 1
             // Catch errors (e.g., "No active window" during app launch) and retry
             if let results = try? bridge.search(query: searchLabel), results.count >= minMatches {
                 found = true
@@ -327,6 +329,7 @@ public func executeSharedCommand(_ args: [String], bridge: any DeviceBridge, dee
         }
 
         let ms = elapsedMs(start)
+        debugTimingLog("waitFor target=\(target) found=\(found) polls=\(pollCount) elapsed=\(ms)ms")
         if found {
             print("Found '\(target)' (\(ms)ms)")
         } else {
@@ -658,6 +661,14 @@ public func executeSharedCommand(_ args: [String], bridge: any DeviceBridge, dee
 
 public func elapsedMs(_ start: CFAbsoluteTime) -> Int {
     Int((CFAbsoluteTimeGetCurrent() - start) * 1000)
+}
+
+/// Emit a `[timing] …` line to stderr when `AUTO_DEBUG_TIMING=1` is set.
+/// The message closure is only invoked when the flag is active, so
+/// interpolation cost is skipped in normal runs.
+public func debugTimingLog(_ message: @autoclosure () -> String) {
+    guard ProcessInfo.processInfo.environment["AUTO_DEBUG_TIMING"] != nil else { return }
+    FileHandle.standardError.write(Data("[timing] \(message())\n".utf8))
 }
 
 public func printElement(_ el: [String: Any]) {
