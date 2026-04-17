@@ -547,4 +547,4 @@ Al final del dia, lo que el capitulo documenta no es una sola victoria. Es el te
 
 ---
 
-*Anterior: [Capitulo 13 — El recorder semantico](13-el-recorder-semantico.md)*
+*Anterior: [Capitulo 13 — El recorder semantico](13-el-recorder-semantico.md) | Siguiente: [Capitulo 15 — El segundo motor](15-el-segundo-motor.md)*

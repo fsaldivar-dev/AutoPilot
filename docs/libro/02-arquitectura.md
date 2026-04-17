@@ -228,6 +228,10 @@ graph TB
 
 La decisión de dos binarios separados (en lugar de un flag `--platform`) se documenta en [ADR 8](07-decisiones.md#adr-8-dos-binarios--protocolo-devicebridge). La arquitectura Android se detalla en [docs/android/README.md](../android/README.md).
 
+## Un segundo motor para lo que AX no ve
+
+La arquitectura descrita arriba cubre el 80-90% de los casos. Los SwiftUI `ToolbarItem` dentro de `NavigationBar` son el ejemplo canónico de lo que el AX macOS externo aplana a un `AXGroup` opaco sin children queryables. El [Capítulo 15](15-el-segundo-motor.md) documenta el motor secundario (XCTest runner dentro del simulador) que resuelve esos casos sin sacrificar la velocidad del motor fast-path, y el `HybridBridge` que escala entre los dos automáticamente.
+
 ---
 
 *Anterior: [Capítulo 1 — El problema](01-el-problema.md) | Siguiente: [Capítulo 3 — La cámara virtual](03-la-camara-virtual.md)*

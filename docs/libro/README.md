@@ -9,7 +9,7 @@
 
 Este no es un manual de usuario. Es la documentación técnica de una investigación.
 
-AutoPilot nació de una pregunta: ¿se puede controlar dispositivos iOS y Android desde la terminal sin servidores, test runners, ni dependencias pesadas? La respuesta involucró APIs de accesibilidad de macOS, un agente nativo Android con UiAutomation directa, inyección de dylibs, y 10 intentos de mockear una cámara que no existe.
+AutoPilot nació de una pregunta: ¿se puede controlar dispositivos iOS y Android desde la terminal sin servidores, test runners, ni dependencias pesadas? La respuesta involucró APIs de accesibilidad de macOS, un agente nativo Android con UiAutomation directa, inyección de dylibs, 10 intentos de mockear una cámara que no existe, y finalmente un segundo motor XCTest para los casos en los que el AX externo de macOS no alcanza.
 
 Documentamos todo el proceso — los errores, los callejones sin salida, las decisiones — para que cualquier ingeniero que enfrente problemas similares tenga un punto de partida. El conocimiento es libre.
 
@@ -33,6 +33,7 @@ Documentamos todo el proceso — los errores, los callejones sin salida, las dec
 12. **[Permisos de accesibilidad](12-permisos-accesibilidad.md)** — Por qué el Inspector dejó de funcionar, cómo macOS hereda permisos TCC, y por qué no hay alternativa a AXUIElement
 13. **[El recorder semantico](13-el-recorder-semantico.md)** — CGEventTap (iOS) + getevent (Android): captura pasiva, selectores semanticos, y por qué el scroll es el ultimo problema
 14. **[Validacion en una app real](14-validacion-en-una-app-real.md)** — El experimento: automatizar el login completo de una app comercial real desde estado limpio, usando solo el CLI, sin tools externas
+15. **[El segundo motor](15-el-segundo-motor.md)** — NavBar SwiftUI invisible, XCTest runner dentro del sim, y un HybridBridge que escala a deep solo cuando el fast falla
 
 ### Apendices
 
@@ -48,6 +49,7 @@ Documentamos todo el proceso — los errores, los callejones sin salida, las dec
 - **[Bitacora — Camara](../camera/BITACORA.md)** — Diario de laboratorio crudo de la camara virtual
 - **[Bitacora — Recorder](../recorder/BITACORA.md)** — Diario del recorder semantico (CGEventTap, getevent, bugs)
 - **[Bitacora — Validacion](../validacion/BITACORA.md)** — Diario crudo de los experimentos de validacion en apps comerciales reales
+- **[Bitacora — XCUI](../xcui/BITACORA.md)** — Diario crudo del segundo motor: spike de NavBar, tropiezos de Xcode 26, paridad con Maestro
 - **[Hallazgos — Recorder](../recorder/HALLAZGOS.md)** — Limitaciones, metricas, comparativa para benchmark
 - **[Android backend](../android/README.md)** — AgentBridge, agente nativo, comandos implementados
 
