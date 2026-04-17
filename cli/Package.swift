@@ -36,7 +36,7 @@ let package = Package(
         ),
         .testTarget(
             name: "AutoTests",
-            dependencies: ["AutoCore"],
+            dependencies: ["AutoCore", "AutoLibiOS"],
             path: "Tests"
         )
     ]

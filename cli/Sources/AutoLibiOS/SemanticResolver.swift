@@ -114,7 +114,7 @@ public struct SemanticResolver {
 
     // MARK: - Private Helpers
 
-    private struct ElementAttributes {
+    internal struct ElementAttributes {
         let role: String?
         let title: String?
         let label: String?       // AXDescription
@@ -188,28 +188,38 @@ public struct SemanticResolver {
     }
 
     /// Choose the best selector string. Returns (selector, usedIdentifier).
-    private static func chooseBestSelector(_ attrs: ElementAttributes) -> (String?, Bool) {
-        // Priority 1: identifier (if not auto-generated UUID)
+    ///
+    /// Priority: identifier > title > label > value.
+    ///
+    /// The `value` fallback is skipped for text inputs. The value of an
+    /// AXTextField is whatever the user has typed — e.g. during recording
+    /// the email field may hold `"success+714497402@..."`. Emitting that
+    /// as a selector produces a `waitFor "success+..."` in the generated
+    /// script that never matches on replay (the field starts empty). This
+    /// was the P0 bug documented in `recorder_experiment_findings.md`.
+    internal static func chooseBestSelector(_ attrs: ElementAttributes) -> (String?, Bool) {
         if let id = attrs.identifier, isStableIdentifier(id) {
             return (id, true)
         }
 
-        // Priority 2: title
         if let title = attrs.title {
             return (title, false)
         }
 
-        // Priority 3: label (description)
         if let label = attrs.label {
             return (label, false)
         }
 
-        // Priority 4: value (for text fields etc.)
-        if let value = attrs.value, value.count < 50 {
+        if let value = attrs.value, value.count < 50, !isTextInputRole(attrs.role) {
             return (value, false)
         }
 
         return (nil, false)
+    }
+
+    private static func isTextInputRole(_ role: String?) -> Bool {
+        guard let role else { return false }
+        return role == "AXTextField" || role == "AXSecureTextField" || role == "AXTextArea"
     }
 
     /// Check if an identifier looks stable (not auto-generated UUID or random hash).
