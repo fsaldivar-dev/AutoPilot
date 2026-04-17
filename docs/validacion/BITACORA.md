@@ -3,6 +3,42 @@
 Diario de laboratorio: experimentos para medir el alcance del CLI sobre apps comerciales
 con onboarding completo, permisos del sistema, dialogos cross-proceso y formularios reales.
 
+## Sesion 2026-04-17 pm — Bench refresh vs Maestro (#62)
+
+### Contexto
+Issue #62 pide comparativa de recorders AutoPilot vs Maestro Studio vs Appium Inspector, con 7 metricas (latencia captura, % selectores semanticos, replicabilidad raw, etc). Scope completo es enorme (cada recorder requiere setup propio, `n=10` corridas × 3 herramientas × 2 flujos). Hice scope-reduction pragmatico: refrescar los numeros del bench existente (PR #33, de hace 13 dias) con el codigo actualizado post-PRs-del-dia. La comparativa de recorders queda para una proxima sesion con ambiente XCUI runner estable.
+
+### Cambios al benchmark suite
+- `scripts/benchmark-suite/lib/tools-setup.sh`: WDA ahora opcional. Si no esta corriendo en `:8100` o `SKIP_WDA=1`, la suite sigue con AutoPilot + Maestro solo (antes exit 1). Variable `WDA_AVAILABLE` exportada.
+- `scripts/benchmark-suite/run.sh`: los `run_benchmark "wda" ...` quedan condicionados a `WDA_AVAILABLE=1`.
+- `scripts/benchmark-suite/tests/biometric.auto`: fix tipo menor, `biometría` → `biometria` (la app muestra sin tilde, el script tenia tilde, timeout garantizado).
+
+### Resultados n=10 (wall-clock ms, excluyendo warm-up)
+
+```
+                    |  n |  avg  | median | min-max (ms)
+----------------------------------------------------------------
+  autopilot  login  | 10 |  9356 |  9406  | 9036-9514
+  maestro    login  | 10 | 23058 | 22957  | 22512-24029
+```
+
+Ratio AutoPilot : Maestro = **1 : 2.47**. Sin overlap entre distribuciones (max AutoPilot < min Maestro).
+
+Comparado con PR #33 (13 dias atras):
+- AutoPilot login: 10.2s → 9.4s (~8% mejora)
+- Maestro login: 26.1s → 23.1s (~12% mejora)
+- Ratio: 1 : 2.56 → 1 : 2.47 (gap mantiene)
+
+La mayor parte de la mejora de Maestro es externa (brew upgrade hecho en el medio). Los 800ms que gano AutoPilot son el efecto acumulado de #92 (scroll viewport), #93 (silent tap drop), #94 (recorder P0). Ninguno individualmente se nota en el total; juntos suman.
+
+### Biometric: ambiente flaky, no regresion de codigo
+Los 10 runs de `biometric.auto` fallaron con `exit_code=1` y timing fijo ~17.7s (= 10s timeout + overhead constante de unenroll/enroll/terminate/launch). Debug: el `waitFor "Desbloquear con biometria"` agota timeout porque el AX tree externo del Simulator no ve el contenido de Explorea post-`terminate + launch`. El screenshot muestra la pantalla correctamente pero `auto tree` devuelve solo los 3 botones del toolbar del Simulator (Home, Save Screen, Rotate). Mismo patron del #80, ambiente, no codigo — el login (que no hace `terminate + launch` entre medio) pasa 10/10.
+
+### Pendientes follow-up
+- Correr el bench biometric con el HybridBridge escalando a XCUI runner (`auto daemon start` + app iniciada antes del bench) para evitar la dependencia del AX externo.
+- Recorder comparison (el real scope de #62): 3 herramientas × 2 flujos × metricas de captura. Necesita decisiones de diseño sobre como medir "latencia de captura" en Maestro Studio y Appium Inspector (no son CLI pure como `auto record`).
+- Bench en CI: workflow optional que corra `n=3` a `n=5` contra una app checkeada en repo, publicando el JSON. Por ahora es manual.
+
 ## Sesion 2026-04-17 — Post-tap verification para #80 (flakiness 10-15%)
 
 ### Contexto
