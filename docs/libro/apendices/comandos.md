@@ -40,7 +40,8 @@ La regla es simple: si el comando funciona igual en ambas plataformas, esta en e
 | `type` (con target) | `auto type <target> <text>` | Ambas | Hace tap en el target y luego escribe el texto | `auto type "Email" "user@test.com"` |
 | `clear` | `auto clear <label>` | Ambas | Limpia el contenido de un campo de texto | `auto clear "Username"` |
 | `scroll` | `auto scroll <label> <dir>` | Ambas | Scroll en un elemento. Direcciones: up, down, left, right | `auto scroll "List" down` |
-| `scrollTo` | `auto scrollTo <label> [dir]` | Ambas | Scroll automatico hasta traer un elemento al viewport | `auto scrollTo "Submit" down` |
+| `scrollTo` | `auto scrollTo <label> [dir]` | Ambas | Scroll automatico hasta que el elemento este VISIBLE en el viewport (no solo existente en el AX tree). Default direction: down | `auto scrollTo "Submit" down` |
+| `scrollUntilVisible` | `auto scrollUntilVisible <label> [dir]` | Ambas | Alias de `scrollTo`. Nombre semantico que emite el recorder cuando detecta un elemento offscreen | `auto scrollUntilVisible "Cerrar sesion"` |
 | `swipe` | `auto swipe <dir>` | Ambas | Swipe global. Direcciones: up, down, left, right | `auto swipe up` |
 | `pressKey` | `auto pressKey <key>` | Ambas | Envia una tecla fisica al dispositivo. Teclas validas dependen de plataforma (ver nota abajo) | `auto pressKey home` / `auto-android pressKey back` |
 | `hideKeyboard` | `auto hideKeyboard` | Ambas | Intenta cerrar el teclado virtual | `auto hideKeyboard` |

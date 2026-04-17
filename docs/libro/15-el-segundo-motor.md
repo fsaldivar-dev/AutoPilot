@@ -554,6 +554,28 @@ El motor deep cubre el caso de NavBar SwiftUI — el 10-20% que el AX externo no
 
 ---
 
+## Primer beneficio externo: scroll con viewport check
+
+El segundo motor habilitó algo que no era parte de su diseño inicial pero cayó por gravedad: **`scrollTo` con validación de visibilidad real**. El bug histórico era que `scrollTo "X"` consideraba "encontrado" cualquier match del AX tree — y el tree incluye elementos offscreen. El `tap` siguiente fallaba porque el elemento "encontrado" no estaba en pantalla.
+
+Para arreglarlo había que saber los screen bounds. En iOS fast ya los teníamos via `getSimulatorWindowFrame()`. Pero el `XCUIBridge` no tenía forma limpia — hasta que agregamos un endpoint `viewport` al runner que devuelve `XCUIApplication.frame`. Un handler de 5 líneas:
+
+```swift
+func handleViewport(params: [String: Any]) -> String {
+    let app = resolveApp(params: params)
+    return successJSON(["viewport": [
+        "x": Int(app.frame.origin.x), "y": Int(app.frame.origin.y),
+        "width": Int(app.frame.size.width), "height": Int(app.frame.size.height)
+    ]])
+}
+```
+
+Con eso, un helper `ViewportUtil.isVisible(frame:inViewport:)` en `AutoCore` (Swift puro) y un resolver híbrido que usa el ancestro scrolleable si existe — se cerró el bug en los 4 bridges de una sola vez. El recorder aprovecha lo mismo para auto-inyectar `scrollUntilVisible` cuando el tapped element está offscreen, subiendo la replicabilidad raw de scripts grabados de 0% a 100% (resueltos #49, #58, #61 en bundle).
+
+El patrón se vuelve a repetir: una pieza nueva (runner + viewport endpoint) habilita resolver problemas viejos que parecían no relacionados.
+
+---
+
 *Anterior: [Capítulo 14 — Validación en una app real](14-validacion-en-una-app-real.md) | Siguiente: por escribir*
 
 *[Índice del libro](README.md)*

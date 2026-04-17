@@ -564,17 +564,18 @@ public func executeSharedCommand(_ args: [String], bridge: any DeviceBridge, dee
         }
 
     // MARK: - Scroll Search
+    // `scrollUntilVisible` is an alias of `scrollTo` (emitted by recorder).
 
-    case "scrollTo":
+    case "scrollTo", "scrollUntilVisible":
         guard args.count >= 2 else {
-            print("Usage: auto scrollTo <element> [direction] [maxAttempts]")
+            print("Usage: auto \(args[0]) <element> [direction] [maxAttempts]")
             return true
         }
         let direction = args.count >= 3 ? args[2] : "down"
         let maxAttempts = args.count >= 4 ? Int(args[3]) ?? 20 : 20
         try bridge.scrollTo(target: args[1], direction: direction, maxAttempts: maxAttempts)
         let ms = elapsedMs(start)
-        print("Scrolled to '\(args[1])' (\(ms)ms)")
+        print("Scrolled '\(args[1])' into view (\(ms)ms)")
 
     // MARK: - Screen Recording
 

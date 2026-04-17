@@ -1,4 +1,5 @@
 import Foundation
+import CoreGraphics
 
 /// Controls Android devices via the AutoPilot agent (socket connection).
 /// The agent runs on the device as an instrumentation APK with UiAutomation access.
@@ -694,18 +695,13 @@ public final class AgentBridge: DeviceBridge {
         try legacy.uninstallApp(bundleId: bundleId)
     }
 
-    // MARK: - DeviceBridge: Scroll To (via agent + adb)
+    // MARK: - DeviceBridge: Viewport
 
-    public func scrollTo(target: String, direction: String, maxAttempts: Int) throws {
-        for _ in 0..<maxAttempts {
-            let results = try search(query: target)
-            if !results.isEmpty {
-                return
-            }
-            try scroll(target: "", direction: direction)
-            usleep(500_000)
-        }
-        throw BridgeError.elementNotFound("'\(target)' not found after \(maxAttempts) scroll attempts")
+    public func viewport() throws -> CGRect {
+        // Reusamos `adb shell wm size` via AdbLegacyBridge — más robusto que
+        // depender de que el agente exponga displayMetrics. Los frames del
+        // agente Android ya vienen en coordenadas de pantalla completa.
+        return try legacy.viewport()
     }
 
     // MARK: - DeviceBridge: Recording (via adb)

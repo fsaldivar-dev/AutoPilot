@@ -1,4 +1,5 @@
 import XCTest
+import CoreGraphics
 @testable import AutoCore
 
 /// Mock bridge that records all calls for verification.
@@ -26,6 +27,12 @@ final class MockBridge: DeviceBridge {
     // MARK: - App Data
     func clearState(bundleId: String) throws { record("clearState", bundleId) }
     func uninstallApp(bundleId: String) throws { record("uninstallApp", bundleId) }
+
+    // MARK: - Viewport
+    func viewport() throws -> CGRect {
+        record("viewport")
+        return CGRect(x: 0, y: 0, width: 400, height: 800)
+    }
 
     // MARK: - Scroll
     func scrollTo(target: String, direction: String, maxAttempts: Int) throws {
