@@ -6,8 +6,8 @@ biometric unenroll
 biometric enroll
 terminate dev.autopilot.test.Explorea
 launch dev.autopilot.test.Explorea
-waitFor "Desbloquear con biometría" 10
+waitFor "Desbloquear con biometria" 10
 screenshot evidence/autopilot-biometric-step1.png
-tap "Desbloquear con biometría"
+tap "Desbloquear con biometria"
 biometric match
 screenshot evidence/autopilot-biometric-step2.png

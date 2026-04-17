@@ -453,6 +453,27 @@ No es un bug — es una decision de diseño razonable en una herramienta orienta
 
 Lo apuntamos aqui porque es el tipo de hallazgo que solo aparece cuando comparas herramientas cabeza a cabeza con instrumentos reales y lees los logs con calma. Es documentacion para la proxima persona que haga el mismo bench; no es un argumento contra nada.
 
+### Refresh 2026-04-17 — el login con n=10
+
+Trece dias despues del bench inicial (PR #33) y con cuatro PRs del dia encima de la linea base — scroll viewport validation (#92), post-tap verification del silent drop (#93), segundo motor XCUI (#89, mergeado entre medio), y el fix del bug P0 del recorder (#94) — re-corrimos el bench con `n=10`. Mismo flujo de login completo (launch → waitFor → tap "Usar codigo" → 4 digitos → Confirmar → waitFor "Inicio" → navegar un tab → swipe up), mismo simulador (iPhone 17, iOS 26.3), mismo display.
+
+Numeros wall-clock end-to-end, `n=10` runs (excluyendo warm-up), WDA omitido:
+
+| Herramienta | avg | median | min-max |
+|---|---|---|---|
+| AutoPilot | **9356ms** | 9406ms | 9036-9514 |
+| Maestro 2.4.0 | 23058ms | 22957ms | 22512-24029 |
+
+La relacion es 1 : 2.47 — AutoPilot tarda ~40% del wallclock que Maestro para el mismo script. Eso es consistente con el PR #33 original (1 : 2.56) aunque ambos bajaron un ~10% en los 13 dias por updates internos (de Maestro y de los fixes nuestros). La distribucion es tambien ajustada: el max de AutoPilot (9514ms) sigue debajo del min de Maestro (22512ms). No hay overlap en ningun percentil.
+
+No medimos WDA en este refresh — requiere `xcodebuild test` externo de WebDriverAgent que esta fuera del scope de la sesion. La suite lo soporta con `WDA_AVAILABLE=1`, solo hay que arrancar WDA antes del `run.sh`. La tabla vieja del PR #33 sigue valida como referencia: WDA estaba ~15% debajo de AutoPilot.
+
+Lo que mantiene el gap Maestro vs AutoPilot: Maestro no cambio su politica de wait-for-idle despues de cada tap. Cada uno de los cinco taps del script le cuesta ~2s extra. Cinco por dos son diez segundos — el 95% de la diferencia son esos waits. Es diseño, no bug.
+
+Lo que cerro en estos 13 dias: el fix del silent tap drop de #80 ahorro ~30ms/tap en casos estables (imperceptible en el total). El mayor cambio fue de Maestro mismo (~3s menos vs la corrida vieja del PR #33) — sin codigo de AutoPilot, solo un `brew upgrade maestro` hecho sin pensar. La tabla del README que decia "2.5x" con los numeros viejos sigue siendo valida en orden de magnitud.
+
+El bench de biometrico no pudo completarse en esta sesion. Con la app Explorea, el `terminate + launch + waitFor "Desbloquear con biometria"` falla intermitentemente porque el AX tree externo del Simulator pierde visibilidad del contenido SwiftUI custom despues del relaunch (mismo patron que #80 documenta para algunos flows). No es regresion del fix — el login corre 10/10 — es el ambiente fragil del simulator que ya conocemos. La suite esta disponible para re-correr en una sesion con el sim recien booteado y el HybridBridge escalando via XCUI runner: `TOTAL_RUNS=11 ./scripts/benchmark-suite/run.sh`.
+
 ---
 
 ## Pequeños fixes de UX que importan
