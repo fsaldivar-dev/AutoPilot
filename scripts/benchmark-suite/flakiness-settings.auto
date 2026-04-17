@@ -1,0 +1,16 @@
+# Regression check — Settings app (stable baseline).
+# Used to verify the post-tap verification in SimulatorBridge.tap does
+# NOT add meaningful latency on a UI that normally passes 100% of runs.
+# This is NOT the full repro for #80 (which needs a real app with the
+# flaky race); it's the "we didn't break the fast path" check.
+
+launch com.apple.Preferences
+waitFor "General" 10
+tap "General"
+waitFor "Información" 5
+tap "Configuración"
+waitFor "General" 5
+tap "Accesibilidad"
+waitFor "Texto flotante" 5
+tap "Configuración"
+waitFor "General" 5

@@ -54,6 +54,18 @@ public final class SimulatorBridge {
 
     // MARK: - Actions
 
+    // MARK: - Post-tap verification tuning (issue #80)
+    //
+    // `AXUIElementPerformAction` can report success without the event actually
+    // reaching the app (Simulator-level intercept, app mid-transition, etc.).
+    // Skip the check on the happy path — a blocking action means the sim was
+    // processing and the tap almost certainly landed. Only when the action
+    // returns suspiciously fast do we pay for a fingerprint diff + wait +
+    // retry via CGEvent.
+    private static let axTrustThresholdMs = 40
+    private static let fastSettleUs: UInt32 = 80_000
+    private static let extendedSettleUs: UInt32 = 120_000
+
     /// Taps an element using AX press action (native accessibility tap).
     public func tap(target: String) throws {
         let root = try findSimulatorContent()
@@ -61,21 +73,56 @@ public final class SimulatorBridge {
             throw BridgeError.elementNotFound(target)
         }
 
-        let result = AXUIElementPerformAction(axElement, kAXPressAction as CFString)
-        guard result == .success else {
-            // Fallback: try click at element center
-            let info = serializeElement(axElement)
-            guard let position = info["_position"] as? CGPoint,
-                  let size = info["_size"] as? CGSize else {
-                throw BridgeError.noFrame(target)
-            }
-            let center = CGPoint(
-                x: position.x + size.width / 2,
-                y: position.y + size.height / 2
-            )
+        let t0 = CFAbsoluteTimeGetCurrent()
+        let actionStart = CFAbsoluteTimeGetCurrent()
+        let axResult = AXUIElementPerformAction(axElement, kAXPressAction as CFString)
+        let actionMs = elapsedMs(actionStart)
+
+        if axResult != .success {
+            let center = try resolveElementCenter(axElement, target: target)
             try click(at: center)
+            logTap(target: target, path: "cgevent-direct", t0: t0, actionMs: actionMs, changed: nil)
             return
         }
+
+        // Happy path: AXAction blocked on UI work. Trust it.
+        if actionMs >= Self.axTrustThresholdMs {
+            logTap(target: target, path: "axaction-fast", t0: t0, actionMs: actionMs, changed: nil)
+            return
+        }
+
+        // Suspicious: action returned instantly. Diff a fingerprint before/after.
+        let preFingerprint = ViewFingerprint.capture(root: root)
+        usleep(Self.fastSettleUs)
+        if ViewFingerprint.capture(root: root) != preFingerprint {
+            logTap(target: target, path: "axaction-verified", t0: t0, actionMs: actionMs, changed: true)
+            return
+        }
+
+        // Extended confirm: slower transitions still count as success.
+        usleep(Self.extendedSettleUs)
+        if ViewFingerprint.capture(root: root) != preFingerprint {
+            logTap(target: target, path: "axaction-slow", t0: t0, actionMs: actionMs, changed: true)
+            return
+        }
+
+        // Silent drop confirmed: retry via CGEvent at element center.
+        let center = try resolveElementCenter(axElement, target: target)
+        try click(at: center)
+        logTap(target: target, path: "axaction-silent→cgevent", t0: t0, actionMs: actionMs, changed: false)
+    }
+
+    private func resolveElementCenter(_ axElement: AXUIElement, target: String) throws -> CGPoint {
+        let info = serializeElement(axElement)
+        guard let pos = info["_position"] as? CGPoint, let size = info["_size"] as? CGSize else {
+            throw BridgeError.noFrame(target)
+        }
+        return CGPoint(x: pos.x + size.width / 2, y: pos.y + size.height / 2)
+    }
+
+    private func logTap(target: String, path: String, t0: CFAbsoluteTime, actionMs: Int, changed: Bool?) {
+        let changedStr = changed.map { $0 ? "changed" : "no-change" } ?? "unchecked"
+        debugTimingLog("tap target=\(target) path=\(path) actionMs=\(actionMs) elapsed=\(elapsedMs(t0))ms ui=\(changedStr)")
     }
 
     /// Long press an element for a duration (default 1 second).
