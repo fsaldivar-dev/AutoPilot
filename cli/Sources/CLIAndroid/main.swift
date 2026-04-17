@@ -541,7 +541,8 @@ func printUsage() {
       clearState <package>               Clear app data (pm clear)
       uninstall <package>                Uninstall app
       waitUntilGone <label> [timeout]     Wait for element to disappear
-      scrollTo <element> [direction]     Scroll until element is visible
+      scrollTo <element> [direction]     Scroll until element is visible in viewport
+      scrollUntilVisible <element> [dir] Alias of scrollTo (semantic name, emitted by recorder)
       startRecording                     Start screen recording
       stopRecording <file.mp4>           Stop recording and save
       setLocation <lat> <lon>            Set GPS location (emulator only)

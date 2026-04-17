@@ -1,4 +1,5 @@
 import Foundation
+import CoreGraphics
 
 /// Legacy bridge: controls Android via adb shell commands (fork per command).
 /// Kept for benchmarks and as fallback. Use AgentBridge for production.
@@ -740,35 +741,11 @@ public final class AdbLegacyBridge: DeviceBridge {
         try runAdb(["uninstall", bundleId])
     }
 
-    // MARK: - Scroll Search
+    // MARK: - Viewport
 
-    public func scrollTo(target: String, direction: String, maxAttempts: Int) throws {
+    public func viewport() throws -> CGRect {
         let screen = try getScreenSize()
-        let cx = screen.width / 2
-        let cy = screen.height / 2
-        let scrollDistance = screen.height * 30 / 100
-
-        let (x1, y1, x2, y2): (Int, Int, Int, Int)
-        switch direction.lowercased() {
-        case "up":    (x1, y1, x2, y2) = (cx, cy - scrollDistance / 2, cx, cy + scrollDistance / 2)
-        case "down":  (x1, y1, x2, y2) = (cx, cy + scrollDistance / 2, cx, cy - scrollDistance / 2)
-        case "left":  (x1, y1, x2, y2) = (cx - scrollDistance / 2, cy, cx + scrollDistance / 2, cy)
-        case "right": (x1, y1, x2, y2) = (cx + scrollDistance / 2, cy, cx - scrollDistance / 2, cy)
-        default:
-            throw BridgeError.invalidDirection(direction)
-        }
-
-        for attempt in 0..<maxAttempts {
-            let tree = try dumpUITree()
-            if findElement(in: tree, matching: target) != nil {
-                return
-            }
-            if attempt < maxAttempts - 1 {
-                try runAdb(["shell", "input", "swipe", "\(x1)", "\(y1)", "\(x2)", "\(y2)", "300"])
-                usleep(500_000) // Wait for scroll animation
-            }
-        }
-        throw BridgeError.elementNotFound(target)
+        return CGRect(x: 0, y: 0, width: screen.width, height: screen.height)
     }
 
     // MARK: - Screen Recording

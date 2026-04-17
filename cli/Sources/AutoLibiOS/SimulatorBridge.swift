@@ -1713,19 +1713,19 @@ extension SimulatorBridge: DeviceBridge {
         }
     }
 
-    // MARK: - Scroll To Element
+    // MARK: - Viewport
 
-    public func scrollTo(target: String, direction: String, maxAttempts: Int) throws {
-        for _ in 0..<maxAttempts {
-            let results = try search(query: target)
-            if !results.isEmpty {
-                return
-            }
-            // Use swipe to scroll the whole screen
-            try swipe(direction: direction)
-            usleep(500_000)
+    public func viewport() throws -> CGRect {
+        // Ensure simulatorPID is set — getSimulatorWindowFrame uses the fast
+        // path and returns nil if the PID hasn't been discovered yet (e.g.
+        // first call in a fresh CLI process).
+        if simulatorPID == nil {
+            _ = findSimulatorPID()
         }
-        throw BridgeError.elementNotFound("Could not find '\(target)' after \(maxAttempts) scroll attempts")
+        guard let frame = getSimulatorWindowFrame() else {
+            throw BridgeError.noWindow
+        }
+        return frame
     }
 
     // MARK: - Screen Recording

@@ -232,6 +232,16 @@ public final class HybridBridge: DeviceBridge {
                      deep: { try self.deep.scrollTo(target: target, direction: direction, maxAttempts: maxAttempts) })
     }
 
+    // MARK: - Viewport
+
+    public func viewport() throws -> CGRect {
+        // Viewport = screen bounds. Siempre delegamos al fast porque el
+        // Simulator window frame es lo más fiable en iOS y es idéntico al
+        // app.frame que devuelve XCUI en este contexto.
+        fastCount += 1
+        return try fast.viewport()
+    }
+
     // MARK: - Recording / Environment (fast only)
 
     public func startRecording() throws                     { fastCount += 1; try fast.startRecording() }

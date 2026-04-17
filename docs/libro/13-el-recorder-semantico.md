@@ -312,15 +312,23 @@ Android:  3/3 (100%) — 2 ediciones: swipe up extra + wait 0.5 post-scroll
 
 ---
 
-## El problema pendiente: scroll
+## El problema del scroll — resuelto
 
-El bloqueante para 100% replicabilidad raw es el scroll. En ambas plataformas:
+El bloqueante historico para 100% replicabilidad raw era el scroll. En ambas plataformas:
 
 1. iOS no puede detectar scroll del trackpad (bypasea CGEventTap)
 2. Android detecta swipe pero no sabe cuantos pixels scrolleo el usuario
-3. `scrollTo` tiene un bug: `search()` encuentra elementos offscreen, retorna sin scrollear
+3. `scrollTo` tenia un bug: `search()` encuentra elementos offscreen, retorna sin scrollear
 
-La solucion propuesta es `scrollUntilVisible` (issue #58) que verifica el frame del elemento contra el viewport antes de reportar "encontrado".
+**Resuelto en 2026-04-17 (issues #49, #58, #61)** con tres piezas que se apoyan entre si:
+
+1. **`ViewportUtil`** (helper compartido en `AutoCore`): dado un frame y un viewport, decide si el elemento esta visible con intersection >= 50%. Resuelve el viewport hibrido: busca un ancestro scrolleable (`AXScrollArea`, `ScrollView`, `RecyclerView`) en el tree, y si no lo encuentra cae a screen bounds.
+
+2. **`scrollTo` arreglado** en los 4 bridges: ahora valida `isVisible` con el frame del elemento antes de considerarlo encontrado. `scrollUntilVisible` es alias para legibilidad.
+
+3. **Recorder auto-inyecta `scrollUntilVisible`**: cuando el usuario tapea un elemento que esta en el tree pero fuera del viewport (porque scrolleo con trackpad o porque el hit-test resolvio un elemento offscreen), el recorder emite la linea de scroll antes del tap. El replay raw funciona sin edicion.
+
+El viewport check fue posible gracias al segundo motor ([capitulo 15](15-el-segundo-motor.md)): el `XCUIBridge` expone `app.frame` via el runner, lo que en iOS fast ya teniamos con `getSimulatorWindowFrame()` pero en XCUI cerro la paridad.
 
 ---
 
