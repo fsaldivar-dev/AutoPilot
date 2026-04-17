@@ -28,6 +28,12 @@ let package = Package(
             dependencies: ["AutoCore"],
             path: "Sources/CLIAndroid"
         ),
+        // iOS sidecar daemon — manages XCTest runner lifecycle via Unix socket
+        .executableTarget(
+            name: "autopilotd",
+            dependencies: ["AutoCore"],
+            path: "Sources/Daemon"
+        ),
         .testTarget(
             name: "AutoTests",
             dependencies: ["AutoCore"],
