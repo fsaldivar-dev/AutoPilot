@@ -47,15 +47,19 @@ MAESTRO_CLI_NO_ANALYTICS=1 MAESTRO_CLI_ANALYSIS_NOTIFICATION_DISABLED=true \
 run_benchmark "maestro" "login" \
   "$TOOLS_DIR/maestro" test --platform ios "$SUITE_DIR/tests/login.yaml"
 
-run_benchmark "wda" "login" \
-  node "$SUITE_DIR/tests/login.js"
+if [ "${WDA_AVAILABLE:-0}" = "1" ]; then
+  run_benchmark "wda" "login" \
+    node "$SUITE_DIR/tests/login.js"
+fi
 
 # 6. Biometric test: AutoPilot + WDA (Maestro cannot)
 run_benchmark "autopilot" "biometric" \
   "$TOOLS_DIR/auto" run "$SUITE_DIR/tests/biometric.auto"
 
-run_benchmark "wda" "biometric" \
-  node "$SUITE_DIR/tests/biometric.js"
+if [ "${WDA_AVAILABLE:-0}" = "1" ]; then
+  run_benchmark "wda" "biometric" \
+    node "$SUITE_DIR/tests/biometric.js"
+fi
 
 # 7. Merge JSONL
 cat "$RESULTS_DIR"/*.jsonl > "$RESULTS_DIR/all-results.jsonl" 2>/dev/null || true
