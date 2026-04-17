@@ -1,4 +1,5 @@
 import Foundation
+import CoreGraphics
 import AutoCore
 
 // MARK: - XCUIBridge
@@ -208,7 +209,14 @@ public final class XCUIBridge: DeviceBridge {
     public func copyTextFrom(target: String) throws -> String { throw notImplemented("copyTextFrom") }
     public func clearState(bundleId: String) throws         { throw notImplemented("clearState") }
     public func uninstallApp(bundleId: String) throws       { throw notImplemented("uninstallApp") }
-    public func scrollTo(target: String, direction: String, maxAttempts: Int) throws { throw notImplemented("scrollTo") }
+    public func viewport() throws -> CGRect {
+        let result = try sendCommand("viewport")
+        guard let vp = result["viewport"] as? [String: Any],
+              let rect = ViewportUtil.rect(from: vp) else {
+            throw BridgeError.unknown("runner returned no viewport")
+        }
+        return rect
+    }
     public func startRecording() throws                     { throw notImplemented("startRecording") }
     public func stopRecording(outputPath: String) throws    { throw notImplemented("stopRecording") }
     public func setLocation(latitude: Double, longitude: Double) throws { throw notImplemented("setLocation") }

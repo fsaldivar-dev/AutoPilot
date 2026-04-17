@@ -91,7 +91,7 @@ func runScript(path: String) throws {
 private let interactiveMutators: Set<String> = [
     "tap", "doubleTap", "longPress", "tapAt",
     "type", "clear", "eraseText",
-    "swipe", "scroll", "scrollTo", "drag",
+    "swipe", "scroll", "scrollTo", "scrollUntilVisible", "drag",
     "pressKey", "hideKeyboard",
     "launch", "terminate", "install", "uninstall", "clearState",
     "rotate", "setAppearance", "lockDevice", "unlockDevice",
@@ -654,7 +654,8 @@ func printUsage() {
       clearState <bundleId>              Clear app data and permissions
       uninstall <bundleId>               Uninstall app from simulator
       waitUntilGone <label> [timeout]     Wait for element to disappear
-      scrollTo <element> [direction]     Scroll until element is visible
+      scrollTo <element> [direction]     Scroll until element is visible in viewport
+      scrollUntilVisible <element> [dir] Alias of scrollTo (semantic name, emitted by recorder)
       startRecording                     Start screen recording
       stopRecording <file.mp4>           Stop recording and save
       setLocation <lat> <lon>            Set simulated GPS location

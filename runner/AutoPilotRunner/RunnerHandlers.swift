@@ -389,6 +389,22 @@ final class RunnerHandlers {
         return successJSON(["swiped": direction])
     }
 
+    // MARK: - Viewport
+
+    /// Returns the app's frame as viewport bounds.
+    /// Used by the host (XCUIBridge) to validate element visibility before
+    /// considering scrollTo "found".
+    func handleViewport(params: [String: Any]) -> String {
+        let app = resolveApp(params: params)
+        let frame = app.frame
+        return successJSON(["viewport": [
+            "x": Int(frame.origin.x),
+            "y": Int(frame.origin.y),
+            "width": Int(frame.size.width),
+            "height": Int(frame.size.height)
+        ]])
+    }
+
     // MARK: - Keyboard
 
     func handleHideKeyboard() -> String {

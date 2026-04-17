@@ -1,4 +1,5 @@
 import Foundation
+import CoreGraphics
 
 /// Protocol that defines platform-agnostic device automation.
 /// Implemented by SimulatorBridge (iOS) and future AdbBridge (Android).
@@ -111,6 +112,18 @@ public protocol DeviceBridge {
 
     func scrollTo(target: String, direction: String, maxAttempts: Int) throws
 
+    // MARK: - Viewport
+
+    /// Screen bounds del dispositivo/simulador en coordenadas de pantalla.
+    /// Usado por `scrollTo` y el recorder para decidir si un elemento está
+    /// dentro del viewport visible.
+    ///
+    /// - iOS Simulator (fast): frame de la ventana del Simulator (AX macOS)
+    /// - iOS XCUI: `XCUIApplication.frame` del runner
+    /// - Android agent: displayMetrics del dispositivo
+    /// - Android adb: `adb shell wm size`
+    func viewport() throws -> CGRect
+
     // MARK: - Screen Recording
 
     func startRecording() throws
@@ -150,5 +163,58 @@ public extension DeviceBridge {
     /// because it was already handled by `uninstall`).
     func resetKeychain() throws {
         print("Keychain reset: no-op on this platform (Android Keystore is per-app, already cleared by uninstall)")
+    }
+
+    /// Scroll until the element is VISIBLE in the viewport (≥50% covered).
+    /// The AX/UI trees include offscreen elements, so just finding a match in
+    /// the tree isn't enough — we validate viewport intersection before
+    /// reporting success. `HybridBridge` overrides this to escalate to the
+    /// deep bridge on `elementNotFound`.
+    ///
+    /// Multi-match semantics: if the target label matches multiple elements,
+    /// any visible match satisfies the search (the user cares that *some*
+    /// "X" is tappable, not which one). The explicit `Label[N]` index path
+    /// still pins to the N-th occurrence.
+    ///
+    /// Frameless match fallback: if a match exists in the tree but has no
+    /// usable frame (e.g. containers, separators), we treat it as "found" —
+    /// scrolling blindly toward it would timeout with no recovery.
+    func scrollTo(target: String, direction: String, maxAttempts: Int) throws {
+        let screen = try viewport()
+        let hasExplicitIndex = TargetResolverShared.parse(target).index != nil
+        for _ in 0..<maxAttempts {
+            let currentTree = try tree()
+            let matches = explicitMatches(in: currentTree, target: target, explicitIndex: hasExplicitIndex)
+
+            var sawMatchWithoutFrame = false
+            for match in matches {
+                guard let frame = ViewportUtil.rect(from: match["frame"] as? [String: Any]) else {
+                    sawMatchWithoutFrame = true
+                    continue
+                }
+                let vp = ViewportUtil.resolveViewport(for: match, in: currentTree, screenBounds: screen)
+                if ViewportUtil.isVisible(frame: frame, inViewport: vp) {
+                    return
+                }
+            }
+            if sawMatchWithoutFrame && matches.allSatisfy({ ViewportUtil.rect(from: $0["frame"] as? [String: Any]) == nil }) {
+                return
+            }
+
+            try swipe(direction: direction)
+            usleep(500_000)
+        }
+        throw BridgeError.elementNotFound("Could not scroll to visible: '\(target)' after \(maxAttempts) attempts")
+    }
+
+    private func explicitMatches(in tree: [[String: Any]], target: String, explicitIndex: Bool) -> [[String: Any]] {
+        if explicitIndex {
+            if let match = ViewportUtil.findFirst(in: tree, matching: target) {
+                return [match]
+            }
+            return []
+        }
+        let parsed = TargetResolverShared.parse(target)
+        return TargetResolverShared.findAll(in: tree, matching: parsed.label).map { $0.element }
     }
 }

@@ -277,10 +277,32 @@ public final class AndroidRecordingSession {
     // MARK: - Emit
 
     private func emitAction(_ action: ResolvedAction, timestamp: Double) {
+        // Auto-inject scrollUntilVisible if the tapped element exists in the tree
+        // but is offscreen. Without this, replay fails because uiautomator dump
+        // returns offscreen elements.
+        if action.command == "tap" && !action.selector.isEmpty {
+            injectScrollIfOffscreen(for: action)
+        }
+
         let outputLines = generator.process(action, uiChanges: 0, timestamp: timestamp)
         for line in outputLines {
             printRecorded(line)
         }
+    }
+
+    /// Emit `scrollUntilVisible "selector"` if the target element is currently
+    /// outside the viewport. Uses the cached tree (refreshed every 1s) to avoid
+    /// the 2s `uiautomator dump` penalty per tap.
+    private func injectScrollIfOffscreen(for action: ResolvedAction) {
+        guard let tree = cachedTree,
+              let screen = try? bridge.viewport(),
+              let line = RecorderScrollHelper.scrollLine(forSelector: action.selector,
+                                                         in: tree,
+                                                         viewport: screen) else {
+            return
+        }
+        generator.appendRaw(line)
+        printRecorded(line)
     }
 
     private func printRecorded(_ line: String) {

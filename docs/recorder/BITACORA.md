@@ -1,5 +1,95 @@
 # Recorder Semantico — Bitacora de Desarrollo
 
+## Sesion 2026-04-17 — Scroll con viewport check (issues #49 #58 #61)
+
+### Objetivo
+Resolver los 3 P0 habilitados por PR #89 (HybridBridge + XCUIBridge). El bug raiz: `scrollTo "X"` consideraba "found" cualquier match del AX tree, aunque estuviera offscreen. Consecuencia: scripts grabados por el recorder tenian 0% replicabilidad raw — habia que editar manualmente agregando swipes.
+
+### Decisiones de diseño
+1. **`scrollUntilVisible` alias de `scrollTo`** (no dos comandos distintos). Mantener dos con identica impl es ruido; un `scrollTo` "rapido sin validar" perpetua el bug. El alias existe para legibilidad del script generado por el recorder.
+2. **Viewport hibrido**: `AXScrollArea`/`ScrollView`/`RecyclerView` ancestor si existe, sino screen bounds. Cubre el caso de listas anidadas sin duplicar codigo en cada backend.
+3. **Un solo PR bundleado** para los 3 issues — scroll es una feature coherente.
+
+### Piezas implementadas
+
+**1. `ViewportUtil.swift`** (nuevo, `cli/Sources/AutoCore/`) — helper puro Swift:
+- `rect(from: [String: Any]?) -> CGRect?` — extrae CGRect tolerando Int|Double
+- `isVisible(frame:inViewport:minCoverage:)` — intersection >= 50% por area
+- `resolveViewport(for:in:screenBounds:)` — ancestro scrolleable o screen
+- `findFirst(in:matching:)` — conveniencia sobre `TargetResolverShared.findAll`
+- 17 tests unitarios todos verdes
+
+**2. Protocolo `DeviceBridge.viewport() throws -> CGRect`**:
+- `SimulatorBridge`: wrappea `getSimulatorWindowFrame()` existente
+- `XCUIBridge`: nuevo endpoint `viewport` al runner que devuelve `app.frame`
+- `AgentBridge`: delega a `legacy.viewport()` (reusa `adb shell wm size`)
+- `AdbLegacyBridge`: expone `getScreenSize()` como CGRect
+- `HybridBridge`: delega a fast (screen bounds son identicos)
+
+**3. `scrollTo` reescrito** en los 4 bridges. Mismo patron:
+```swift
+let screen = try viewport()
+for _ in 0..<maxAttempts {
+    let tree = try tree()
+    if let match = ViewportUtil.findFirst(in: tree, matching: target),
+       let frame = ViewportUtil.rect(from: match["frame"] as? [String: Any]) {
+        let vp = ViewportUtil.resolveViewport(for: match, in: tree, screenBounds: screen)
+        if ViewportUtil.isVisible(frame: frame, inViewport: vp) { return }
+    }
+    try swipe(direction: direction)
+    usleep(500_000)
+}
+throw BridgeError.elementNotFound("Could not scroll to visible: '\(target)'...")
+```
+
+**4. Alias en `CommandDispatcher`**: `case "scrollTo", "scrollUntilVisible":` — mismo codigo, dos nombres. Help text actualizado en `CLI/main.swift` y `CLIAndroid/main.swift`.
+
+**5. Runner handler `handleViewport`**: 5 lineas que devuelven `app.frame`. Registrado en `RunnerServer.swift` dispatcher.
+
+**6. Recorder auto-inyeccion**: en `RecordingSession.emitAction` (iOS) y `AndroidRecordingSession.emitAction` nueva funcion `injectScrollIfOffscreen(for:)` que:
+- Obtiene el tree (cache en Android, fresh en iOS)
+- Busca el target con `ViewportUtil.findFirst`
+- Si el frame esta fuera del viewport, emite `scrollUntilVisible "selector"` antes del tap (con escape de comillas dobles)
+
+### Resultados
+- Build: verde
+- Tests: 84/84 pass (17 nuevos de ViewportUtil)
+- TODO comentado de la linea 455 de RecordingSession.swift eliminado — reemplazado con impl real
+
+### Falta validar en device
+- iOS: Explorea → Perfil → `scrollTo "Cerrar sesion"` debe scrollear (antes: NO scrolleaba)
+- iOS: grabar flujo con scroll → script debe contener `scrollUntilVisible` → replay raw 100%
+- Android: idem con app de prueba
+- Criterio del issue #61: 50 corridas iOS + 10 Android raw al 100%
+
+### Lecciones
+- Aprovechar el segundo motor (runner XCUI) para exponer `app.frame` fue trivial (handler de 5 lineas) y habilito cerrar paridad en los 4 bridges.
+- El escape de comillas en selectores es consistente con el resto del recorder (ScriptGenerator.buildLine linea 106 tiene la misma interpolacion directa) pero agregamos escape defensivo para round-trip con ScriptParser.tokenize.
+- El helper en AutoCore (Swift puro) evita que cada bridge tenga su propia logica de "isVisible", que era el sink natural para que el bug se reintroduzca.
+
+### Post-review: refactor + fixes (tarde del 2026-04-17)
+
+Tras `/simplify` y `/code-review` aplicamos:
+
+1. **Protocol extension para `scrollTo`**: default impl en `DeviceBridge` extension. Los 4 bridges (Simulator, XCUI, Agent, AdbLegacy) borraron su override; heredan el loop compartido. HybridBridge mantiene su wrapper de escalation. Delete neto: ~60 lineas de loop body duplicado.
+
+2. **`RecorderScrollHelper.scrollLine(forSelector:in:viewport:)`**: helper compartido en AutoCore. iOS y Android recorders ahora son wrappers de 3 lineas. Escape de comillas consolidado en un solo sitio.
+
+3. **Multi-match semantics**: `scrollTo "Button"` cuando "Button" aparece varias veces — si CUALQUIER match es visible, success. Antes picaba el primero (que podia estar offscreen) ignorando los visibles. `Label[N]` explicito sigue pineando al N-esimo.
+
+4. **Frameless match fallback**: si un match existe en el tree pero sin frame usable (containers, separadores, elementos sin bounds en Android), se considera "found" en vez de scrollear al timeout. Antes iba a timeout sin recovery.
+
+5. **AdbLegacyBridge scroll direction consistency**: el `scrollTo` viejo del bridge legacy usaba direcciones INVERTIDAS respecto a su propio `swipe()` (pre-existing bug). Con el default impl via `self.swipe(direction:)` queda alineado con los otros 3 bridges y con la convencion touch-direction estandar ("up" = dedo hacia arriba = revela contenido abajo). Scripts `--legacy` que dependian del comportamiento viejo deben invertir la direccion.
+
+6. **Narrative comments stripped**: elimine 7 comentarios con narrativa de cambios (`Fixes #49:`, `Resolves issue #61`, etc.). Manutuve el WHY cuando era load-bearing (CGEventTap no ve trackpad; Xcode 26 clona sim; simulatorPID nil en fresh CLI).
+
+7. **Tests nuevos**: nested scroll ancestor (`testResolveViewportUsesNearestScrollAncestorWhenNested`). 18/18 ViewportUtil + 84/84 total pass.
+
+Diff final: 22 archivos, +260/-83 (90 lineas netas menos gracias al refactor).
+
+---
+
+
 ## Sesion 2026-04-05 (16:00 — 23:00)
 
 ### Objetivo
@@ -198,3 +288,4 @@ Cada una de estas preguntas disparo una investigacion y un fix:
 **iOS (PR #47):** 4 creados, 3 modificados — 1240 lineas
 **Android (PR #48):** 5 creados, 4 modificados — 1201 lineas
 **Total:** 9 archivos nuevos, 7 modificados, ~2400 lineas
+
