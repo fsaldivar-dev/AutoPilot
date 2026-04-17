@@ -33,14 +33,20 @@ setup_tools() {
     echo "[maestro] Installed and linked"
   fi
 
-  # WDA (WebDriverAgent) — must be running externally on port 8100
+  # WDA (WebDriverAgent) — optional, must be running externally on port 8100.
+  # When not available (or SKIP_WDA=1), the suite still runs AutoPilot +
+  # Maestro but skips the WDA lanes.
   local wda_port="${WDA_PORT:-8100}"
-  if curl -s "http://127.0.0.1:$wda_port/status" | grep -q '"ready"' 2>/dev/null; then
+  if [ "${SKIP_WDA:-0}" = "1" ]; then
+    echo "[wda] Skipped (SKIP_WDA=1)"
+    export WDA_AVAILABLE=0
+  elif curl -s "http://127.0.0.1:$wda_port/status" | grep -q '"ready"' 2>/dev/null; then
     echo "[wda] Running on port $wda_port"
+    export WDA_AVAILABLE=1
   else
-    echo "[wda] ERROR: WebDriverAgent not running on port $wda_port"
-    echo "      Start it with: xcodebuild test -project WebDriverAgent.xcodeproj -scheme WebDriverAgentRunner -destination 'platform=iOS Simulator,name=iPhone 16 Pro'"
-    exit 1
+    echo "[wda] Not running — skipping WDA lanes (start with:"
+    echo "       xcodebuild test -project WebDriverAgent.xcodeproj -scheme WebDriverAgentRunner -destination 'platform=iOS Simulator,name=iPhone 16 Pro')"
+    export WDA_AVAILABLE=0
   fi
 
   echo ""
