@@ -3,6 +3,45 @@
 Diario de laboratorio: experimentos para medir el alcance del CLI sobre apps comerciales
 con onboarding completo, permisos del sistema, dialogos cross-proceso y formularios reales.
 
+## Sesion 2026-04-17 — Post-tap verification para #80 (flakiness 10-15%)
+
+### Contexto
+Issue #80: `waitFor` post-tap falla ~10-15% del tiempo. Tres hipotesis del reporter: H1 silent-drop del CGEvent/AXAction, H2 race entre tap return y VC construction, H3 state acumulado del CoreSimulatorService. Dos intentos previos de event-driven observer fallaron por oversampling (ver `feedback_observer_hybrid.md` en memoria).
+
+### Approach: H1 con overhead cero en happy path
+Observacion clave: `AXUIElementPerformAction` bloquea mientras el sim procesa el event. Un tap "normal" ya tarda 40-800ms en ese call — el sim esta trabajando, el tap cayo. Un tap que retorna en <10ms es sospechoso: el call fue cortocircuitado o el evento dropped.
+
+```swift
+let actionMs = Int((CFAbsoluteTimeGetCurrent() - actionStart) * 1000)
+if actionMs >= 40 {
+    // Happy path: trust AXAction. Zero overhead beyond a timestamp diff.
+    return
+}
+// Suspicious: verify with ViewFingerprint pre/post + up to 200ms wait
+// + retry via CGEvent at element center if still no change.
+```
+
+Solo cuando el tap retorna instantaneo entramos a fingerprint-diff + retry. En corridas estables (Settings, apps simples) el overhead por tap es literalmente microsegundos: dos timestamps. En casos sospechosos, hasta 200ms extra + retry via CGEvent.
+
+### Validacion
+Script: `scripts/benchmark-suite/flakiness-settings.auto` (4 taps + 4 waitFors contra `com.apple.Preferences`). 20 iteraciones consecutivas con `AUTO_DEBUG_TIMING=1`:
+
+```
+Baseline (sin fix):   5611-5882ms, avg 5711ms — 20/20 pass
+Con H1 fix:           5728-6105ms, avg 5832ms — 20/20 pass
+Regression por tap:   ~30ms (bien bajo el criterio <100ms del issue)
+```
+
+Path distribution de los 80 taps totales (4 × 20 iteraciones): **80/80 `axaction-fast`** — todos tomaron el fast skip. El fingerprint path quedo listo para activarse en silent drops pero no se gatillo una vez en 20 corridas estables, como esperabamos (Settings no es flaky).
+
+### Lo que falto validar en esta sesion
+- Repro del flakiness REAL contra una app con el race del issue. El plan original era usar `Demo/iOS/Test Automatitacion` (Explorea), pero el runner XCUI no booteaba en esta sesion (problema de ambiente, no del CLI — el daemon.start retorna OK pero TCP 22087 no responde). La app esta buildeada e instalada; el repro queda para una proxima.
+- Validar empiricamente que el fingerprint-diff recover efectivamente taps silent-dropped. Settings es demasiado estable para probarlo; necesitamos el flujo del issue o equivalente.
+
+### H2 (event-driven waitFor via XCUI) queda como follow-up
+El plan original tenia H2 como backup si H1 no bastaba. H1 ya cumple 20/20 + <100ms regression sin H2. El `handleWaitFor` del runner ya usa `XCUIElement.waitForExistence` event-driven — si los silent drops persisten en un flujo real, la integracion es mecanica: agregar `waitForElement(target:timeout:)` al `DeviceBridge` protocol, delegar al runner desde XCUIBridge, escalation fast→deep en HybridBridge.
+
+
 A diferencia del libro tecnico (capitulo 14), esto es el diario crudo, cronologico, sin pulir.
 El proposito es dejar registrado cada comando, cada exit code, cada output, para que alguien
 que repita el experimento pueda comparar con lo que encontramos.

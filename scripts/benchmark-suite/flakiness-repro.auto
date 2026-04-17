@@ -1,0 +1,14 @@
+# Repro for issue #80 — waitFor flakiness tras tap.
+# Run in a loop via run-flakiness.sh. Between iterations the runner
+# uninstalls + installs again so each run starts from a clean state.
+
+launch dev.autopilot.test.Explorea
+waitFor "Explorea" 10
+tap "Usar código"
+waitFor "Ingresa tu código" 5
+tap "1"
+tap "2"
+tap "3"
+tap "4"
+tap "Confirmar"
+waitFor "Inicio" 5
