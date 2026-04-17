@@ -337,3 +337,25 @@ Todas las correcciones suman ~80 lineas de Swift sobre el bridge actual. No requ
 ### Costo total estimado
 
 ~80 lineas de codigo Swift, todas dentro del bridge actual. Ningun cambio arquitectonico, ninguna dependencia nueva. Las P0 son las que mas mueven la aguja: con esas tres correcciones el flow real corre limpio en ambas plataformas.
+
+---
+
+## Segundo motor iOS — siguiente iteración
+
+El [Capitulo 15](docs/libro/15-el-segundo-motor.md) documenta el `HybridBridge` + `XCUIBridge` + `autopilotd` + runner xctest que resuelve `ToolbarItem` SwiftUI en `NavigationBar`. Está en producción y verde en CI (PR #89). Tres deudas pendientes identificadas:
+
+### P1 — reducen latencia
+
+- [ ] **Reemplazar XCUIBridge por IdbBridge cuando las Command Line Tools se destraben.** `idb_companion` de Facebook/Meta es ~5x más rápido que XCTest (50-200ms warm vs 430ms) porque habla directo con CoreSimulator via XPC privado en lugar de pasar por XCTest framework. La arquitectura `HybridBridge + deep client` queda igual; solo cambia el transport del cliente. Bloqueado hoy por mismatch entre CLT 16.3 y Xcode 26.3 del sistema; brew rechaza instalar. Desbloquear implica actualizar CLT (muy frágil, depende de Apple) o shippear `idb_companion` pre-built con el release (más trabajo pero controlable).
+
+- [ ] **Heurística de escalación pre-fallo.** Hoy el `HybridBridge` paga ~200-300ms de fast-path fallado antes de escalar a deep. Si un script usa `tap[navbar] "Guardar"` podríamos ir directo a XCUI sin intentar fast, bajando de 700ms a 430ms limpios. Pendiente hasta tener datos de qué patrones escalan con frecuencia — implementar sin datos es agregar complejidad especulativa.
+
+### P2 — calidad de distribución
+
+- [ ] **Generador nativo de `.xctestrun` v2.** Hoy `RunnerInstaller` genera formato v1 que Xcode 26 rechaza con `Dictionary does not contain key "TestConfigurations"`. El workaround actual es apuntar al `.xctestrun` que Xcode generó en DerivedData (env var `AUTOPILOT_RUNNER_XCTESTRUN`). Para distribución real necesitamos generar v2 a mano con `PropertyListSerialization`. ~100 líneas de plist munging.
+
+- [ ] **Soporte para device físico.** El runner actual funciona solo en simulador (sin firma). Para device real habría que distribuir el `.xctest` firmado o exigir al usuario que lo firme con su cuenta de developer. Maestro tiene este flow pero es la parte fea de su onboarding. Preferimos mantener "solo simulador" hasta que haya demanda real documentada.
+
+### P3 — paridad Android
+
+- [ ] **Second-engine en Android si aparece el caso.** Hoy `AgentBridge` con UiAutomation ve todo lo que necesitamos — no hay un análogo del problema NavBar SwiftUI en Android. Si algún día aparece un widget que el `AccessibilityNodeInfo` no expone bien, el patrón del capítulo 15 se puede replicar: un segundo motor con escalación automática via HybridBridge. Sin evidencia del caso, no vale la pena anticipar.
