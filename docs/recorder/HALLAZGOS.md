@@ -49,6 +49,16 @@ Para comparar contra Maestro Studio y Appium Inspector en el benchmark.
 
 **Fix propuesto**: Detectar scroll indirectamente comparando las posiciones de los children del AXGroup contenedor entre frames (si los children se movieron, hubo scroll). Requiere un background thread que monitoree posiciones.
 
+### 2b. `waitFor "<value>"` por contenido de text fields — RESUELTO (2026-04-17, prereq #91)
+
+**Problema**: durante grabacion el recorder emitia `waitFor` con el contenido de un `AXTextField` cuando era el unico selector disponible (sin id, sin title, sin label). Ejemplo: un field de email con value `success+714497402@example.com` terminaba en el script como `waitFor "success+714497402@..."`. En el replay desde estado limpio el field arranca vacio → el `waitFor` agota el timeout y el script falla en la mitad.
+
+**Fix**: en `SemanticResolver.chooseBestSelector` (`cli/Sources/AutoLibiOS/SemanticResolver.swift:200-226`), la priority 4 (value fallback) ahora se saltea cuando el rol del elemento es `AXTextField`, `AXSecureTextField` o `AXTextArea`. Esos valores son contenido del usuario, no texto estable de la UI. El elemento cae a selector `nil` → el recorder emite `tapAt` con coordenadas en vez de inventar un selector que no sobrevive el replay.
+
+**Tests**: `cli/Tests/SemanticResolverTests.swift` con 9 casos — los tres roles de input + casos donde value SI se mantiene (switch con "Enabled", etc) + prioridades normales intactas.
+
+**Referencia**: memoria `recorder_experiment_findings.md` documenta el bug como P0 critica desde 2026-04-07.
+
 ### 2. scrollTo no verifica visibilidad — RESUELTO (2026-04-17, issues #49 #58 #61)
 
 **Problema original**: `scrollTo "X"` buscaba el elemento con `search()` que recorre todo el AX tree. En iOS y Android, el AX tree incluye elementos offscreen (fuera del viewport). Entonces `scrollTo` retornaba "encontrado" inmediatamente sin scrollear porque el elemento existe en el tree aunque no sea visible.
