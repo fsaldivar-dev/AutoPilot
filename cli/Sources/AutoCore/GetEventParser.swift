@@ -54,7 +54,6 @@ public struct TouchCalibration {
         // Look for ABS_MT_POSITION_X and ABS_MT_POSITION_Y ranges
         var minX = 0, maxX = 32767
         var minY = 0, maxY = 32767
-        var inTouchDevice = false
 
         // getevent -p format:
         //   0035  : value 0, min 0, max 32767, fuzz 0, flat 0, resolution 0

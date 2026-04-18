@@ -1,9 +1,18 @@
 import Foundation
 import CoreGraphics
 
-/// Adapter temporal que envuelve cualquier DeviceBridge como Backend.
-/// Permite que el ActionRouter coexista con los bridges existentes durante la migración.
-/// Se elimina en Fase 4 cuando todos los backends sean nativos.
+/// Adapter transicional que envuelve cualquier `DeviceBridge` como `Backend`.
+///
+/// **Rol durante la migración (Fases 0-4):** Los backends nativos
+/// (`AXBackend`, `XCUIBackend`, `SimCtlBackend`, `MediaBackend`, `AgentBackend`,
+/// `AdbBackend`) son wrappers thin sobre los bridges existentes — usan
+/// `LegacyBridgeAdapter` internamente para el delegate call. El `ConstrainedBackend`
+/// les limita las capabilities a lo que cada uno "sabe hacer", pero el mapping
+/// Action→método sigue viviendo acá.
+///
+/// **Se elimina cuando** los backends extraigan su código físicamente de los
+/// bridges existentes (`SimulatorBridge` 1964 LOC → `AXBackend` + `SimCtlBackend`
+/// + `MediaBackend`). Eso es un PR focalizado aparte, no parte de ARD-001.
 public final class LegacyBridgeAdapter: Backend, @unchecked Sendable {
 
     public let capabilities: Set<ActionKind> = Set(ActionKind.allCases)

@@ -4,50 +4,17 @@ import ApplicationServices
 import AutoCore
 import AutoLibiOS
 
-// SimulatorBridge is always available for iOS-specific operations (AX, ping, index, etc.)
-let simulatorBridge = SimulatorBridge()
-// Dedicated deep bridge for `tree deep` / `tree full` — separate from the default
-// bridge so the user can opt-in to deep view even when AUTO_BRIDGE=simulator.
-let xcuiBridge = XCUIBridge()
-let bridge: DeviceBridge = makeBridge(simulatorBridge)
+// Bootstrap de plataforma vía iOSDeviceResolver (ARD-001).
+// El resolver construye el ActionRouter con los 4 backends nativos registrados,
+// y expone los bridges iOS-específicos (simulatorBridge, xcuiBridge) que aún
+// consumen los comandos no migrados al router (ping, index, tap con $N, etc).
+let deviceResolver = iOSDeviceResolver()
+let router = deviceResolver.router
+let simulatorBridge = deviceResolver.simulatorBridge
+let xcuiBridge = deviceResolver.xcuiBridge
+let bridge: any DeviceBridge = deviceResolver.legacyBridge
 let stabilizer = UIStabilizer()
 let elementIndex = ElementIndex()
-
-// ActionRouter — nueva arquitectura (ARD-001) con backends nativos iOS.
-// Orden de registro determina escalation:
-//   1. AXBackend (fast: AX macOS)
-//   2. XCUIBackend (deep: NavBar SwiftUI, runner XCTest) — escala si AX lanza elementNotFound
-//   3. SimCtlBackend (device mgmt: install, launch, biometric, keychain, etc.)
-//   4. MediaBackend (screenshot, recording)
-// HybridBridge queda obsoleto — el router hace el escalation automático.
-let router: ActionRouter = {
-    let registry = CapabilityRegistry()
-    let axB = AXBackend.make(simulatorBridge: simulatorBridge)
-    let xcuiB = XCUIBackend.make(xcuiBridge: xcuiBridge)
-    let simCtlB = SimCtlBackend.make(simulatorBridge: simulatorBridge)
-    let mediaB = MediaBackend.make(simulatorBridge: simulatorBridge)
-    Task {
-        await registry.register(axB)
-        await registry.register(xcuiB)
-        await registry.register(simCtlB)
-        await registry.register(mediaB)
-    }
-    return ActionRouter(registry: registry)
-}()
-
-func makeBridge(_ simBridge: SimulatorBridge) -> DeviceBridge {
-    let mode = ProcessInfo.processInfo.environment["AUTO_BRIDGE"] ?? "hybrid"
-    switch mode {
-    case "simulator":
-        return simBridge
-    case "xcui":
-        return XCUIBridge()
-    case "hybrid":
-        return HybridBridge(fast: simBridge, deep: XCUIBridge())
-    default:
-        return HybridBridge(fast: simBridge, deep: XCUIBridge())
-    }
-}
 
 func run() throws {
     let args = Array(CommandLine.arguments.dropFirst())
