@@ -34,8 +34,8 @@ swift build -c "$CONFIG"
 
 BUILD_DIR=".build/$CONFIG"
 
-# Verify both binaries exist
-for bin in auto auto-android; do
+# Verify all binaries exist (autopilotd is needed by `auto daemon start`)
+for bin in auto auto-android autopilotd; do
   if [ ! -f "$BUILD_DIR/$bin" ]; then
     echo "✗ Build did not produce $BUILD_DIR/$bin"
     exit 1
@@ -43,7 +43,7 @@ for bin in auto auto-android; do
 done
 
 # Atomic install: copy to .new then mv (avoids racing readers)
-for bin in auto auto-android; do
+for bin in auto auto-android autopilotd; do
   cp "$BUILD_DIR/$bin" "$BIN_DIR/$bin.new"
   chmod +x "$BIN_DIR/$bin.new"
   mv "$BIN_DIR/$bin.new" "$BIN_DIR/$bin"
