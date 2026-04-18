@@ -1,4 +1,5 @@
 import Foundation
+import Darwin
 
 /// Sub-comando `auto daemon <start|stop|status>`. Lanza o consulta el sidecar `autopilotd`.
 public enum iOSDaemonCommand {
@@ -9,7 +10,10 @@ public enum iOSDaemonCommand {
             return
         }
 
-        let autoPath = CommandLine.arguments[0]
+        // Resolver el path real del binario `auto` — `CommandLine.arguments[0]`
+        // es solo el nombre cuando se invoca desde PATH, lo que hacía que el
+        // daemon se buscara en el cwd del usuario.
+        let autoPath = resolveExecutablePath()
         let autoDir = URL(fileURLWithPath: autoPath).deletingLastPathComponent().path
         let daemonPath = "\(autoDir)/autopilotd"
 
@@ -68,5 +72,19 @@ public enum iOSDaemonCommand {
         default:
             break
         }
+    }
+
+    /// Resuelve la ruta real del binario ejecutándose (sigue symlinks).
+    /// Necesario cuando `auto` se invoca desde PATH y `arguments[0]` es
+    /// solo el nombre sin directorio.
+    private static func resolveExecutablePath() -> String {
+        var size: UInt32 = 0
+        _ = _NSGetExecutablePath(nil, &size)
+        var buf = [CChar](repeating: 0, count: Int(size))
+        guard _NSGetExecutablePath(&buf, &size) == 0 else {
+            return CommandLine.arguments[0]
+        }
+        let raw = String(cString: buf)
+        return (raw as NSString).resolvingSymlinksInPath
     }
 }
