@@ -1580,7 +1580,8 @@ extension SimulatorBridge: DeviceBridge {
     // MARK: - Key Press
 
     public func pressKey(key: String) throws {
-        let deviceId = try getBootedDeviceId()
+        // Fail-fast: garantiza que hay un sim booteado antes de abrir el menú
+        _ = try getBootedDeviceId()
 
         switch key.lowercased() {
         case "home":

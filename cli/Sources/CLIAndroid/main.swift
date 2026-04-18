@@ -2,23 +2,12 @@ import Foundation
 import AutoCore
 
 let useLegacy = CommandLine.arguments.contains("--legacy")
-let bridge: any DeviceBridge = useLegacy ? AdbLegacyBridge() : AgentBridge()
 
-// ActionRouter — nueva arquitectura (ARD-001) con backend nativo Android.
-// El flag `--legacy` cambia qué backend se registra:
-//   - default: AgentBackend (socket TCP al agente nativo, UiAutomation + JVMTI)
-//   - --legacy: AdbBackend (adb shell + uiautomator dump, para benchmarks)
-let router: ActionRouter = {
-    let registry = CapabilityRegistry()
-    if let agent = bridge as? AgentBridge {
-        let ab = AgentBackend.make(agentBridge: agent)
-        Task { await registry.register(ab) }
-    } else if let adb = bridge as? AdbLegacyBridge {
-        let ab = AdbBackend.make(adbBridge: adb)
-        Task { await registry.register(ab) }
-    }
-    return ActionRouter(registry: registry)
-}()
+// Bootstrap de plataforma vía AndroidDeviceResolver (ARD-001).
+// --legacy cambia qué backend se registra (AdbBackend en lugar de AgentBackend).
+let deviceResolver = AndroidDeviceResolver(useLegacy: useLegacy)
+let router = deviceResolver.router
+let bridge: any DeviceBridge = deviceResolver.legacyBridge
 
 func run() throws {
     let args = Array(CommandLine.arguments.dropFirst().filter { $0 != "--legacy" })

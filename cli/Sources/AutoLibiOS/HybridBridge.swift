@@ -1,18 +1,16 @@
 import Foundation
 import AutoCore
 
-// MARK: - HybridBridge
+// MARK: - HybridBridge (DEPRECATED — será eliminado en Fase 5)
 //
-// Wrapper over two DeviceBridge implementations:
-//   - fast: SimulatorBridge (AX macOS, always available, zero overhead)
-//   - deep: XCUIBridge (XCTest runner, lazy boot, sees everything)
+// Reemplazado por `ActionRouter` + `AXBackend` + `XCUIBackend` registrados
+// en orden (ARD-001). El router hace el escalation automático al siguiente
+// backend capaz cuando el primero lanza `BridgeError.elementNotFound` —
+// eso elimina la necesidad de este wrapper.
 //
-// Escalation policy (v1): try fast first. If it throws .elementNotFound,
-// retry with deep. All other errors propagate from fast.
-//
-// For methods where escalation doesn't make sense (device management,
-// biometric, etc.), delegates directly to fast — deep throws "not implemented"
-// for those anyway.
+// Aún vivo durante la transición porque `AUTO_BRIDGE=hybrid` (el default)
+// lo consume. Sale cuando todos los comandos del CLI pasen por el router
+// y ya nadie use `bridge.tap(...)` directo.
 
 public final class HybridBridge: DeviceBridge {
 

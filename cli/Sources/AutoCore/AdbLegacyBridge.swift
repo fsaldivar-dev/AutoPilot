@@ -553,7 +553,7 @@ public final class AdbLegacyBridge: DeviceBridge {
         // Try without old PIN first, then with old PIN if already set
         let pinResult = try? runAdb(["shell", "locksettings", "set-pin", "1234"])
         if pinResult == nil {
-            try? runAdb(["shell", "locksettings", "set-pin", "--old", "1234", "1234"])
+            _ = try? runAdb(["shell", "locksettings", "set-pin", "--old", "1234", "1234"])
         }
 
         // 2. Open fingerprint enrollment
@@ -569,10 +569,10 @@ public final class AdbLegacyBridge: DeviceBridge {
         try runAdb(["shell", "input", "swipe", "640", "2000", "640", "1000", "300"])
         usleep(1_000_000)
         // Try tapping MORE (may or may not appear)
-        try? runAdb(["shell", "input", "tap", "1088", "2676"]) // approximate MORE button
+        _ = try? runAdb(["shell", "input", "tap", "1088", "2676"]) // approximate MORE button
         usleep(1_000_000)
         // Try tapping I AGREE
-        try? runAdb(["shell", "input", "tap", "1088", "2676"]) // approximate I AGREE button
+        _ = try? runAdb(["shell", "input", "tap", "1088", "2676"]) // approximate I AGREE button
         usleep(2_000_000)
 
         // 5. Simulate fingerprint touches (15 times)
@@ -583,7 +583,7 @@ public final class AdbLegacyBridge: DeviceBridge {
         usleep(2_000_000)
 
         // 6. Tap DONE
-        try? runAdb(["shell", "input", "tap", "1088", "2676"]) // approximate DONE button
+        _ = try? runAdb(["shell", "input", "tap", "1088", "2676"]) // approximate DONE button
         usleep(1_000_000)
 
         // 7. Go back to home
