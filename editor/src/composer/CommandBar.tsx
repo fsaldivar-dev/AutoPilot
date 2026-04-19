@@ -14,6 +14,8 @@ export function CommandBar({ platform }: Props) {
   const [value, setValue] = useState("");
   const [cursor, setCursor] = useState(0);
   const [activeIndex, setActiveIndex] = useState(0);
+  const [focused, setFocused] = useState(false);
+  const [dismissed, setDismissed] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const flow = useStore(selectCurrentFlow);
@@ -47,6 +49,8 @@ export function CommandBar({ platform }: Props) {
 
   useEffect(() => {
     setActiveIndex(0);
+    // Any typing clears the dismissed flag so the popover can re-appear.
+    if (value.length > 0) setDismissed(false);
   }, [value]);
 
   function pickSuggestion(s: Suggestion) {
@@ -157,13 +161,29 @@ export function CommandBar({ platform }: Props) {
       pickSuggestion(suggestions[activeIndex]);
     } else if (e.key === "Enter") {
       e.preventDefault();
+      setDismissed(true);
       void runCurrent();
     } else if (e.key === "Escape") {
-      setValue("");
+      // First Escape just dismisses the popover; second clears the value.
+      if (!dismissed) {
+        setDismissed(true);
+      } else {
+        setValue("");
+        setDismissed(false);
+      }
     }
   }
 
   const disabled = !flow;
+
+  // Popover is visible when: input is focused, user has typed (or kept the
+  // query), hasn't explicitly dismissed via Escape, and there are suggestions.
+  const popoverVisible =
+    !disabled &&
+    focused &&
+    !dismissed &&
+    value.trim().length > 0 &&
+    suggestions.length > 0;
 
   return (
     <div className="command-bar" style={{ position: "relative" }} data-testid="command-bar">
@@ -183,6 +203,7 @@ export function CommandBar({ platform }: Props) {
         onChange={(e) => {
           setValue(e.target.value);
           setCursor(e.target.selectionStart ?? e.target.value.length);
+          setDismissed(false);
         }}
         onKeyDown={onKeyDown}
         onClick={(e) => {
@@ -191,15 +212,23 @@ export function CommandBar({ platform }: Props) {
         onKeyUp={(e) => {
           setCursor((e.target as HTMLInputElement).selectionStart ?? 0);
         }}
+        onFocus={() => setFocused(true)}
+        onBlur={() =>
+          // Give click-on-suggestion a chance to fire before hiding.
+          setTimeout(() => setFocused(false), 100)
+        }
         autoComplete="off"
         spellCheck={false}
       />
       <span className="kbd">⌘↵</span>
-      {!disabled && (
+      {popoverVisible && (
         <AutocompletePopover
           suggestions={suggestions}
           activeIndex={activeIndex}
-          onPick={pickSuggestion}
+          onPick={(s) => {
+            pickSuggestion(s);
+            setDismissed(false);
+          }}
           onHover={setActiveIndex}
         />
       )}
