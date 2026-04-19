@@ -11,6 +11,14 @@ public protocol DeviceBridge {
     func search(query: String) throws -> [[String: Any]]
     func elementAt(x: Double, y: Double) throws -> [String: Any]?
 
+    /// Verificación binaria rápida de existencia por label/title/identifier.
+    /// Diseñado para loops tight (`waitFor`/`waitUntilGone`) donde importa más
+    /// latencia que completitud — devuelve al primer match, sin serializar.
+    ///
+    /// **Default**: cae a `search(query:)`. Bridges que pueden hacerlo más
+    /// barato deben override con una implementación shallow (no-recursiva).
+    func existsFast(label: String) throws -> Bool
+
     // MARK: - Actions
 
     func tap(target: String) throws
@@ -149,6 +157,14 @@ public protocol DeviceBridge {
 /// real work — everything else degrades to a documented no-op so the
 /// same `.auto` script runs on iOS and Android without branching.
 public extension DeviceBridge {
+    /// Default `existsFast`: cae a `search(query:)`. Más caro que un query
+    /// shallow pero correcto — bridges que tengan un atajo (SimulatorBridge
+    /// iOS con AX directo, AgentBridge Android con tree cached) deben override.
+    func existsFast(label: String) throws -> Bool {
+        let results = try search(query: label)
+        return !results.isEmpty
+    }
+
     /// Default: no-op with a printed note. The post-condition "fresh
     /// credential state for next launch" is already satisfied on Android
     /// by the per-app Keystore model (uninstall releases the UID and
