@@ -4,34 +4,23 @@ import ApplicationServices
 import AutoCore
 import AutoLibiOS
 
-// SimulatorBridge is always available for iOS-specific operations (AX, ping, index, etc.)
-let simulatorBridge = SimulatorBridge()
-// Dedicated deep bridge for `tree deep` / `tree full` — separate from the default
-// bridge so the user can opt-in to deep view even when AUTO_BRIDGE=simulator.
-let xcuiBridge = XCUIBridge()
-let bridge: DeviceBridge = makeBridge(simulatorBridge)
+// Bootstrap de plataforma vía iOSDeviceResolver (ARD-001).
+// El resolver construye el ActionRouter con los 4 backends nativos registrados,
+// y expone los bridges iOS-específicos (simulatorBridge, xcuiBridge) que aún
+// consumen los comandos no migrados al router (ping, index, tap con $N, etc).
+let deviceResolver = iOSDeviceResolver()
+let router = deviceResolver.router
+let simulatorBridge = deviceResolver.simulatorBridge
+let xcuiBridge = deviceResolver.xcuiBridge
+let bridge: any DeviceBridge = deviceResolver.legacyBridge
 let stabilizer = UIStabilizer()
 let elementIndex = ElementIndex()
-
-func makeBridge(_ simBridge: SimulatorBridge) -> DeviceBridge {
-    let mode = ProcessInfo.processInfo.environment["AUTO_BRIDGE"] ?? "hybrid"
-    switch mode {
-    case "simulator":
-        return simBridge
-    case "xcui":
-        return XCUIBridge()
-    case "hybrid":
-        return HybridBridge(fast: simBridge, deep: XCUIBridge())
-    default:
-        return HybridBridge(fast: simBridge, deep: XCUIBridge())
-    }
-}
 
 func run() throws {
     let args = Array(CommandLine.arguments.dropFirst())
 
     guard let cmd = args.first else {
-        printUsage()
+        iOSUsage.printUsage()
         return
     }
 
@@ -232,143 +221,19 @@ func executeCommand(_ args: [String]) throws {
         print("\n\(elementIndex.count) elements indexed (\(ms)ms)")
 
     case "tap":
-        // iOS-enhanced tap: supports $N, label[N], tap[role], within
         guard args.count >= 2 else {
-            print("Usage: auto tap <label>")
-            print("       auto tap Camera[2]           (second Camera)")
-            print("       auto tap $N                  (by index)")
-            print("       auto tap a,b,c               (multiple)")
-            print("       auto tap[button] \"label\"      (role verification)")
-            print("       auto tap \"label\" within \"scope\"  (scoped search)")
+            iOSTapEnhancement.printUsage()
             return
         }
-
-        // New path: role and/or within syntax
-        if let parsed = parseCommand(args), (parsed.role != nil || parsed.within != nil) {
-            let element = try simulatorBridge.findAXElementScoped(
-                target: parsed.target, role: parsed.role, within: parsed.within
-            )
-            simulatorBridge.tapElement(element)
-            var desc = "Tapped '\(parsed.target)'"
-            if let role = parsed.role { desc += " [\(role)]" }
-            if let within = parsed.within { desc += " within '\(within)'" }
-            print("\(desc) (\(elapsedMs(start))ms)")
-            break
-        }
-
-        // Existing path: $N, label[N], comma-separated
-        let targets = args[1].split(separator: ",").map(String.init)
-        for target in targets {
-            // $N syntax — resolve by element index
-            if target.hasPrefix("$"), let n = Int(target.dropFirst()) {
-                if elementIndex.count == 0 {
-                    let root = try simulatorBridge.findSimulatorContent()
-                    elementIndex.rebuild(from: root)
-                }
-                guard let entry = elementIndex.get(n) else {
-                    print("Index $\(n) out of range (0..\(elementIndex.count - 1))")
-                    return
-                }
-                AXUIElementPerformAction(entry.element, kAXPressAction as CFString)
-                let label = entry.label.isEmpty ? entry.id : entry.label
-                print("Tapped $\(n) '\(label)' (\(elapsedMs(start))ms)")
-            } else {
-                // Parse label[N] syntax
-                let (label, occurrence) = TargetResolver.parse(target)
-
-                if let occurrence {
-                    let root = try simulatorBridge.findSimulatorContent()
-                    let matches = TargetResolver.findAll(in: root, matching: label)
-                    guard occurrence >= 1 && occurrence <= matches.count else {
-                        if matches.isEmpty {
-                            print("No elements matching '\(label)'")
-                        } else {
-                            print("'\(label)' has \(matches.count) match(es), requested [\(occurrence)]")
-                        }
-                        return
-                    }
-                    let (element, _) = matches[occurrence - 1]
-                    AXUIElementPerformAction(element, kAXPressAction as CFString)
-                    print("Tapped '\(label)[\(occurrence)]' (\(elapsedMs(start))ms)")
-                } else {
-                    try bridge.tap(target: target)
-                    print("Tapped '\(target)' (\(elapsedMs(start))ms)")
-                }
-            }
-        }
+        let deps = iOSTapEnhancement.Dependencies(
+            simulatorBridge: simulatorBridge,
+            elementIndex: elementIndex,
+            router: router
+        )
+        runAsync { try await iOSTapEnhancement.execute(args: args, deps: deps, start: start) }
 
     case "launch":
-        let config = AutoPilotConfig.readAll()
-        let bundleId: String
-        if args.count >= 2 && !args[1].hasPrefix("--") {
-            bundleId = args[1]
-        } else if let b = config["bundle"] {
-            bundleId = b
-        } else {
-            print("Usage: auto launch <bundleId> [--inject image.jpg] [--env KEY=VALUE ...]")
-            print("   or: auto config bundle com.example.app")
-            print("       auto launch")
-            return
-        }
-
-        var envVars: [String: String] = [:]
-        var injectImage: String? = nil
-        var recompile = false
-
-        // Auto-inject camera image from config
-        if let img = config["image"] {
-            envVars["AUTOPILOT_CAMERA_IMAGE"] = img
-        }
-
-        var i = args.count >= 2 && !args[1].hasPrefix("--") ? 2 : 1
-        while i < args.count {
-            if args[i] == "--env" && i + 1 < args.count {
-                let pair = args[i + 1]
-                if let eqIndex = pair.firstIndex(of: "=") {
-                    let key = String(pair[pair.startIndex..<eqIndex])
-                    let value = String(pair[pair.index(after: eqIndex)...])
-                    envVars[key] = value
-                }
-                i += 2
-            } else if args[i] == "--inject" {
-                if i + 1 < args.count && !args[i + 1].hasPrefix("--") {
-                    injectImage = args[i + 1]
-                    i += 2
-                } else {
-                    injectImage = config["image"]
-                    i += 1
-                }
-            } else if args[i] == "--recompile" {
-                recompile = true
-                i += 1
-            } else {
-                i += 1
-            }
-        }
-
-        if let injectImg = injectImage {
-            var imgPath = injectImg
-            if !imgPath.hasPrefix("/") {
-                imgPath = FileManager.default.currentDirectoryPath + "/" + imgPath
-            }
-
-            if recompile {
-                let injector = DylibInjector()
-                try injector.recompile()
-            }
-
-            try simulatorBridge.injectAndLaunch(bundleId: bundleId, imagePath: imgPath, extraEnv: envVars)
-            let ms = elapsedMs(start)
-            print("Launched \(bundleId) with camera mock → \(imgPath) (\(ms)ms)")
-        } else {
-            try bridge.launchApp(bundleId: bundleId, envVars: envVars)
-            let ms = elapsedMs(start)
-            if envVars.isEmpty {
-                print("Launched \(bundleId) (\(ms)ms)")
-            } else {
-                print("Launched \(bundleId) with \(envVars.count) env var(s) (\(ms)ms)")
-            }
-        }
+        runAsync { try await iOSLaunchEnhancement.execute(args: args, simulatorBridge: simulatorBridge, router: router, start: start) }
 
     case "camera":
         guard args.count >= 2 else {
@@ -534,176 +399,31 @@ func executeCommand(_ args: [String]) throws {
         }
 
     case "daemon":
-        try handleDaemonCommand(Array(args.dropFirst()))
+        try iOSDaemonCommand.execute(Array(args.dropFirst()))
 
     case "runner":
-        try handleRunnerCommand(Array(args.dropFirst()))
+        runAsync { try await iOSRunnerCommand.execute(Array(args.dropFirst()), router: router) }
 
     case "help", "--help", "-h":
-        printUsage()
+        iOSUsage.printUsage()
 
     case "doctor":
-        print("AutoPilot Doctor — iOS Environment Check\n")
+        iOSDoctor.run(simulatorBridge: simulatorBridge, bridge: bridge)
 
-        // 1. Simulator.app running
-        print("Simulator.app:")
-        if let pid = simulatorBridge.findSimulatorPID() {
-            print("  ✓ Running (PID \(pid))")
-        } else {
-            print("  ✗ Not running — open Simulator.app first")
-        }
-
-        // 2. Booted simulator
-        print("\nBooted Simulator:")
-        do {
-            let deviceId = try bridge.getBootedDeviceId()
-            print("  ✓ \(deviceId)")
-        } catch {
-            print("  ✗ No booted simulator — run: xcrun simctl boot <device>")
-        }
-
-        // 3. xcrun
-        print("\nxcrun:")
-        let xcrunCheck = Process()
-        xcrunCheck.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
-        xcrunCheck.arguments = ["--version"]
-        let xcrunPipe = Pipe()
-        xcrunCheck.standardOutput = xcrunPipe
-        xcrunCheck.standardError = Pipe()
-        try? xcrunCheck.run()
-        xcrunCheck.waitUntilExit()
-        if xcrunCheck.terminationStatus == 0 {
-            let ver = (String(data: xcrunPipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-            print("  ✓ Found (\(ver))")
-        } else {
-            print("  ✗ xcrun not working — install Xcode Command Line Tools")
-        }
-
-        // 4. Accessibility
-        print("\nAccessibility Permission:")
-        if AXIsProcessTrusted() {
-            print("  ✓ Granted")
-        } else {
-            print("  ✗ Not granted — add this app to: System Settings > Privacy & Security > Accessibility")
-        }
-
-        // 5. Environment
-        print("\nEnvironment:")
-        print("  PATH: \(ProcessInfo.processInfo.environment["PATH"] ?? "(not set)")")
-        print("  DEVELOPER_DIR: \(ProcessInfo.processInfo.environment["DEVELOPER_DIR"] ?? "(not set)")")
+    case "setup":
+        // Bootstrap completo: sim + runner + daemon + warmup.
+        // Acciones de device pasan por el router (ARD-001).
+        runAsync { try await iOSSetup.run(router: router) }
 
     default:
         // Delegate to shared (platform-agnostic) dispatcher
         let handled = try executeSharedCommand(args, bridge: bridge, deepBridge: xcuiBridge)
         if !handled {
             print("Unknown command: \(cmd)")
-            printUsage()
+            iOSUsage.printUsage()
         }
     }
 }
-
-func printUsage() {
-    print("""
-    AutoPilot — iOS Simulator automation
-
-    Usage: auto <command> [arguments]
-
-    Commands:
-      ping                              Check Simulator is running
-      tree                              Print accessibility tree
-      tree -s "query"                   Search elements
-      tree deep                         Deep tree via XCUI runner (slow, sees NavBar SwiftUI)
-      tree full                         Fast + deep tree side by side
-      list <type>                       Fast typed UI listing via XCUI runner (~1s vs 13s tree deep)
-                                        type: all | buttons | labels | textfields | cells |
-                                              switches | links | images | navbars
-                                        (sin args → lista simuladores, ver abajo)
-      launch <bundleId> [--inject img]   Launch app (--inject for camera mock)
-      tap <id|title|label>              Tap element
-      tap[role] "label" within "scope"  Tap with role verification + scoped search
-      longPress <id|title|label> [secs]  Long press element
-      doubleTap <id|title|label>        Double tap element
-      clear <id|title|label>            Clear text field
-      type [target] <text>              Type text
-      scroll <id|label> <direction>     Scroll element
-      swipe <up|down|left|right>        Swipe
-      drag <from> <to> [secs]            Drag between elements (default 0.5s)
-      drag x1,y1 x2,y2 [secs]           Drag between coordinates
-      exists <id|title|label>           Check if element exists
-      list                              List simulators
-      boot <name|udid>                  Boot simulator
-      shutdown <name|udid>              Shutdown simulator
-      install <path/to/app.app>        Install app on simulator
-      elementAt <x> <y>                 Element at coordinate
-      screenshot [filename.png]         Screenshot (via simctl)
-      inspect <query> --context           Parent chain + within suggestions
-      inject <image.jpg>                 Change mock camera image (hot-swap)
-      camera start <image>              Start virtual camera feed
-      camera feed <image>               Update camera image
-      camera stop                       Stop virtual camera
-      camera status                     Check camera status
-      terminate <bundleId>              Kill app
-      permission <grant|revoke|reset> <service> <bundleId>  Manage app permissions
-      logs [bundleId] [--lines N]       Get device logs (last 50 lines)
-      logs --system                     Get system logs
-      rotate <left|right|portrait|landscape>  Rotate device orientation
-      pressKey <key>                     Press hardware key (home, enter, delete, tab, escape, volumeUp, volumeDown)
-      hideKeyboard                       Dismiss on-screen keyboard
-      eraseText [N]                      Delete N characters (default 1)
-      copyTextFrom <element>             Read text content from element
-      clearState <bundleId>              Clear app data and permissions
-      uninstall <bundleId>               Uninstall app from simulator
-      waitUntilGone <label> [timeout]     Wait for element to disappear
-      scrollTo <element> [direction]     Scroll until element is visible in viewport
-      scrollUntilVisible <element> [dir] Alias of scrollTo (semantic name, emitted by recorder)
-      startRecording                     Start screen recording
-      stopRecording <file.mp4>           Stop recording and save
-      setLocation <lat> <lon>            Set simulated GPS location
-      setAppearance <dark|light>         Switch dark/light mode
-      lockDevice                         Lock device screen
-      unlockDevice                       Unlock device screen
-      pushFile <local> <remote>          Push file to device
-      pullFile <remote> <local>          Pull file from device
-      config                             Show all config
-      config <key> <value>              Set config value
-      config <key>                      Get config value
-      build                             Build with camera mock (uses .autopilot)
-      build <xcodebuild args...>        Build with explicit args
-      record <output.auto>               Record interactions to script (Ctrl+C to stop)
-      run <script.auto>                 Run automation script
-      doctor                            Check environment setup (Simulator, AX, xcrun)
-      daemon start [--udid U] [--timeout S]  Start sidecar daemon for XCTest runner
-      daemon stop [--udid U]             Stop sidecar daemon
-      daemon status [--udid U]           Show daemon and runner status
-      runner install <Runner.app> [--udid U]  Install XCTest runner bundle
-      runner status                      Show installed runner info
-
-    Script format (.auto):
-      # Comments start with #
-      launch com.example.app
-      waitFor "Login"
-      tap "Username"
-      type "user@test.com"
-      screenshot result.png
-
-    Examples:
-      auto launch com.apple.Preferences
-      auto tap "General"
-      auto tap[button] "Login"
-      auto tap "Camera" within "Toolbar"
-      auto tap[button] "Camera[2]" within "Toolbar"
-      auto inspect "Camera" --context
-      auto tree -s "Información"
-      auto swipe down
-      auto run test-flow.auto
-
-    Requirements:
-      - Simulator.app must be running
-      - Accessibility permissions (System Settings > Privacy > Accessibility)
-    """)
-}
-
-// MARK: - Daemon subcommand
 
 // MARK: - List subcommand
 
@@ -737,131 +457,6 @@ func handleListCommand(type: String) throws {
         if !enabled { line += "  (disabled)" }
         line += "  \(frame)"
         print(line)
-    }
-}
-
-func handleDaemonCommand(_ args: [String]) throws {
-    guard let sub = args.first, ["start", "stop", "status"].contains(sub) else {
-        print("Usage: auto daemon <start|stop|status> [--udid <UDID>] [--timeout <seconds>]")
-        return
-    }
-
-    // Locate the autopilotd binary next to auto
-    let autoPath = CommandLine.arguments[0]
-    let autoDir = URL(fileURLWithPath: autoPath).deletingLastPathComponent().path
-    let daemonPath = "\(autoDir)/autopilotd"
-
-    guard FileManager.default.fileExists(atPath: daemonPath) else {
-        print("error: autopilotd not found at \(daemonPath)")
-        print("hint: run 'swift build' to compile the daemon")
-        exit(1)
-    }
-
-    // Validate and filter arguments: only allow known flags with safe values
-    var sanitizedArgs: [String] = [sub]
-    let remaining = Array(args.dropFirst())
-    var i = 0
-    while i < remaining.count {
-        let arg = remaining[i]
-        if arg == "--udid", i + 1 < remaining.count {
-            // UDID: alphanumeric + hyphens only
-            let udid = remaining[i + 1]
-            let safe = udid.allSatisfy { $0.isLetter || $0.isNumber || $0 == "-" }
-            guard safe, udid.count <= 40 else {
-                print("error: invalid UDID format")
-                return
-            }
-            sanitizedArgs += ["--udid", udid]
-            i += 2
-        } else if arg == "--timeout", i + 1 < remaining.count {
-            guard let _ = Double(remaining[i + 1]) else {
-                print("error: --timeout must be a number")
-                return
-            }
-            sanitizedArgs += ["--timeout", remaining[i + 1]]
-            i += 2
-        } else {
-            i += 1 // skip unknown flags
-        }
-    }
-
-    switch sub {
-    case "start":
-        let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: daemonPath)
-        proc.arguments = sanitizedArgs
-        proc.standardOutput = FileHandle.standardOutput
-        proc.standardError = FileHandle.standardError
-        try proc.run()
-        print("daemon launched (pid=\(proc.processIdentifier))")
-
-    case "stop", "status":
-        let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: daemonPath)
-        proc.arguments = sanitizedArgs
-        proc.standardOutput = FileHandle.standardOutput
-        proc.standardError = FileHandle.standardError
-        try proc.run()
-        proc.waitUntilExit()
-
-    default:
-        break
-    }
-}
-
-// MARK: - Runner subcommand
-
-func handleRunnerCommand(_ args: [String]) throws {
-    guard let sub = args.first, ["install", "status"].contains(sub) else {
-        print("Usage: auto runner <install|status>")
-        return
-    }
-
-    let installer = RunnerInstaller()
-
-    switch sub {
-    case "install":
-        guard args.count >= 2 else {
-            print("Usage: auto runner install <path/to/Runner.app> [--udid <UDID>]")
-            return
-        }
-        let bundlePath = args[1]
-        // Validate bundle path exists and is a directory
-        var isDir: ObjCBool = false
-        guard FileManager.default.fileExists(atPath: bundlePath, isDirectory: &isDir), isDir.boolValue else {
-            print("error: \(bundlePath) does not exist or is not a directory")
-            return
-        }
-
-        let udid: String
-        if let udidIdx = args.firstIndex(of: "--udid"), udidIdx + 1 < args.count {
-            let raw = args[udidIdx + 1]
-            guard raw.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" }), raw.count <= 40 else {
-                print("error: invalid UDID format")
-                return
-            }
-            udid = raw
-        } else {
-            udid = try bridge.getBootedDeviceId()
-        }
-        let result = try installer.installIfNeeded(sourceBundlePath: bundlePath, udid: udid)
-        print("installed: \(result.appPath)")
-        print("xctestrun: \(result.xctestRunPath)")
-        print("version: \(result.version.prefix(8))")
-
-    case "status":
-        let baseDir = RunnerInstaller.runnerBaseDir
-        let hashFile = RunnerInstaller.hashFile
-        if let hash = try? String(contentsOfFile: hashFile, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines) {
-            print("runner: installed (hash=\(hash.prefix(8)))")
-            print("path: \(baseDir)")
-        } else {
-            print("runner: not installed")
-            print("hint: auto runner install <path/to/Runner.app>")
-        }
-
-    default:
-        break
     }
 }
 
