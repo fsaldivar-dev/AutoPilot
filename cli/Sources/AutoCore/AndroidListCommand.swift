@@ -28,6 +28,8 @@ public enum AndroidListCommand {
             print("No elements (tree returned non-elements result)")
             return true
         }
+        // Pre-computar índice de nodos con label para poder hacer lookup por frame overlap
+        let labeledNodes = collectLabeledNodes(tree)
         let items = filter(tree: tree, type: listType)
         let ms = elapsedMs(start)
 
@@ -43,20 +45,65 @@ public enum AndroidListCommand {
             let title = (item["title"] as? String) ?? ""
             let ident = (item["identifier"] as? String) ?? ""
             let value = (item["value"] as? String) ?? ""
-            let displayLabel = label.isEmpty ? title : label
+            var displayLabel = label.isEmpty ? title : label
+
+            // Si es un Button sin label (típico de FABs en Compose donde el
+            // contentDescription vive en un sibling View con el mismo frame) →
+            // heredar del nodo labeleado más pequeño que esté dentro del frame.
+            var derivedFrom = ""
+            if displayLabel.isEmpty {
+                if let inherited = findLabelWithinFrame(of: item, in: labeledNodes) {
+                    displayLabel = inherited
+                    derivedFrom = " (derived)"
+                }
+            }
+
             let frame: String = {
                 guard let f = item["frame"] as? [String: Any] else { return "" }
                 return "[\(f["x"] ?? 0),\(f["y"] ?? 0) \(f["width"] ?? 0)x\(f["height"] ?? 0)]"
             }()
 
             var line = role
-            if !displayLabel.isEmpty { line += "  label=\"\(displayLabel)\"" }
+            if !displayLabel.isEmpty { line += "  label=\"\(displayLabel)\"\(derivedFrom)" }
             if !ident.isEmpty { line += "  id=\(ident)" }
             if !value.isEmpty && value != displayLabel { line += "  value=\"\(value)\"" }
             line += "  \(frame)"
             print(line)
         }
         return true
+    }
+
+    /// Recolecta todos los nodos con label no vacío + su frame.
+    /// Usado como índice para derivar labels por superposición geométrica.
+    private static func collectLabeledNodes(_ nodes: [[String: Any]]) -> [(label: String, frame: CGRect)] {
+        var out: [(label: String, frame: CGRect)] = []
+        walk(nodes) { node in
+            let label = (node["label"] as? String) ?? (node["title"] as? String) ?? ""
+            guard !label.isEmpty else { return }
+            guard let f = node["frame"] as? [String: Any],
+                  let x = f["x"] as? Int, let y = f["y"] as? Int,
+                  let w = f["width"] as? Int, let h = f["height"] as? Int,
+                  w > 0, h > 0 else { return }
+            out.append((label: label, frame: CGRect(x: x, y: y, width: w, height: h)))
+        }
+        return out
+    }
+
+    /// Busca el label más pequeño cuyo frame esté contenido dentro del frame del nodo.
+    /// Estrategia: en Compose, el contentDescription suele vivir en un sibling
+    /// `View` ligeramente más pequeño que el Button. Elegimos el match más chico
+    /// para evitar heredar labels de ancestros o elementos externos.
+    private static func findLabelWithinFrame(of node: [String: Any], in labeledNodes: [(label: String, frame: CGRect)]) -> String? {
+        guard let f = node["frame"] as? [String: Any],
+              let x = f["x"] as? Int, let y = f["y"] as? Int,
+              let w = f["width"] as? Int, let h = f["height"] as? Int,
+              w > 0, h > 0 else { return nil }
+        let parent = CGRect(x: x, y: y, width: w, height: h)
+
+        let candidates = labeledNodes
+            .filter { parent.contains($0.frame) && $0.frame != parent }
+            .sorted { $0.frame.width * $0.frame.height < $1.frame.width * $1.frame.height }
+        return candidates.first?.label
     }
 
     // MARK: - Filtering
