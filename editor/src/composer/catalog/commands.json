@@ -1,0 +1,84 @@
+{
+  "version": 1,
+  "commands": [
+    { "name": "ping", "group": "connection", "platform": "both", "description": "Verificar conexion con dispositivo", "params": [], "example": "ping", "returns": "void" },
+    { "name": "list", "group": "connection", "platform": "both", "description": "Listar dispositivos disponibles", "params": [], "example": "list", "returns": "text" },
+    { "name": "boot", "group": "connection", "platform": "ios", "description": "Arrancar simulador", "params": [{ "name": "device", "type": "string" }], "example": "boot \"iPhone 15 Pro\"", "returns": "void" },
+    { "name": "shutdown", "group": "connection", "platform": "ios", "description": "Apagar simulador", "params": [{ "name": "device", "type": "string", "required": false }], "example": "shutdown", "returns": "void" },
+
+    { "name": "tree", "group": "inspection", "platform": "both", "description": "Arbol de accesibilidad completo", "params": [], "example": "tree", "returns": "text" },
+    { "name": "tree deep", "group": "inspection", "platform": "ios", "description": "Arbol deep via XCUI (ve SwiftUI NavBar)", "params": [], "example": "tree deep", "returns": "text" },
+    { "name": "list buttons", "group": "inspection", "platform": "ios", "description": "Botones con labels y frames", "params": [], "example": "list buttons", "returns": "text" },
+    { "name": "list textfields", "group": "inspection", "platform": "ios", "description": "Text fields visibles", "params": [], "example": "list textfields", "returns": "text" },
+    { "name": "exists", "group": "inspection", "platform": "both", "description": "Verifica si un elemento existe", "params": [{ "name": "label", "type": "element" }], "example": "exists \"Iniciar sesion\"", "returns": "boolean" },
+    { "name": "waitFor", "group": "inspection", "platform": "both", "description": "Espera hasta que el elemento aparezca", "params": [{ "name": "label", "type": "element" }, { "name": "timeout", "type": "number", "required": false, "default": "10" }], "example": "waitFor \"Home screen\" 5", "returns": "void" },
+    { "name": "waitUntilGone", "group": "inspection", "platform": "both", "description": "Espera hasta que el elemento desaparezca", "params": [{ "name": "label", "type": "element" }, { "name": "timeout", "type": "number", "required": false }], "example": "waitUntilGone \"Loading\" 10", "returns": "void" },
+    { "name": "elementAt", "group": "inspection", "platform": "both", "description": "Elemento en coordenadas", "params": [{ "name": "x", "type": "number" }, { "name": "y", "type": "number" }], "example": "elementAt 200 400", "returns": "element" },
+    { "name": "index", "group": "inspection", "platform": "both", "description": "Indice de elementos con $N", "params": [], "example": "index", "returns": "text" },
+    { "name": "inspect", "group": "inspection", "platform": "both", "description": "Inspeccion profunda de elemento", "params": [{ "name": "query", "type": "element" }], "example": "inspect \"Login\"", "returns": "text" },
+
+    { "name": "tap", "group": "interaction", "platform": "both", "description": "Tap en un elemento", "params": [{ "name": "target", "type": "element" }], "example": "tap \"Iniciar sesion\"", "returns": "void" },
+    { "name": "doubleTap", "group": "interaction", "platform": "both", "description": "Doble tap", "params": [{ "name": "target", "type": "element" }], "example": "doubleTap \"Imagen\"", "returns": "void" },
+    { "name": "longPress", "group": "interaction", "platform": "both", "description": "Tap largo", "params": [{ "name": "target", "type": "element" }, { "name": "seconds", "type": "number", "required": false, "default": "1.0" }], "example": "longPress \"Celda\" 2", "returns": "void" },
+    { "name": "tapAt", "group": "interaction", "platform": "both", "description": "Tap en coordenadas", "params": [{ "name": "x", "type": "number" }, { "name": "y", "type": "number" }], "example": "tapAt 195 612", "returns": "void" },
+    { "name": "type", "group": "interaction", "platform": "both", "description": "Escribe texto (opcionalmente en un target)", "params": [{ "name": "target", "type": "element", "required": false }, { "name": "text", "type": "string" }], "example": "type \"Correo\" \"maria@demo.io\"", "returns": "void" },
+    { "name": "clear", "group": "interaction", "platform": "both", "description": "Limpia un campo de texto", "params": [{ "name": "target", "type": "element" }], "example": "clear \"Correo\"", "returns": "void" },
+    { "name": "scroll", "group": "interaction", "platform": "both", "description": "Scroll dentro de un elemento", "params": [{ "name": "target", "type": "element" }, { "name": "direction", "type": "enum", "enumValues": ["up", "down", "left", "right"] }], "example": "scroll \"Lista\" down", "returns": "void" },
+    { "name": "scrollTo", "group": "interaction", "platform": "both", "description": "Scroll hasta que aparezca", "params": [{ "name": "target", "type": "element" }, { "name": "direction", "type": "enum", "required": false, "enumValues": ["up", "down", "left", "right"] }, { "name": "maxAttempts", "type": "number", "required": false }], "example": "scrollTo \"Final\" down 10", "returns": "void" },
+    { "name": "swipe", "group": "interaction", "platform": "both", "description": "Swipe en pantalla", "params": [{ "name": "direction", "type": "enum", "enumValues": ["up", "down", "left", "right"] }], "example": "swipe up", "returns": "void" },
+    { "name": "drag", "group": "interaction", "platform": "both", "description": "Arrastra de un elemento a otro", "params": [{ "name": "from", "type": "element" }, { "name": "to", "type": "element" }, { "name": "duration", "type": "number", "required": false }], "example": "drag \"A\" \"B\"", "returns": "void" },
+    { "name": "rotate", "group": "interaction", "platform": "both", "description": "Rota el dispositivo", "params": [{ "name": "orientation", "type": "enum", "enumValues": ["left", "right", "portrait", "landscape"] }], "example": "rotate left", "returns": "void" },
+
+    { "name": "launch", "group": "app", "platform": "both", "description": "Abre una aplicacion", "params": [{ "name": "bundleId", "type": "string" }], "example": "launch \"com.banco.app\"", "returns": "void" },
+    { "name": "terminate", "group": "app", "platform": "both", "description": "Mata la aplicacion", "params": [{ "name": "bundleId", "type": "string" }], "example": "terminate \"com.banco.app\"", "returns": "void" },
+    { "name": "install", "group": "app", "platform": "both", "description": "Instala app (.app / .apk)", "params": [{ "name": "path", "type": "string" }], "example": "install \"./App.app\"", "returns": "void" },
+    { "name": "uninstall", "group": "app", "platform": "both", "description": "Desinstala app", "params": [{ "name": "bundleId", "type": "string" }], "example": "uninstall \"com.banco.app\"", "returns": "void" },
+    { "name": "clearState", "group": "app", "platform": "both", "description": "Borra datos y permisos de la app", "params": [{ "name": "bundleId", "type": "string" }], "example": "clearState \"com.banco.app\"", "returns": "void" },
+    { "name": "keychain reset", "group": "app", "platform": "both", "description": "Reset keychain (iOS) o equivalente", "params": [], "example": "keychain reset", "returns": "void" },
+
+    { "name": "screenshot", "group": "capture", "platform": "both", "description": "Toma captura de pantalla", "params": [{ "name": "filename", "type": "string", "required": false }], "example": "screenshot \"evidencia.png\"", "returns": "void" },
+    { "name": "startRecording", "group": "capture", "platform": "both", "description": "Inicia grabacion de video", "params": [], "example": "startRecording", "returns": "void" },
+    { "name": "stopRecording", "group": "capture", "platform": "both", "description": "Detiene grabacion y guarda", "params": [{ "name": "filename", "type": "string" }], "example": "stopRecording \"video.mp4\"", "returns": "void" },
+
+    { "name": "biometric enroll", "group": "biometric", "platform": "both", "description": "Matricula biometria", "params": [], "example": "biometric enroll", "returns": "void" },
+    { "name": "biometric match", "group": "biometric", "platform": "both", "description": "Simula match exitoso", "params": [], "example": "biometric match", "returns": "void" },
+    { "name": "biometric fail", "group": "biometric", "platform": "both", "description": "Simula match fallido", "params": [], "example": "biometric fail", "returns": "void" },
+    { "name": "biometric status", "group": "biometric", "platform": "both", "description": "Estado de biometria", "params": [], "example": "biometric status", "returns": "text" },
+
+    { "name": "camera start", "group": "camera", "platform": "ios", "description": "Activa mock de camara", "params": [{ "name": "image", "type": "string" }], "example": "camera start \"foto.jpg\"", "returns": "void" },
+    { "name": "camera feed", "group": "camera", "platform": "ios", "description": "Hot-swap de imagen", "params": [{ "name": "image", "type": "string" }], "example": "camera feed \"nueva.jpg\"", "returns": "void" },
+    { "name": "camera stop", "group": "camera", "platform": "ios", "description": "Detiene mock de camara", "params": [], "example": "camera stop", "returns": "void" },
+    { "name": "camera status", "group": "camera", "platform": "ios", "description": "Estado de la camara mock", "params": [], "example": "camera status", "returns": "text" },
+    { "name": "inject", "group": "camera", "platform": "ios", "description": "Hot-swap sin restart", "params": [{ "name": "image", "type": "string" }], "example": "inject \"foto.jpg\"", "returns": "void" },
+
+    { "name": "setLocation", "group": "env", "platform": "both", "description": "Fija ubicacion GPS", "params": [{ "name": "lat", "type": "number" }, { "name": "lon", "type": "number" }], "example": "setLocation 19.4326 -99.1332", "returns": "void" },
+    { "name": "setAppearance", "group": "env", "platform": "both", "description": "Cambia a tema oscuro o claro", "params": [{ "name": "mode", "type": "enum", "enumValues": ["dark", "light"] }], "example": "setAppearance dark", "returns": "void" },
+    { "name": "lockDevice", "group": "env", "platform": "both", "description": "Bloquea la pantalla", "params": [], "example": "lockDevice", "returns": "void" },
+    { "name": "unlockDevice", "group": "env", "platform": "both", "description": "Desbloquea la pantalla", "params": [], "example": "unlockDevice", "returns": "void" },
+
+    { "name": "pushFile", "group": "files", "platform": "both", "description": "Sube archivo al dispositivo", "params": [{ "name": "local", "type": "string" }, { "name": "remote", "type": "string" }], "example": "pushFile \"a.txt\" \"/tmp/a.txt\"", "returns": "void" },
+    { "name": "pullFile", "group": "files", "platform": "both", "description": "Baja archivo del dispositivo", "params": [{ "name": "remote", "type": "string" }, { "name": "local", "type": "string" }], "example": "pullFile \"/tmp/a.txt\" \"a.txt\"", "returns": "void" },
+
+    { "name": "permission grant", "group": "permissions", "platform": "both", "description": "Otorga permiso", "params": [{ "name": "service", "type": "enum", "enumValues": ["camera", "microphone", "photos", "contacts", "location", "notifications", "all"] }, { "name": "bundleId", "type": "string" }], "example": "permission grant camera \"com.banco.app\"", "returns": "void" },
+    { "name": "permission revoke", "group": "permissions", "platform": "both", "description": "Revoca permiso", "params": [{ "name": "service", "type": "enum", "enumValues": ["camera", "microphone", "photos", "contacts", "location", "notifications", "all"] }, { "name": "bundleId", "type": "string" }], "example": "permission revoke photos \"com.banco.app\"", "returns": "void" },
+    { "name": "permission reset", "group": "permissions", "platform": "both", "description": "Resetea permiso", "params": [{ "name": "service", "type": "string" }, { "name": "bundleId", "type": "string" }], "example": "permission reset all \"com.banco.app\"", "returns": "void" },
+
+    { "name": "pressKey", "group": "keyboard", "platform": "both", "description": "Presiona tecla", "params": [{ "name": "key", "type": "enum", "enumValues": ["home", "back", "enter", "delete", "tab", "escape", "volumeUp", "volumeDown", "power"] }], "example": "pressKey home", "returns": "void" },
+    { "name": "hideKeyboard", "group": "keyboard", "platform": "both", "description": "Cierra teclado virtual", "params": [], "example": "hideKeyboard", "returns": "void" },
+    { "name": "eraseText", "group": "keyboard", "platform": "both", "description": "Borra N caracteres", "params": [{ "name": "n", "type": "number", "required": false, "default": "1" }], "example": "eraseText 3", "returns": "void" },
+    { "name": "copyTextFrom", "group": "keyboard", "platform": "both", "description": "Copia texto de un elemento", "params": [{ "name": "target", "type": "element" }], "example": "copyTextFrom \"Total\"", "returns": "text" },
+    { "name": "paste", "group": "keyboard", "platform": "both", "description": "Pega texto (o fija portapapeles)", "params": [{ "name": "text", "type": "string", "required": false }], "example": "paste \"hola\"", "returns": "void" },
+
+    { "name": "logs", "group": "diagnostic", "platform": "both", "description": "Logs del dispositivo", "params": [{ "name": "bundleId", "type": "string", "required": false }, { "name": "lines", "type": "number", "required": false }], "example": "logs \"com.banco.app\" --lines 100", "returns": "text" },
+    { "name": "doctor", "group": "diagnostic", "platform": "both", "description": "Diagnostico del entorno", "params": [], "example": "doctor", "returns": "text" },
+    { "name": "setup", "group": "diagnostic", "platform": "android", "description": "Bootstrap del entorno", "params": [], "example": "setup", "returns": "text" },
+
+    { "name": "config", "group": "config", "platform": "both", "description": "Lee / escribe configuracion", "params": [{ "name": "key", "type": "string", "required": false }, { "name": "value", "type": "string", "required": false }], "example": "config scheme \"Release\"", "returns": "text" },
+    { "name": "media", "group": "misc", "platform": "both", "description": "Inyecta media en el portapapeles", "params": [{ "name": "path", "type": "string" }], "example": "media \"foto.jpg\"", "returns": "void" },
+    { "name": "openurl", "group": "misc", "platform": "both", "description": "Abre un URL en el dispositivo", "params": [{ "name": "url", "type": "string" }], "example": "openurl \"https://example.com\"", "returns": "void" },
+    { "name": "run", "group": "misc", "platform": "both", "description": "Ejecuta otro script", "params": [{ "name": "path", "type": "string" }], "example": "run \"script.auto\"", "returns": "text" },
+    { "name": "record", "group": "misc", "platform": "both", "description": "Graba interacciones a script", "params": [{ "name": "path", "type": "string" }], "example": "record \"nuevo.auto\"", "returns": "void" },
+    { "name": "build", "group": "misc", "platform": "ios", "description": "Compila con camera mock", "params": [], "example": "build", "returns": "text" },
+    { "name": "wait", "group": "misc", "platform": "both", "description": "Pausa por N segundos", "params": [{ "name": "seconds", "type": "number" }], "example": "wait 2", "returns": "void" }
+  ]
+}
