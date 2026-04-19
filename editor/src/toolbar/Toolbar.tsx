@@ -2,6 +2,7 @@ import { useState } from "react";
 import { selectCurrentProject, useStore } from "../state/store";
 import type { Platform } from "../domain/types";
 import { ShareModal } from "../share/ShareModal";
+import { RunFlowButton } from "./RunFlowButton";
 
 interface Props {
   platform: Platform;
@@ -17,13 +18,24 @@ export function Toolbar({ platform, setPlatform }: Props) {
 
   return (
     <div className="toolbar" data-testid="toolbar">
-      <span style={{ fontWeight: 700, color: "var(--accent)", letterSpacing: -0.5 }}>
-        AutoPilot
+      <div className="brand-mark">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none">
+          <path
+            d="M6 4 L12 18 L18 4 M8.5 13 H15.5"
+            stroke="#A78BFA"
+            strokeWidth="2"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
+        </svg>
+      </div>
+      <span style={{ fontWeight: 600, fontSize: 14, letterSpacing: "-0.02em" }}>
+        AutoPilot Composer
       </span>
-      <span style={{ color: "var(--text-mute)" }}>/</span>
-      <span style={{ color: "var(--text-dim)" }}>{project?.name ?? "—"}</span>
-      {currentFlowId && <span style={{ color: "var(--text-mute)" }}>/</span>}
-      <span style={{ color: "var(--text)" }} data-testid="current-flow-label">
+      <span style={{ color: "var(--fg-faint)" }}>/</span>
+      <span style={{ color: "var(--fg-dim)", fontSize: 13 }}>{project?.name ?? "—"}</span>
+      {currentFlowId && <span style={{ color: "var(--fg-faint)" }}>›</span>}
+      <span style={{ color: "var(--fg)", fontSize: 13 }} data-testid="current-flow-label">
         {project?.flows.find((f) => f.id === currentFlowId)?.name ?? ""}
       </span>
 
@@ -52,10 +64,12 @@ export function Toolbar({ platform, setPlatform }: Props) {
       </div>
 
       {running && (
-        <div data-testid="running-indicator" style={{ color: "var(--accent)", fontSize: 11 }}>
+        <div data-testid="running-indicator" style={{ color: "var(--violet-2)", fontSize: 11 }}>
           corriendo…
         </div>
       )}
+
+      <RunFlowButton platform={platform} />
 
       <button className="btn" onClick={() => setShowShare(true)} data-testid="share-btn">
         Compartir
