@@ -750,6 +750,15 @@ public final class SimulatorBridge {
             let errMsg = String(data: errData, encoding: .utf8) ?? "Unknown error"
             throw BridgeError.simctlFailed(errMsg)
         }
+
+        // `simctl boot` solo arranca el device en CoreSimulator daemon (headless).
+        // Para que el usuario vea la ventana, abrimos Simulator.app — si ya está
+        // corriendo, `open -a` le manda focus sin relanzarlo.
+        let open = Process()
+        open.executableURL = URL(fileURLWithPath: "/usr/bin/open")
+        open.arguments = ["-a", "Simulator"]
+        try? open.run()
+        open.waitUntilExit()
     }
 
     /// Shutdown a simulator by name or UDID.
@@ -1580,7 +1589,8 @@ extension SimulatorBridge: DeviceBridge {
     // MARK: - Key Press
 
     public func pressKey(key: String) throws {
-        let deviceId = try getBootedDeviceId()
+        // Fail-fast: garantiza que hay un sim booteado antes de abrir el menú
+        _ = try getBootedDeviceId()
 
         switch key.lowercased() {
         case "home":
