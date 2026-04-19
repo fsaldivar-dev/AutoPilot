@@ -1,0 +1,19 @@
+# smoke-ard001.auto
+# Smoke test cross-platform que ejercita toda la arquitectura ARD-001:
+#   - launch     → SimCtlBackend / AgentBackend (via router)
+#   - waitFor    → AXBackend / AgentBackend (via router)
+#   - exists     → router con escalation AX → XCUI
+#   - screenshot → MediaBackend / AgentBackend (via router)
+#   - tree       → AXBackend / AgentBackend (via router)
+#   - terminate  → SimCtlBackend / AgentBackend (via router)
+#
+# iOS:     auto run scripts/examples/smoke-ard001.auto
+# Android: auto-android run scripts/examples/smoke-ard001.auto
+
+ping
+launch dev.autopilot.test.Explorea
+waitFor "Explorea" 10
+screenshot /tmp/smoke-ard001-home.png
+exists "Explorea"
+tree
+terminate dev.autopilot.test.Explorea
