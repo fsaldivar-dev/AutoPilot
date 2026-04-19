@@ -195,6 +195,39 @@ func executeCommand(_ args: [String]) throws {
     case "camera":
         try AndroidCameraCommand.execute(args: args, bridge: bridge, start: start)
 
+    case "inject":
+        try AndroidInjectCommand.execute(args: args, bridge: bridge, start: start)
+
+    case "build":
+        try AndroidBuildCommand.execute(args: args, start: start)
+
+    case "list":
+        // `list <type>` → AndroidListCommand via router (ARD-001).
+        // `list` sin args → fall-through al shared dispatcher (lista devices).
+        if args.count >= 2 {
+            let group = DispatchGroup()
+            group.enter()
+            var handled = false
+            var thrown: Error?
+            Task {
+                do {
+                    handled = try await AndroidListCommand.execute(args: args, router: router, start: start)
+                } catch {
+                    thrown = error
+                }
+                group.leave()
+            }
+            group.wait()
+            if let e = thrown { throw e }
+            if handled { return }
+        }
+        // Fall-through a executeSharedCommand para listar devices
+        let handled = try executeSharedCommand(args, bridge: bridge)
+        if !handled {
+            print("Unknown command: \(cmd)")
+            AndroidUsage.printUsage()
+        }
+
     case "record":
         guard args.count >= 2 else {
             print("Usage: auto-android record <output.auto>")
@@ -222,18 +255,20 @@ func executeCommand(_ args: [String]) throws {
         AndroidUsage.printUsage()
 
     case "setup":
-        guard let agent = bridge as? AgentBridge else {
-            print("setup is only available with AgentBridge (do not pass --legacy)")
-            return
+        // Bootstrap completo paridad con iOS: adb + device + apk + agent + warmup.
+        // Device actions viajan por el router (ARD-001).
+        let group = DispatchGroup()
+        group.enter()
+        Task {
+            do {
+                try await AndroidSetup.run(router: router, bridge: bridge)
+            } catch {
+                print("\n✗ Setup failed: \(error)")
+                exit(1)
+            }
+            group.leave()
         }
-        agent.autoRecover = false
-        do {
-            try agent.setupAgent(verbose: true)
-            print("\n✓ Setup complete — auto-android is ready")
-        } catch {
-            print("\n✗ Setup failed: \(error)")
-            exit(1)
-        }
+        group.wait()
 
     case "doctor":
         AndroidDoctor.run(bridge: bridge, useLegacy: useLegacy)

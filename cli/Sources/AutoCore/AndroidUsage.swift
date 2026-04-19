@@ -60,7 +60,12 @@ public enum AndroidUsage {
           record <output.auto>               Record touch interactions to script (Ctrl+C to stop)
           run <script.auto>                 Run automation script
           doctor                            Check environment setup (adb, devices, agent)
-          setup                             Rearm adb forward + relaunch agent (auto-recovery)
+          setup                             Full bootstrap — adb + device + apk + agent + warmup
+          inject <image.jpg>                 Hot-swap mock camera image (no restart)
+          build [module]                    Gradle assembleDebug wrapper (uses .autopilot)
+          list <type>                       Typed UI listing via router
+                                            type: all | buttons | labels | textfields | cells |
+                                                  switches | images | navbars
 
         Script format (.auto):
           # Comments start with #
