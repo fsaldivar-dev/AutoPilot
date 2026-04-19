@@ -1,14 +1,15 @@
 import Foundation
 
 /// Tap enhancements Android-específicos: `$N`, `label[N]`, Compose clickable parent.
+/// Pasa todas las acciones de device por el `ActionRouter` (ARD-001).
 public enum AndroidTapEnhancement {
 
-    public static func execute(args: [String], bridge: any DeviceBridge, start: CFAbsoluteTime) throws {
+    public static func execute(args: [String], router: ActionRouter, start: CFAbsoluteTime) async throws {
         let target = args.dropFirst().joined(separator: " ")
 
         // $N index reference
         if let idx = TargetResolverShared.parseIndex(target) {
-            let tree = try bridge.tree()
+            let tree = try await tree(router: router)
             let index = ElementIndexShared()
             index.build(from: tree)
             guard let entry = index.get(idx) else {
@@ -16,7 +17,7 @@ public enum AndroidTapEnhancement {
                 return
             }
             let tapTarget = entry.label.isEmpty ? entry.id : entry.label
-            try bridge.tap(target: tapTarget)
+            _ = try await router.execute(.tap(target: tapTarget))
             print("Tapped $\(idx) '\(tapTarget)' (\(elapsedMs(start))ms)")
             return
         }
@@ -24,7 +25,7 @@ public enum AndroidTapEnhancement {
         // Label[N] occurrence syntax
         let (label, occurrence) = TargetResolverShared.parse(target)
         if let occ = occurrence {
-            let tree = try bridge.tree()
+            let tree = try await tree(router: router)
             let matches = TargetResolverShared.findAll(in: tree, matching: label)
             guard let match = matches.first(where: { $0.occurrence == occ }) else {
                 print("'\(label)[\(occ)]' not found (\(matches.count) occurrence(s) total)")
@@ -35,17 +36,17 @@ public enum AndroidTapEnhancement {
                let fw = frame["width"] as? Int, let fh = frame["height"] as? Int {
                 let cx = Double(fx + fw / 2)
                 let cy = Double(fy + fh / 2)
-                try bridge.tapAtCoordinate(x: cx, y: cy)
+                _ = try await router.execute(.tapAtCoordinate(x: cx, y: cy))
             } else {
                 let tapLabel = (match.element["title"] as? String) ?? (match.element["label"] as? String) ?? label
-                try bridge.tap(target: tapLabel)
+                _ = try await router.execute(.tap(target: tapLabel))
             }
             print("Tapped '\(label)[\(occ)]' (\(elapsedMs(start))ms)")
             return
         }
 
         // Plain label — Compose clickable resolution
-        let tree = try bridge.tree()
+        let tree = try await tree(router: router)
         let matches = TargetResolverShared.findAll(in: tree, matching: target)
         if let match = matches.first {
             let clickable = AndroidComposeResolver.findClickableFrame(for: match.element, in: tree)
@@ -58,12 +59,19 @@ public enum AndroidTapEnhancement {
                let fw = frame["width"] as? Int, let fh = frame["height"] as? Int {
                 let cx = Double(fx + fw / 2)
                 let cy = Double(fy + fh / 2)
-                try bridge.tapAtCoordinate(x: cx, y: cy)
+                _ = try await router.execute(.tapAtCoordinate(x: cx, y: cy))
                 print("Tapped '\(target)' (\(elapsedMs(start))ms)")
                 return
             }
         }
-        try bridge.tap(target: target)
+        _ = try await router.execute(.tap(target: target))
         print("Tapped '\(target)' (\(elapsedMs(start))ms)")
+    }
+
+    /// Unwrapper del router.execute(.tree) — mantiene el resto del código legible.
+    private static func tree(router: ActionRouter) async throws -> [[String: Any]] {
+        let result = try await router.execute(.tree)
+        guard case .elements(let tree) = result else { return [] }
+        return tree
     }
 }

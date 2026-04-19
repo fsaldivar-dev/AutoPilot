@@ -4,7 +4,7 @@ import AutoCore
 /// Sub-comando `auto runner <install|status>`. Gestiona el runner XCTest que el daemon mantiene vivo.
 public enum iOSRunnerCommand {
 
-    public static func execute(_ args: [String], bridge: any DeviceBridge) throws {
+    public static func execute(_ args: [String], router: ActionRouter) async throws {
         guard let sub = args.first, ["install", "status"].contains(sub) else {
             print("Usage: auto runner <install|status>")
             return
@@ -34,7 +34,12 @@ public enum iOSRunnerCommand {
                 }
                 udid = raw
             } else {
-                udid = try bridge.getBootedDeviceId()
+                // UDID via router → SimCtlBackend (declara .getBootedDeviceId).
+                let result = try await router.execute(.getBootedDeviceId)
+                guard case .deviceId(let id) = result else {
+                    throw BridgeError.noBootedDevice
+                }
+                udid = id
             }
             let result = try installer.installIfNeeded(sourceBundlePath: bundlePath, udid: udid)
             print("installed: \(result.appPath)")

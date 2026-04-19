@@ -187,10 +187,10 @@ func executeCommand(_ args: [String]) throws {
             print("Usage: auto-android tap <label|$N|label[N]>")
             return
         }
-        try AndroidTapEnhancement.execute(args: args, bridge: bridge, start: start)
+        runAsync { try await AndroidTapEnhancement.execute(args: args, router: router, start: start) }
 
     case "launch":
-        try AndroidLaunchEnhancement.execute(args: args, bridge: bridge, start: start)
+        runAsync { try await AndroidLaunchEnhancement.execute(args: args, bridge: bridge, router: router, start: start) }
 
     case "camera":
         try AndroidCameraCommand.execute(args: args, bridge: bridge, start: start)
@@ -205,21 +205,10 @@ func executeCommand(_ args: [String]) throws {
         // `list <type>` → AndroidListCommand via router (ARD-001).
         // `list` sin args → fall-through al shared dispatcher (lista devices).
         if args.count >= 2 {
-            let group = DispatchGroup()
-            group.enter()
-            var handled = false
-            var thrown: Error?
-            Task {
-                do {
-                    handled = try await AndroidListCommand.execute(args: args, router: router, start: start)
-                } catch {
-                    thrown = error
-                }
-                group.leave()
+            let wasHandled = runAsyncReturning {
+                try await AndroidListCommand.execute(args: args, router: router, start: start)
             }
-            group.wait()
-            if let e = thrown { throw e }
-            if handled { return }
+            if wasHandled { return }
         }
         // Fall-through a executeSharedCommand para listar devices
         let handled = try executeSharedCommand(args, bridge: bridge)
@@ -257,18 +246,7 @@ func executeCommand(_ args: [String]) throws {
     case "setup":
         // Bootstrap completo paridad con iOS: adb + device + apk + agent + warmup.
         // Device actions viajan por el router (ARD-001).
-        let group = DispatchGroup()
-        group.enter()
-        Task {
-            do {
-                try await AndroidSetup.run(router: router, bridge: bridge)
-            } catch {
-                print("\n✗ Setup failed: \(error)")
-                exit(1)
-            }
-            group.leave()
-        }
-        group.wait()
+        runAsync { try await AndroidSetup.run(router: router, bridge: bridge) }
 
     case "doctor":
         AndroidDoctor.run(bridge: bridge, useLegacy: useLegacy)
