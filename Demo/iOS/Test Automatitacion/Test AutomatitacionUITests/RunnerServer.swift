@@ -138,6 +138,8 @@ final class RunnerServer {
                 return self.handlers.handleSwipe(params: params)
             case "hideKeyboard":
                 return self.handlers.handleHideKeyboard()
+            case "viewport":
+                return self.handlers.handleViewport(params: params)
             default:
                 return errorJSON("unknown method: \(method)")
             }
