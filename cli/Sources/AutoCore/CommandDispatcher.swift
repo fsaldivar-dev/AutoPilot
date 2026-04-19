@@ -309,21 +309,35 @@ public func executeSharedCommand(_ args: [String], bridge: any DeviceBridge, dee
         }
         let target = args[1]
         let timeout = args.count >= 3 ? Double(args[2]) ?? 10.0 : 10.0
-        let pollInterval: useconds_t = 500_000
-        let maxAttempts = Int(timeout * 2)
+
+        // #79: poll interval bajado de 500ms → 100ms para capturar transiciones
+        // breves (dialogs de permisos <500ms). Para mantener el CPU cost acotado
+        // usamos `existsFast` (shallow, ~5-10ms) cuando el requiredCount es 1;
+        // solo caemos a `search()` full-tree si el caller pide `label[N]` con N>1.
+        let pollInterval: useconds_t = 100_000
+        let maxAttempts = Int(timeout * 10)
 
         // Support label[N] syntax: waitFor "Cerrar sesion[2]" waits for 2+ matches
         let (searchLabel, requiredCount) = TargetResolverShared.parse(target)
         let minMatches = requiredCount ?? 1
+        let needsCountQuery = minMatches > 1
 
         var found = false
         var pollCount = 0
         for _ in 0..<maxAttempts {
             pollCount += 1
-            // Catch errors (e.g., "No active window" during app launch) and retry
-            if let results = try? bridge.search(query: searchLabel), results.count >= minMatches {
-                found = true
-                break
+            if needsCountQuery {
+                // label[N] — necesitamos contar, cae a search() full-tree
+                if let results = try? bridge.search(query: searchLabel), results.count >= minMatches {
+                    found = true
+                    break
+                }
+            } else {
+                // Caso común: solo nos importa ≥1 match. existsFast binario.
+                if (try? bridge.existsFast(label: searchLabel)) == true {
+                    found = true
+                    break
+                }
             }
             usleep(pollInterval)
         }
@@ -343,19 +357,29 @@ public func executeSharedCommand(_ args: [String], bridge: any DeviceBridge, dee
         }
         let target = args[1]
         let timeout = args.count >= 3 ? Double(args[2]) ?? 10.0 : 10.0
-        let pollInterval: useconds_t = 500_000
-        let maxAttempts = Int(timeout * 2)
+
+        // #79: mismo tratamiento que waitFor — poll 100ms + existsFast
+        let pollInterval: useconds_t = 100_000
+        let maxAttempts = Int(timeout * 10)
 
         // Support label[N] syntax: waitUntilGone "Item[2]" waits until fewer than 2 matches
         let (searchLabel, requiredCount) = TargetResolverShared.parse(target)
         let minMatches = requiredCount ?? 1
+        let needsCountQuery = minMatches > 1
 
         var gone = false
         for _ in 0..<maxAttempts {
-            let results = (try? bridge.search(query: searchLabel)) ?? []
-            if results.count < minMatches {
-                gone = true
-                break
+            if needsCountQuery {
+                let results = (try? bridge.search(query: searchLabel)) ?? []
+                if results.count < minMatches {
+                    gone = true
+                    break
+                }
+            } else {
+                if (try? bridge.existsFast(label: searchLabel)) == false {
+                    gone = true
+                    break
+                }
             }
             usleep(pollInterval)
         }
