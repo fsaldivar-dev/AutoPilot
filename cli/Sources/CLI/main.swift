@@ -410,6 +410,22 @@ func executeCommand(_ args: [String]) throws {
     case "doctor":
         iOSDoctor.run(simulatorBridge: simulatorBridge, bridge: bridge)
 
+    case "setup":
+        // Bootstrap completo: sim + runner + daemon + warmup
+        // Acciones de device pasan por el router (ARD-001).
+        let group = DispatchGroup()
+        group.enter()
+        Task {
+            do {
+                try await iOSSetup.run(router: router)
+            } catch {
+                print("\n✗ Setup failed: \(error)")
+                exit(1)
+            }
+            group.leave()
+        }
+        group.wait()
+
     default:
         // Delegate to shared (platform-agnostic) dispatcher
         let handled = try executeSharedCommand(args, bridge: bridge, deepBridge: xcuiBridge)
