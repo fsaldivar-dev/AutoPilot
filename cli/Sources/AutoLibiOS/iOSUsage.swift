@@ -73,6 +73,7 @@ public enum iOSUsage {
           record <output.auto>               Record interactions to script (Ctrl+C to stop)
           run <script.auto>                 Run automation script
           doctor                            Check environment setup (Simulator, AX, xcrun)
+          setup                             Full bootstrap — sim + runner + daemon (idempotente)
           daemon start [--udid U] [--timeout S]  Start sidecar daemon for XCTest runner
           daemon stop [--udid U]             Stop sidecar daemon
           daemon status [--udid U]           Show daemon and runner status
