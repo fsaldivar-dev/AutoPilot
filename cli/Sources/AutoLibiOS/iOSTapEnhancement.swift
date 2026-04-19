@@ -19,17 +19,17 @@ public enum iOSTapEnhancement {
     public struct Dependencies {
         public let simulatorBridge: SimulatorBridge
         public let elementIndex: ElementIndex
-        public let bridge: any DeviceBridge
+        public let router: ActionRouter
 
-        public init(simulatorBridge: SimulatorBridge, elementIndex: ElementIndex, bridge: any DeviceBridge) {
+        public init(simulatorBridge: SimulatorBridge, elementIndex: ElementIndex, router: ActionRouter) {
             self.simulatorBridge = simulatorBridge
             self.elementIndex = elementIndex
-            self.bridge = bridge
+            self.router = router
         }
     }
 
     /// Ejecuta el tap con sintaxis enhanced. Retorna el tiempo total en ms.
-    public static func execute(args: [String], deps: Dependencies, start: CFAbsoluteTime) throws {
+    public static func execute(args: [String], deps: Dependencies, start: CFAbsoluteTime) async throws {
 
         // Role o within → delega a findAXElementScoped
         if let parsed = parseCommand(args), (parsed.role != nil || parsed.within != nil) {
@@ -47,11 +47,11 @@ public enum iOSTapEnhancement {
         // Multi-tap: "a,b,c" o sintaxis individual
         let targets = args[1].split(separator: ",").map(String.init)
         for target in targets {
-            try executeSingle(target: target, deps: deps, start: start)
+            try await executeSingle(target: target, deps: deps, start: start)
         }
     }
 
-    private static func executeSingle(target: String, deps: Dependencies, start: CFAbsoluteTime) throws {
+    private static func executeSingle(target: String, deps: Dependencies, start: CFAbsoluteTime) async throws {
         // $N → resolve por índice
         if target.hasPrefix("$"), let n = Int(target.dropFirst()) {
             if deps.elementIndex.count == 0 {
@@ -87,8 +87,8 @@ public enum iOSTapEnhancement {
             return
         }
 
-        // Default: delega al bridge genérico
-        try deps.bridge.tap(target: target)
+        // Default: delega al router (→ AXBackend primero, escala a XCUIBackend)
+        _ = try await deps.router.execute(.tap(target: target))
         print("Tapped '\(target)' (\(elapsedMs(start))ms)")
     }
 

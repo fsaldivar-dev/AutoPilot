@@ -5,7 +5,7 @@ import AutoCore
 /// iOS-específico porque depende de `SimulatorBridge.injectAndLaunch` y `DylibInjector`.
 public enum iOSLaunchEnhancement {
 
-    public static func execute(args: [String], simulatorBridge: SimulatorBridge, bridge: any DeviceBridge, start: CFAbsoluteTime) throws {
+    public static func execute(args: [String], simulatorBridge: SimulatorBridge, router: ActionRouter, start: CFAbsoluteTime) async throws {
         let config = AutoPilotConfig.readAll()
         let bundleId: String
         if args.count >= 2 && !args[1].hasPrefix("--") {
@@ -66,7 +66,8 @@ public enum iOSLaunchEnhancement {
             let ms = elapsedMs(start)
             print("Launched \(bundleId) with camera mock → \(imgPath) (\(ms)ms)")
         } else {
-            try bridge.launchApp(bundleId: bundleId, envVars: envVars)
+            // Launch vía router → SimCtlBackend (declara .launchApp).
+            _ = try await router.execute(.launchApp(bundleId: bundleId, envVars: envVars))
             let ms = elapsedMs(start)
             if envVars.isEmpty {
                 print("Launched \(bundleId) (\(ms)ms)")

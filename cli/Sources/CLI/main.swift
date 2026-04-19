@@ -228,12 +228,12 @@ func executeCommand(_ args: [String]) throws {
         let deps = iOSTapEnhancement.Dependencies(
             simulatorBridge: simulatorBridge,
             elementIndex: elementIndex,
-            bridge: bridge
+            router: router
         )
-        try iOSTapEnhancement.execute(args: args, deps: deps, start: start)
+        runAsync { try await iOSTapEnhancement.execute(args: args, deps: deps, start: start) }
 
     case "launch":
-        try iOSLaunchEnhancement.execute(args: args, simulatorBridge: simulatorBridge, bridge: bridge, start: start)
+        runAsync { try await iOSLaunchEnhancement.execute(args: args, simulatorBridge: simulatorBridge, router: router, start: start) }
 
     case "camera":
         guard args.count >= 2 else {
@@ -402,7 +402,7 @@ func executeCommand(_ args: [String]) throws {
         try iOSDaemonCommand.execute(Array(args.dropFirst()))
 
     case "runner":
-        try iOSRunnerCommand.execute(Array(args.dropFirst()), bridge: bridge)
+        runAsync { try await iOSRunnerCommand.execute(Array(args.dropFirst()), router: router) }
 
     case "help", "--help", "-h":
         iOSUsage.printUsage()
@@ -411,20 +411,9 @@ func executeCommand(_ args: [String]) throws {
         iOSDoctor.run(simulatorBridge: simulatorBridge, bridge: bridge)
 
     case "setup":
-        // Bootstrap completo: sim + runner + daemon + warmup
+        // Bootstrap completo: sim + runner + daemon + warmup.
         // Acciones de device pasan por el router (ARD-001).
-        let group = DispatchGroup()
-        group.enter()
-        Task {
-            do {
-                try await iOSSetup.run(router: router)
-            } catch {
-                print("\n✗ Setup failed: \(error)")
-                exit(1)
-            }
-            group.leave()
-        }
-        group.wait()
+        runAsync { try await iOSSetup.run(router: router) }
 
     default:
         // Delegate to shared (platform-agnostic) dispatcher

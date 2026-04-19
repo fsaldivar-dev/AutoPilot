@@ -3,7 +3,7 @@ import Foundation
 /// Launch Android con integración al camera mock del AgentBridge (JVMTI).
 public enum AndroidLaunchEnhancement {
 
-    public static func execute(args: [String], bridge: any DeviceBridge, start: CFAbsoluteTime) throws {
+    public static func execute(args: [String], bridge: any DeviceBridge, router: ActionRouter, start: CFAbsoluteTime) async throws {
         let config = AutoPilotConfig.readAll()
         guard let parsed = parseLaunchArgs(args, config: config) else {
             print("Usage: auto-android launch <package> [--inject image.jpg]")
@@ -25,7 +25,8 @@ public enum AndroidLaunchEnhancement {
             let ms = elapsedMs(start)
             print("Launched \(parsed.bundleId) with camera mock → \(imgPath) (\(ms)ms)")
         } else {
-            try bridge.launchApp(bundleId: parsed.bundleId, envVars: [:])
+            // Launch vía router → AgentBackend/AdbBackend según registry.
+            _ = try await router.execute(.launchApp(bundleId: parsed.bundleId, envVars: [:]))
             let ms = elapsedMs(start)
             print("Launched \(parsed.bundleId) (\(ms)ms)")
         }
