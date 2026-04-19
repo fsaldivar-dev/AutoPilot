@@ -64,8 +64,8 @@ public enum AndroidUsage {
           inject <image.jpg>                 Hot-swap mock camera image (no restart)
           build [module]                    Gradle assembleDebug wrapper (uses .autopilot)
           list <type>                       Typed UI listing via router
-                                            type: all | buttons | labels | textfields | cells |
-                                                  switches | images | navbars
+                                            type: all | buttons | text | textfields | cells |
+                                                  switches | checkboxes | images | navbars
 
         Script format (.auto):
           # Comments start with #
