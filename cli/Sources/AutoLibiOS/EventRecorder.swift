@@ -106,6 +106,20 @@ public final class EventRecorder {
         CFRunLoopRun()
     }
 
+    /// Decide la delta Y normalizada (en unidades de línea) para un scroll event.
+    ///
+    /// **#50**: el trackpad smooth scroll emite `scrollWheelEventDeltaAxis1 = 0`
+    /// y pone la delta real (en píxeles) en `scrollWheelEventPointDeltaAxis1`.
+    /// Mouse wheel tradicional usa el primero. Preferimos `lineDelta` si no-cero;
+    /// fallback a `pointDelta / 10` (~10px ≈ 1 línea) para mantener semántica
+    /// consistente con el resto del recorder.
+    ///
+    /// Función pura para poder testearla sin CGEvent real.
+    public static func scrollDeltaYFrom(lineDelta: Double, pointDelta: Double) -> Double {
+        if abs(lineDelta) > 0 { return lineDelta }
+        return pointDelta / 10.0
+    }
+
     fileprivate func handleEvent(_ proxy: CGEventTapProxy, _ type: CGEventType, _ event: CGEvent) {
         let location = event.location
 
@@ -126,8 +140,9 @@ public final class EventRecorder {
             let keyCode = UInt16(event.getIntegerValueField(.keyboardEventKeycode))
             kind = .keyDown(keyCode)
         case .scrollWheel:
-            let deltaY = event.getDoubleValueField(.scrollWheelEventDeltaAxis1)
-            kind = .scrollWheel(deltaY: deltaY)
+            let lineDelta = event.getDoubleValueField(.scrollWheelEventDeltaAxis1)
+            let pointDelta = event.getDoubleValueField(.scrollWheelEventPointDeltaAxis1)
+            kind = .scrollWheel(deltaY: EventRecorder.scrollDeltaYFrom(lineDelta: lineDelta, pointDelta: pointDelta))
         default:
             return
         }

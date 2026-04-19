@@ -25,6 +25,17 @@ public final class RecordingSession {
     // Cached state
     private var simulatorPID: pid_t = 0
 
+    // #52: stale AX tree detection en clicks consecutivos rápidos.
+    // Si el anterior mouseDown sucedió hace < `fastClickWindow` y el tree
+    // sigue matcheando el fingerprint de entonces, esperamos a que el
+    // tree cambie o a que pase `staleTreeTimeout` antes de capturarlo.
+    // Esto evita que resolvamos el segundo click contra el estado pre-primer-click.
+    private var lastMouseDownTimestamp: CFAbsoluteTime = 0
+    private var lastCapturedFingerprint: ViewFingerprint?
+    private let fastClickWindow: CFAbsoluteTime = 0.25     // 250ms
+    private let staleTreeTimeout: CFAbsoluteTime = 0.30    // 300ms max wait
+    private let pollInterval: useconds_t = 15_000           // 15ms
+
     public init(bridge: SimulatorBridge, outputPath: String) {
         self.bridge = bridge
         self.outputPath = outputPath
@@ -92,8 +103,11 @@ public final class RecordingSession {
     private func handleEvent(_ event: RawEvent) {
         switch event.kind {
         case .mouseDown:
-            // Capture AX tree NOW on the event tap thread, BEFORE the click processes
-            let root = bridge.findSimulatorContentFast()
+            // Capture AX tree NOW on the event tap thread, BEFORE the click processes.
+            // #52: si hubo un mouseDown muy reciente, el tree del Simulator puede
+            // no haber aplicado los cambios del click anterior. Esperamos a que
+            // el fingerprint cambie (UI reaccionó) o timeout.
+            let root = captureRootAvoidingStaleTree(for: event)
             resolveQueue.async { [weak self] in
                 self?.handleMouseDown(event, root: root)
             }
@@ -113,6 +127,49 @@ public final class RecordingSession {
                 self?.handleScroll(deltaY: deltaY, event: event)
             }
         }
+    }
+
+    // MARK: - Stale tree guard (#52)
+
+    /// Captura el root AX evitando tree stale tras clicks consecutivos rápidos.
+    ///
+    /// **El problema** (#52): tras un click, Simulator tarda un frame en
+    /// propagar el cambio visual al AX subsystem de macOS. Si el usuario
+    /// hace otro click <250ms después, `findSimulatorContentFast()` devuelve
+    /// el tree de ANTES del primer click, y el recorder resuelve el segundo
+    /// click contra ese estado viejo — emitiendo `tap` con el selector
+    /// equivocado.
+    ///
+    /// **Fix**: si pasaron menos de `fastClickWindow` ms desde el último
+    /// mouseDown, verificamos si el tree cambió respecto al fingerprint
+    /// capturado entonces. Si no cambió, poll cada 15ms hasta que cambie
+    /// o hasta `staleTreeTimeout`. Timeout no es error — usamos el tree
+    /// actual aunque parezca stale (es la mejor info disponible).
+    private func captureRootAvoidingStaleTree(for event: RawEvent) -> AXUIElement? {
+        let now = event.timestamp
+        let elapsed = now - lastMouseDownTimestamp
+
+        guard elapsed < fastClickWindow, let priorFp = lastCapturedFingerprint else {
+            // No-fast-click o primer click — captura directa
+            let root = bridge.findSimulatorContentFast()
+            lastMouseDownTimestamp = now
+            lastCapturedFingerprint = root.flatMap { ViewFingerprint.capture(root: $0) }
+            return root
+        }
+
+        // Fast consecutive click — poll hasta que el fingerprint cambie
+        let deadline = now + staleTreeTimeout
+        var root = bridge.findSimulatorContentFast()
+        var current = root.flatMap { ViewFingerprint.capture(root: $0) }
+        while current == priorFp && CFAbsoluteTimeGetCurrent() < deadline {
+            usleep(pollInterval)
+            root = bridge.findSimulatorContentFast()
+            current = root.flatMap { ViewFingerprint.capture(root: $0) }
+        }
+
+        lastMouseDownTimestamp = CFAbsoluteTimeGetCurrent()
+        lastCapturedFingerprint = current
+        return root
     }
 
     // MARK: - Mouse Events (Phase 3 + Phase 4d edge cases)
