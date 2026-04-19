@@ -10,8 +10,9 @@ import Foundation
 public enum AndroidListCommand {
 
     public static let allowedTypes: Set<String> = [
-        "all", "buttons", "labels", "statictexts", "textfields",
-        "cells", "switches", "links", "images", "navbars", "navigationbars"
+        "all", "buttons", "labels", "statictexts", "text", "textfields",
+        "cells", "switches", "checkboxes", "links", "images",
+        "navbars", "navigationbars"
     ]
 
     /// Retorna true si manejó el caso; false si el tipo no aplica (fall-through al dispatcher).
@@ -73,24 +74,37 @@ public enum AndroidListCommand {
     private static func matches(_ node: [String: Any], type: String) -> Bool {
         let role = (node["role"] as? String)?.lowercased() ?? ""
         let clickable = (node["clickable"] as? Bool) ?? false
+        let label = (node["label"] as? String) ?? ""
+        let hasContent = !label.isEmpty || !(node["title"] as? String ?? "").isEmpty
+
+        // Roles de layout puros que nunca queremos en ningún listado excepto `all`
+        let layoutRoles: Set<String> = ["framelayout", "linearlayout", "composeview", "view"]
 
         switch type {
         case "all":
-            return role != "group" && role != "container"
+            // Todo lo que no sea layout container puro sin contenido
+            return !layoutRoles.contains(role) || hasContent || clickable
         case "buttons":
-            return role == "button" || role == "imagebutton" || clickable
-        case "labels", "statictexts":
+            // Button real O clickable con label (Compose suele usar View clickable
+            // con contentDescription para botones con ícono)
+            return role == "button" || role == "imagebutton" ||
+                   (clickable && hasContent)
+        case "labels", "statictexts", "text":
             return role == "textview" || role == "statictext"
         case "textfields":
             return role == "edittext" || role == "textfield"
-        case "switches":
-            return role == "switch" || role == "checkbox"
+        case "switches", "checkboxes":
+            return role == "switch" || role == "checkbox" || role == "togglebutton"
         case "links":
             return role == "link"
         case "images":
-            return role == "imageview" || role == "image"
+            // Android/Compose no expone ImageView por rol en UiAutomator — están
+            // bajo View/ComposeView. Heurística: nodos con label/contentDesc que
+            // no son clickable (los clickables ya son buttons) y no tienen otro rol.
+            return role == "imageview" || role == "image" ||
+                   (role == "view" && hasContent && !clickable)
         case "cells":
-            return role == "cell" || role == "listitem"
+            return role == "cell" || role == "listitem" || role == "recyclerview"
         case "navbars", "navigationbars":
             return role == "toolbar" || role == "actionbar" || role == "navigationbar"
         default:
