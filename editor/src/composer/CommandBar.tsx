@@ -187,7 +187,9 @@ export function CommandBar({ platform }: Props) {
 
   return (
     <div className="command-bar" style={{ position: "relative" }} data-testid="command-bar">
-      <span style={{ color: "var(--accent)", fontSize: 18 }}>⚡</span>
+      <span className="slash" aria-hidden="true">
+        /
+      </span>
       <input
         ref={inputRef}
         id="command-bar-input"
@@ -220,7 +222,10 @@ export function CommandBar({ platform }: Props) {
         autoComplete="off"
         spellCheck={false}
       />
-      <span className="kbd">⌘↵</span>
+      <span style={{ color: "var(--fg-faint)", fontSize: 11, fontFamily: "JetBrains Mono, monospace" }}>
+        <span className="kbd">⏎</span> run <span style={{ color: "var(--fg-mute)", margin: "0 6px" }}>·</span>{" "}
+        <span className="kbd">⎋</span> cancel
+      </span>
       {popoverVisible && (
         <AutocompletePopover
           suggestions={suggestions}

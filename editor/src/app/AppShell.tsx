@@ -5,43 +5,27 @@ import { DevicePreview } from "../inspector/DevicePreview";
 import { FlowList } from "../projects/FlowList";
 import { NewProjectModal } from "../projects/NewProjectModal";
 import { ProjectList } from "../projects/ProjectList";
+import { PrimitivesPalette } from "../composer/PrimitivesPalette";
+import { LogicPalette } from "../composer/LogicPalette";
+import { BlockProperties } from "../inspector/BlockProperties";
 import { Timeline } from "../timeline/Timeline";
 import { Toolbar } from "../toolbar/Toolbar";
 import { EnvChips } from "../toolbar/EnvChips";
 import { useStore } from "../state/store";
 import type { Platform } from "../domain/types";
-import * as dbService from "../services/db";
-
-function loadProjectsIntoStore() {
-  dbService
-    .listProjects()
-    .then(async (projects) => {
-      if (!projects || projects.length === 0) return;
-      const hydrated = await Promise.all(
-        projects.map(async (p) => {
-          const [flows, components, env] = await Promise.all([
-            dbService.listFlows(p.id).catch(() => []),
-            dbService.listComponents(p.id).catch(() => []),
-            dbService.listEnvVars(p.id).catch(() => []),
-          ]);
-          return { ...p, flows, components, env };
-        })
-      );
-      useStore.getState().setProjects(hydrated);
-    })
-    .catch(() => {
-      // No Tauri runtime in tests; ignore.
-    });
-}
+import { hydrateFromDisk, startAutoSave } from "../services/persistence";
 
 export function AppShell() {
   const [platform, setPlatform] = useState<Platform>("ios");
   const [showNewProject, setShowNewProject] = useState(false);
   const toast = useStore((s) => s.toast);
   const dismissToast = useStore((s) => s.dismissToast);
+  const selectedIds = useStore((s) => s.selectedBlockIds);
 
   useEffect(() => {
-    loadProjectsIntoStore();
+    void hydrateFromDisk();
+    const unsub = startAutoSave(500);
+    return () => unsub();
   }, []);
 
   useEffect(() => {
@@ -58,6 +42,8 @@ export function AppShell() {
         <ProjectList onNewProject={() => setShowNewProject(true)} />
         <FlowList />
         <ComponentLibrary />
+        <PrimitivesPalette platform={platform} />
+        <LogicPalette />
         <EnvChips />
       </aside>
       <main className="panel-main">
@@ -65,7 +51,7 @@ export function AppShell() {
       </main>
       <aside className="panel-right">
         <DevicePreview platform={platform} />
-        <Timeline />
+        {selectedIds.length === 1 ? <BlockProperties /> : <Timeline />}
       </aside>
       <footer className="status-bar">
         <span data-testid="status-text">
