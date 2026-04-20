@@ -1,8 +1,9 @@
 import Foundation
 import AutoCore
 
-/// Resolver de plataforma iOS. Bootstrap de los 4 backends nativos:
-/// - AXBackend (fast, AX macOS)
+/// Resolver de plataforma iOS. Bootstrap de los backends nativos:
+/// - iOSAgentBackend (ARD-002, in-process observer) — primario si disponible
+/// - AXBackend (fast, AX macOS) — fallback cuando observer no está
 /// - XCUIBackend (deep, XCTest runner) — escalation automático
 /// - SimCtlBackend (device mgmt vía simctl)
 /// - MediaBackend (screenshot + recording)
@@ -16,21 +17,39 @@ public final class iOSDeviceResolver: DeviceResolver {
     public let simulatorBridge: SimulatorBridge
     public let xcuiBridge: XCUIBridge
     public let legacyBridge: any DeviceBridge
+    /// Non-nil when the app under test has libAutoPilotObserver linked (ARD-002).
+    public let agentBridge: iOSAgentBridge?
 
     public init() {
         let sim = SimulatorBridge()
         let xcui = XCUIBridge()
         self.simulatorBridge = sim
         self.xcuiBridge = xcui
-        self.legacyBridge = Self.makeLegacyBridge(sim: sim, xcui: xcui)
 
         let registry = CapabilityRegistry()
-        let backends: [any Backend] = [
+        var backends: [any Backend] = []
+
+        // ARD-002: if the in-process observer is reachable, register it first so
+        // it takes priority over AX for all UI actions (tree/tap/etc.).
+        // Also wraps legacyBridge so CommandDispatcher routes through the observer.
+        // Falls back to AX+XCUI transparently when the observer is not available.
+        let agent = iOSAgentBridge()
+        if agent.probeSocket() {
+            self.agentBridge = agent
+            let hybridFallback = Self.makeLegacyBridge(sim: sim, xcui: xcui)
+            self.legacyBridge = ObserverBridge(observer: agent, fallback: hybridFallback)
+            backends.append(iOSAgentBackend.make(bridge: agent))
+        } else {
+            self.agentBridge = nil
+            self.legacyBridge = Self.makeLegacyBridge(sim: sim, xcui: xcui)
+        }
+
+        backends.append(contentsOf: [
             AXBackend.make(simulatorBridge: sim),
             XCUIBackend.make(xcuiBridge: xcui),
             SimCtlBackend.make(simulatorBridge: sim),
             MediaBackend.make(simulatorBridge: sim)
-        ]
+        ])
         registerBackendsSynchronously(backends, in: registry)
         self.router = ActionRouter(registry: registry)
     }
