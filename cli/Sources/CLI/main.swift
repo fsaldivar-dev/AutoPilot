@@ -417,7 +417,7 @@ func executeCommand(_ args: [String]) throws {
             // Unknown arg → fall through to shared dispatcher (will print usage)
         }
         // No args or unrecognized arg → legacy "list simulators"
-        _ = try executeSharedCommand(args, bridge: bridge, deepBridge: xcuiBridge)
+        _ = try executeSharedCommand(args, bridge: bridge, deepBridge: xcuiBridge, router: router)
 
     case "stats":
         if let hybrid = bridge as? HybridBridge {
@@ -445,7 +445,7 @@ func executeCommand(_ args: [String]) throws {
 
     default:
         // Delegate to shared (platform-agnostic) dispatcher
-        let handled = try executeSharedCommand(args, bridge: bridge, deepBridge: xcuiBridge)
+        let handled = try executeSharedCommand(args, bridge: bridge, deepBridge: xcuiBridge, router: router)
         if !handled {
             print("Unknown command: \(cmd)")
             iOSUsage.printUsage()
@@ -459,7 +459,18 @@ func executeCommand(_ args: [String]) throws {
 /// Much faster than `tree deep` because it only materializes the requested type(s).
 func handleListCommand(type: String) throws {
     let start = CFAbsoluteTimeGetCurrent()
-    let items = try xcuiBridge.list(type: type)
+
+    // Prefer the observer path (bridge.tree) when the observer is reachable —
+    // faster and works on device physical. Fall back to XCUI typed listing
+    // only when the observer isn't available (no agentBridge registered).
+    let items: [[String: Any]]
+    if deviceResolver.agentBridge != nil {
+        let tree = try bridge.tree()
+        items = filterTreeByListType(tree, type: type)
+    } else {
+        items = try xcuiBridge.list(type: type)
+    }
+
     let ms = Int((CFAbsoluteTimeGetCurrent() - start) * 1000)
 
     if items.isEmpty {
@@ -485,6 +496,29 @@ func handleListCommand(type: String) throws {
         if !enabled { line += "  (disabled)" }
         line += "  \(frame)"
         print(line)
+    }
+}
+
+/// Filter a tree (from DeviceBridge.tree / observer) to entries matching the
+/// requested `auto list <type>` filter. Reuses the AX role taxonomy the observer
+/// already emits, so we skip the XCUI typed-query roundtrip.
+private func filterTreeByListType(_ tree: [[String: Any]], type: String) -> [[String: Any]] {
+    let wanted: Set<String>
+    switch type.lowercased() {
+    case "all":                         return tree
+    case "buttons":                     wanted = ["AXButton"]
+    case "labels", "statictexts":       wanted = ["AXStaticText"]
+    case "textfields":                  wanted = ["AXTextField", "AXTextArea"]
+    case "cells":                       wanted = ["AXCell"]
+    case "switches":                    wanted = ["AXCheckBox", "AXSwitch"]
+    case "links":                       wanted = ["AXLink"]
+    case "images":                      wanted = ["AXImage"]
+    case "navbars", "navigationbars":   wanted = ["AXNavigationBar"]
+    default:                            return []
+    }
+    return tree.filter { node in
+        guard let role = node["role"] as? String else { return false }
+        return wanted.contains(role)
     }
 }
 
