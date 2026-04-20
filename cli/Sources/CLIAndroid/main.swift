@@ -36,24 +36,52 @@ func run() throws {
 
 func runScript(path: String) throws {
     let content = try String(contentsOfFile: path, encoding: .utf8)
-    let steps = parseScript(content)
 
     let totalStart = CFAbsoluteTimeGetCurrent()
 
-    for (i, step) in steps.enumerated() {
-        let label = step.tokens.joined(separator: " ")
-        print("[\(i + 1)] \(label)")
+    // Parse estructural (soporta if/repeat/try/assert); backward-compat total
+    // para scripts sin control flow.
+    let statements: [ScriptStatement]
+    do {
+        statements = try parseStatements(content)
+    } catch {
+        print("Parse error: \(error)")
+        exit(1)
+    }
 
+    // Interpreter + delegación al dispatcher legacy para todos los comandos
+    // (preserva logs, semántica y comandos no mapeados como camera/doctor/etc.).
+    let interp = ScriptInterpreter(router: router) { tokens, line in
         do {
-            try executeCommand(step.tokens)
+            try executeCommand(tokens)
         } catch {
-            print("FAIL at line \(step.lineNumber): \(error)")
-            exit(1)
+            print("FAIL at line \(line): \(error)")
+            throw error
         }
     }
 
+    // Bridge sync → async. nonisolated(unsafe) evita el error de strict
+    // concurrency; la sincronización real la garantiza el DispatchSemaphore
+    // (main thread espera hasta que el Task termine y signalee).
+    let sem = DispatchSemaphore(value: 0)
+    nonisolated(unsafe) var runError: Error?
+    Task {
+        defer { sem.signal() }
+        do {
+            try await interp.run(statements)
+        } catch {
+            runError = error
+        }
+    }
+    sem.wait()
+
+    if let err = runError {
+        print("Script failed: \(err)")
+        exit(1)
+    }
+
     let totalMs = elapsedMs(totalStart)
-    print("\n\(steps.count) step(s) completed (\(totalMs)ms)")
+    print("\nScript completed (\(totalMs)ms)")
 }
 
 /// REPL for Android. Keeps the bridge alive between commands.

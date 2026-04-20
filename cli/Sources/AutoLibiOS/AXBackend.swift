@@ -18,7 +18,8 @@ public enum AXBackend {
         .drag, .dragCoordinates,
         .tree, .search, .elementAt,
         .typeText, .eraseText, .pressKey, .hideKeyboard, .copyTextFrom,
-        .scrollTo, .viewport
+        .scrollTo, .viewport,
+        .exists, .isVisible, .hasText, .getPlatform, .getOrientation
     ]
 
     public static func make(simulatorBridge: SimulatorBridge) -> any Backend {

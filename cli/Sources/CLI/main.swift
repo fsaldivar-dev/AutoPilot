@@ -43,7 +43,6 @@ func run() throws {
 
 func runScript(path: String) throws {
     let content = try String(contentsOfFile: path, encoding: .utf8)
-    let steps = parseScript(content)
 
     // Attach stabilizer for auto-wait between steps
     if let pid = simulatorBridge.findSimulatorPID() {
@@ -52,25 +51,57 @@ func runScript(path: String) throws {
 
     let totalStart = CFAbsoluteTimeGetCurrent()
 
-    for (i, step) in steps.enumerated() {
-        let label = step.tokens.joined(separator: " ")
-        print("[\(i + 1)] \(label)")
+    // Parse con el parser estructural (soporta if/repeat/try/assert).
+    // Scripts sin keywords nuevos se parsean como `.action` plano — 100%
+    // backward compatible.
+    let statements: [ScriptStatement]
+    do {
+        statements = try parseStatements(content)
+    } catch {
+        print("Parse error: \(error)")
+        stabilizer.detach()
+        exit(1)
+    }
 
-        // Auto-wait: let UI stabilize before each action
+    // El interpreter usa el router existente para las primitivas comunes
+    // (tap, type, screenshot...) y delega al dispatcher legacy para el resto
+    // (ping, index, doctor, camera, config, etc.) vía `onUnknownCommand`.
+    let interp = ScriptInterpreter(router: router) { tokens, line in
+        // Stabilize antes de ejecutar el comando (como el loop viejo).
         stabilizer.waitForStable(quietPeriod: 0.15, timeout: 3.0)
         stabilizer.resetCounter()
-
         do {
-            try executeCommand(step.tokens)
+            try executeCommand(tokens)
         } catch {
-            print("FAIL at line \(step.lineNumber): \(error)")
-            exit(1)
+            print("FAIL at line \(line): \(error)")
+            throw error
         }
     }
 
+    // Bridge sync → async. nonisolated(unsafe) evita el error de strict
+    // concurrency; la sincronización real la garantiza el DispatchSemaphore
+    // (main thread espera hasta que el Task termine y signalee).
+    let sem = DispatchSemaphore(value: 0)
+    nonisolated(unsafe) var runError: Error?
+    Task {
+        defer { sem.signal() }
+        do {
+            try await interp.run(statements)
+        } catch {
+            runError = error
+        }
+    }
+    sem.wait()
+
     stabilizer.detach()
+
+    if let err = runError {
+        print("Script failed: \(err)")
+        exit(1)
+    }
+
     let totalMs = elapsedMs(totalStart)
-    print("\n\(steps.count) step(s) completed (\(totalMs)ms)")
+    print("\nScript completed (\(totalMs)ms)")
 }
 
 /// Commands that mutate the simulator UI or observe a transition. Running

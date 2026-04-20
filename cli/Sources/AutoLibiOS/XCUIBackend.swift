@@ -20,7 +20,8 @@ public enum XCUIBackend {
         .scroll, .swipe,
         .tree, .search,
         .launchApp, .terminateApp,
-        .typeText, .screenshot, .viewport
+        .typeText, .screenshot, .viewport,
+        .exists, .isVisible, .hasText
     ]
 
     public static func make(xcuiBridge: XCUIBridge) -> any Backend {

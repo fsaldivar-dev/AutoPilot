@@ -1,625 +1,73 @@
-use std::process::{Command, Child, ChildStdin, ChildStdout, Stdio};
-use std::path::PathBuf;
-use std::sync::{mpsc, Mutex};
-use std::time::Duration;
-use std::io::{BufRead, BufReader, Write};
-use serde_json::Value;
-
-fn find_binary(name: &str) -> PathBuf {
-    // 1. Inside the .app bundle (Tauri externalBin — production builds)
-    //    Tauri places externalBin at: App.app/Contents/MacOS/<name>
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            // Tauri appends target triple, check both with and without
-            let candidate = dir.join(name);
-            if candidate.exists() { return candidate; }
-
-            // Also check with target triple suffix
-            let target = std::env::consts::ARCH;
-            let os = std::env::consts::OS;
-            let triple = match (target, os) {
-                ("aarch64", "macos") => "aarch64-apple-darwin",
-                ("x86_64", "macos") => "x86_64-apple-darwin",
-                _ => "",
-            };
-            if !triple.is_empty() {
-                let candidate = dir.join(format!("{}-{}", name, triple));
-                if candidate.exists() { return candidate; }
-            }
-        }
-    }
-
-    // 2. Relative paths from cwd (tauri dev — repo checkout)
-    if let Ok(cwd) = std::env::current_dir() {
-        for rel in [
-            name.to_string(),
-            format!("../{}", name),
-            format!("../../{}", name),
-            format!("../../cli/.build/debug/{}", name),
-            format!("../../cli/.build/release/{}", name),
-            format!("../cli/.build/debug/{}", name),
-            format!("../cli/.build/release/{}", name),
-        ] {
-            let path = cwd.join(&rel);
-            if path.exists() { return path; }
-        }
-
-        // 3. Scan cli/.build/*/debug/ for any architecture
-        for base in ["../../cli/.build", "../cli/.build", "cli/.build"] {
-            let build_dir = cwd.join(base);
-            if let Ok(entries) = std::fs::read_dir(&build_dir) {
-                for entry in entries.flatten() {
-                    if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
-                        for profile in ["debug", "release"] {
-                            let candidate = entry.path().join(profile).join(name);
-                            if candidate.exists() { return candidate; }
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    // 4. Search system PATH via `which`
-    if let Ok(output) = Command::new("which").arg(name).output() {
-        if output.status.success() {
-            let path_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
-            if !path_str.is_empty() {
-                return PathBuf::from(path_str);
-            }
-        }
-    }
-
-    PathBuf::from(name)
-}
-
-fn auto_binary(platform: &str) -> PathBuf {
-    match platform {
-        "android" => find_binary("auto-android"),
-        _ => find_binary("auto"),
-    }
-}
-
-/// Extended PATH for subprocess execution (Tauri may not inherit full shell PATH)
-fn extended_path() -> String {
-    let path = std::env::var("PATH").unwrap_or_default();
-    let home = std::env::var("HOME").unwrap_or_else(|_| "/Users/".to_string());
-    format!("{path}:/usr/bin:/usr/local/bin:/opt/homebrew/bin:{home}/Library/Android/sdk/platform-tools")
-}
-
-/// Resolve ANDROID_HOME — Tauri apps don't inherit shell env vars
-fn android_home() -> String {
-    std::env::var("ANDROID_HOME").unwrap_or_else(|_| {
-        let home = std::env::var("HOME").unwrap_or_else(|_| "/Users/".to_string());
-        format!("{home}/Library/Android/sdk")
-    })
-}
-
-/// Run a CLI command and return stdout
-fn run_cli(bin: &PathBuf, args: &[&str]) -> Result<String, String> {
-    let extended_path = extended_path();
-    let cwd = std::env::current_dir().unwrap_or_default();
-
-    let output = Command::new(bin)
-        .args(args)
-        .env("PATH", &extended_path)
-        .env("ANDROID_HOME", android_home())
-        .output()
-        .map_err(|e| {
-            format!(
-                "Failed to run {}\n  cwd: {}\n  exists: {}\n  PATH: {}\n  error: {} (kind: {:?})",
-                bin.display(),
-                cwd.display(),
-                bin.exists(),
-                extended_path,
-                e,
-                e.kind()
-            )
-        })?;
-
-    let stdout = String::from_utf8_lossy(&output.stdout).to_string();
-    let stderr = String::from_utf8_lossy(&output.stderr).to_string();
-
-    if output.status.success() {
-        Ok(stdout)
-    } else {
-        Err(format!("{}{}", stdout, stderr))
-    }
-}
-
-#[tauri::command]
-fn run_auto(args: Vec<String>, platform: Option<String>) -> Result<String, String> {
-    let plat = platform.as_deref().unwrap_or("ios");
-    let bin = auto_binary(plat);
-    let cwd = std::env::current_dir().unwrap_or_default();
-    let args_ref: Vec<&str> = args.iter().map(|s| s.as_str()).collect();
-    run_cli(&bin, &args_ref).map_err(|e| {
-        format!("{}\n[debug] bin={} exists={} cwd={} platform={}", e, bin.display(), bin.exists(), cwd.display(), plat)
-    })
-}
-
-/// Parse tree output into structured elements (works for both iOS and Android)
-fn parse_tree_output(stdout: &str) -> (Vec<Value>, Vec<String>) {
-    let mut elements: Vec<Value> = Vec::new();
-    let mut labels: Vec<String> = Vec::new();
-
-    for line in stdout.lines() {
-        let trimmed = line.trim();
-        if trimmed.is_empty() || trimmed.starts_with('(') { continue; }
-
-        let depth = line.len() - line.trim_start().len();
-        let mut role = String::new();
-        let mut label = String::new();
-        let mut id = String::new();
-        let mut value = String::new();
-        let mut frame = String::new();
-
-        if let Some(first_word) = trimmed.split_whitespace().next() {
-            role = first_word.to_string();
-        }
-
-        if let Some(i) = trimmed.find("label=\"") {
-            let start = i + 7;
-            if let Some(end) = trimmed[start..].find('"') {
-                label = trimmed[start..start+end].to_string();
-            }
-        }
-        if label.is_empty() {
-            if let Some(i) = trimmed.find("\"") {
-                let start = i + 1;
-                if let Some(end) = trimmed[start..].find('"') {
-                    let candidate = &trimmed[start..start+end];
-                    if !candidate.contains('=') {
-                        label = candidate.to_string();
-                    }
-                }
-            }
-        }
-        if let Some(i) = trimmed.find("id=") {
-            let start = i + 3;
-            let rest = &trimmed[start..];
-            id = rest.split_whitespace().next().unwrap_or("").to_string();
-        }
-        if let Some(i) = trimmed.find("value=\"") {
-            let start = i + 7;
-            if let Some(end) = trimmed[start..].find('"') {
-                value = trimmed[start..start+end].to_string();
-            }
-        }
-        if let Some(i) = trimmed.find('[') {
-            if let Some(end) = trimmed[i..].find(']') {
-                frame = trimmed[i..i+end+1].to_string();
-            }
-        }
-
-        let display = if !label.is_empty() { label.clone() }
-            else if !id.is_empty() { id.clone() }
-            else if !value.is_empty() { value.clone() }
-            else { role.clone() };
-
-        if !display.is_empty() && display != role {
-            labels.push(display.clone());
-        }
-
-        if !role.is_empty() {
-            elements.push(serde_json::json!({
-                "role": role,
-                "label": label,
-                "id": id,
-                "value": value,
-                "frame": frame,
-                "depth": depth / 2,
-                "display": display,
-            }));
-        }
-    }
-
-    labels.sort();
-    labels.dedup();
-    (elements, labels)
-}
-
-/// Build indexed element list from parsed tree elements.
-/// For Android: resolves generic "View" nodes by looking at their child text.
-fn index_from_tree(elements: &[Value]) -> Vec<Value> {
-    let mut indexed: Vec<Value> = Vec::new();
-    let mut idx: i64 = 0;
-
-    for el in elements {
-        let role = el["role"].as_str().unwrap_or("");
-        let label = el["label"].as_str().unwrap_or("");
-        let frame = el["frame"].as_str().unwrap_or("");
-        let depth = el["depth"].as_i64().unwrap_or(0);
-
-        // Skip pure containers with no useful info at depth 0-1
-        if depth <= 1 && label.is_empty() && matches!(role, "FrameLayout" | "LinearLayout") {
-            continue;
-        }
-
-        // For "View" or "Button" without a label, look at sibling/neighbor context
-        // The display field already has the best label from parse_tree_output
-        let display = el["display"].as_str().unwrap_or("");
-
-        let effective_label = if !label.is_empty() {
-            label.to_string()
-        } else if !display.is_empty() && display != role {
-            display.to_string()
-        } else {
-            // Skip elements with no useful identifier
-            continue;
-        };
-
-        indexed.push(serde_json::json!({
-            "index": idx,
-            "role": role,
-            "label": effective_label,
-            "frame": frame,
-        }));
-        idx += 1;
-    }
-
-    indexed
-}
-
-#[tauri::command]
-fn get_ax_tree(platform: Option<String>) -> Result<Value, String> {
-    let plat = platform.as_deref().unwrap_or("ios");
-    let bin = auto_binary(plat);
-    let stdout = run_cli(&bin, &["tree"])?;
-    let (elements, labels) = parse_tree_output(&stdout);
-
-    Ok(serde_json::json!({
-        "raw": stdout,
-        "elements": elements,
-        "labels": labels
-    }))
-}
-
-#[tauri::command]
-fn get_element_index(platform: Option<String>) -> Result<Value, String> {
-    let plat = platform.as_deref().unwrap_or("ios");
-
-    if plat == "android" {
-        // Generate index from tree — flatten elements and resolve generic Views
-        let bin = auto_binary(plat);
-        let stdout = run_cli(&bin, &["tree"]).unwrap_or_default();
-        let (elements, _) = parse_tree_output(&stdout);
-        return Ok(serde_json::json!({ "elements": index_from_tree(&elements) }));
-    }
-
-    let bin = auto_binary(plat);
-    let stdout = run_cli(&bin, &["index"]).unwrap_or_default();
-    let mut elements: Vec<Value> = Vec::new();
-
-    for line in stdout.lines() {
-        let trimmed = line.trim();
-        if !trimmed.starts_with('$') { continue; }
-
-        let parts: Vec<&str> = trimmed.splitn(2, |c: char| c.is_whitespace()).collect();
-        if parts.len() < 2 { continue; }
-
-        let idx_str = parts[0].trim_start_matches('$');
-        let idx: i64 = idx_str.parse().unwrap_or(-1);
-        if idx < 0 { continue; }
-
-        let rest = parts[1].trim();
-        let role_end = rest.find(|c: char| c.is_whitespace()).unwrap_or(rest.len());
-        let role = &rest[..role_end];
-        let after_role = rest[role_end..].trim();
-
-        let mut label = String::new();
-        if let Some(q1) = after_role.find('"') {
-            if let Some(q2) = after_role[q1+1..].find('"') {
-                label = after_role[q1+1..q1+1+q2].to_string();
-            }
-        }
-
-        let mut frame = String::new();
-        if let Some(b1) = after_role.find('[') {
-            if let Some(b2) = after_role[b1..].find(']') {
-                frame = after_role[b1..b1+b2+1].to_string();
-            }
-        }
-
-        elements.push(serde_json::json!({
-            "index": idx,
-            "role": role,
-            "label": label,
-            "frame": frame,
-        }));
-    }
-
-    Ok(serde_json::json!({ "elements": elements }))
-}
-
-/// Take screenshot and return base64
-fn take_screenshot(bin: &PathBuf) -> String {
-    let tmp = std::env::temp_dir().join("autopilot-inspect.png");
-    let tmp_str = tmp.to_string_lossy().to_string();
-
-    let _ = Command::new(bin)
-        .args(["screenshot", &tmp_str])
-        .env("PATH", extended_path())
-        .env("ANDROID_HOME", android_home())
-        .output();
-
-    if tmp.exists() {
-        use std::io::Read;
-        if let Ok(mut file) = std::fs::File::open(&tmp) {
-            let mut bytes = Vec::new();
-            if file.read_to_end(&mut bytes).is_ok() && !bytes.is_empty() {
-                use std::fmt::Write;
-                let mut b64 = String::new();
-                for chunk in bytes.chunks(3) {
-                    let b = match chunk.len() {
-                        3 => [chunk[0], chunk[1], chunk[2], 0],
-                        2 => [chunk[0], chunk[1], 0, 0],
-                        1 => [chunk[0], 0, 0, 0],
-                        _ => [0, 0, 0, 0],
-                    };
-                    let n = ((b[0] as u32) << 16) | ((b[1] as u32) << 8) | (b[2] as u32);
-                    const T: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
-                    let _ = write!(b64, "{}{}", T[(n >> 18 & 63) as usize] as char, T[(n >> 12 & 63) as usize] as char);
-                    if chunk.len() > 1 { let _ = write!(b64, "{}", T[(n >> 6 & 63) as usize] as char); } else { b64.push('='); }
-                    if chunk.len() > 2 { let _ = write!(b64, "{}", T[(n & 63) as usize] as char); } else { b64.push('='); }
-                }
-                let _ = std::fs::remove_file(&tmp);
-                return b64;
-            }
-        }
-    }
-    String::new()
-}
-
-/// Captures screenshot + tree in one call — screenshot and tree run in parallel.
-/// Uses a 10-second timeout to prevent the editor from freezing if the CLI hangs.
-#[tauri::command]
-fn inspect(platform: Option<String>) -> Result<Value, String> {
-    let plat = platform.as_deref().unwrap_or("ios");
-    let bin = auto_binary(plat);
-    let timeout = Duration::from_secs(10);
-
-    // Channels for receiving results with timeout
-    let (screenshot_tx, screenshot_rx) = mpsc::channel::<String>();
-    let (tree_tx, tree_rx) = mpsc::channel::<Result<(Vec<Value>, Vec<String>), String>>();
-
-    // Run screenshot and tree in parallel (keep handles for cleanup)
-    let bin_screenshot = bin.clone();
-    let screenshot_handle = std::thread::spawn(move || {
-        let result = take_screenshot(&bin_screenshot);
-        let _ = screenshot_tx.send(result);
-    });
-
-    let bin_tree = bin.clone();
-    let tree_handle = std::thread::spawn(move || {
-        let result = run_cli(&bin_tree, &["tree"])
-            .map(|stdout| parse_tree_output(&stdout));
-        let _ = tree_tx.send(result);
-    });
-
-    // Collect results with timeout
-    let image_b64 = match screenshot_rx.recv_timeout(timeout) {
-        Ok(result) => result,
-        Err(_) => {
-            eprintln!("inspect: screenshot timed out after 10s");
-            let _ = screenshot_handle.join();
-            String::new()
-        }
-    };
-
-    let tree_result = match tree_rx.recv_timeout(timeout) {
-        Ok(result) => result,
-        Err(_) => {
-            let _ = tree_handle.join();
-            return Err("Inspect timeout: tree took longer than 10 seconds. Is the device connected?".to_string());
-        }
-    };
-    let (elements, labels) = tree_result
-        .map_err(|e| format!("Tree failed: {}", e))?;
-
-    // Index: for Android, generate from tree; for iOS, call `auto index`
-    let index_elements = if plat == "android" {
-        index_from_tree(&elements)
-    } else {
-        let index_result = get_element_index(Some(plat.to_string()))?;
-        index_result["elements"].as_array().cloned().unwrap_or_default()
-    };
-
-    Ok(serde_json::json!({
-        "screenshot": format!("data:image/png;base64,{}", image_b64),
-        "elements": elements,
-        "labels": labels,
-        "indexed": index_elements,
-    }))
-}
-
-// =============================================================================
-// Interactive REPL sidecar
-// =============================================================================
-//
-// Long-lived `auto interactive` / `auto-android interactive` subprocess. The
-// frontend calls interactive_start() to boot a REPL, then interactive_send()
-// per script step, then interactive_stop() when done. This avoids paying the
-// ~100ms cold-start per step and keeps the iOS UIStabilizer warm between
-// commands so the editor doesn't need its own `setTimeout` quiet period.
-//
-// One session per Tauri app. Switching platforms (iOS <-> Android) kills the
-// old sidecar and spawns a fresh one.
-
-/// Mutable state wrapping the child process and its stdio handles. `Drop` is
-/// implemented so the child is killed if the app window closes without the
-/// frontend calling interactive_stop() explicitly.
-struct InteractiveState {
-    child: Option<Child>,
-    stdin: Option<ChildStdin>,
-    stdout: Option<BufReader<ChildStdout>>,
-    platform: Option<String>,
-}
-
-impl InteractiveState {
-    fn new() -> Self {
-        Self { child: None, stdin: None, stdout: None, platform: None }
-    }
-
-    /// Terminate the sidecar gracefully (send `exit` then SIGKILL) and clear
-    /// all handles. Safe to call even if nothing is running.
-    fn shutdown(&mut self) {
-        // Try a graceful shutdown first — the REPL recognises `exit` and
-        // returns a `bye` envelope before closing its stdin loop.
-        if let Some(mut stdin) = self.stdin.take() {
-            let _ = writeln!(stdin, "exit");
-            let _ = stdin.flush();
-        }
-        // Drop stdout so the reader closes.
-        self.stdout = None;
-        // Give the child a brief window to exit on its own, then kill it.
-        if let Some(mut child) = self.child.take() {
-            std::thread::sleep(Duration::from_millis(150));
-            let _ = child.kill();
-            let _ = child.wait();
-        }
-        self.platform = None;
-    }
-}
-
-impl Drop for InteractiveState {
-    fn drop(&mut self) {
-        self.shutdown();
-    }
-}
-
-/// Start the interactive sidecar for the given platform. If a sidecar is
-/// already running it's torn down first so callers can treat this as
-/// idempotent.
-#[tauri::command]
-fn interactive_start(
-    platform: String,
-    state: tauri::State<'_, Mutex<InteractiveState>>,
-) -> Result<String, String> {
-    let mut s = state.lock().map_err(|e| format!("lock poisoned: {}", e))?;
-
-    // Reset any previous session (idempotent).
-    s.shutdown();
-
-    let bin = auto_binary(&platform);
-    let extended_path = extended_path();
-
-    let mut child = Command::new(&bin)
-        .arg("interactive")
-        .env("PATH", &extended_path)
-        .env("ANDROID_HOME", android_home())
-        .stdin(Stdio::piped())
-        .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn()
-        .map_err(|e| format!("Failed to spawn interactive sidecar: {} (bin={})", e, bin.display()))?;
-
-    let stdin = child.stdin.take().ok_or_else(|| "no stdin handle".to_string())?;
-    let stdout = child.stdout.take().ok_or_else(|| "no stdout handle".to_string())?;
-    let mut reader = BufReader::new(stdout);
-
-    // Wait for the ready banner so the caller knows the REPL is primed.
-    // Reading a full line is blocking; this is fine because the banner is
-    // the very first thing printed and our child is line-buffered.
-    let mut banner = String::new();
-    reader
-        .read_line(&mut banner)
-        .map_err(|e| format!("Failed to read ready banner: {}", e))?;
-
-    s.child = Some(child);
-    s.stdin = Some(stdin);
-    s.stdout = Some(reader);
-    s.platform = Some(platform);
-
-    Ok(banner.trim().to_string())
-}
-
-/// Send one command line to the sidecar and read exactly one JSON envelope
-/// back. The sidecar always replies with one newline-delimited JSON object
-/// per input line (including for empty/comment lines), so read_line() is
-/// guaranteed to make progress.
-#[tauri::command]
-fn interactive_send(
-    line: String,
-    state: tauri::State<'_, Mutex<InteractiveState>>,
-) -> Result<String, String> {
-    let mut s = state.lock().map_err(|e| format!("lock poisoned: {}", e))?;
-
-    // Write the command.
-    {
-        let stdin = s
-            .stdin
-            .as_mut()
-            .ok_or_else(|| "no interactive session — call interactive_start first".to_string())?;
-        writeln!(stdin, "{}", line).map_err(|e| format!("write: {}", e))?;
-        stdin.flush().map_err(|e| format!("flush: {}", e))?;
-    }
-
-    // Read exactly one response line. Scoped so the `stdout` borrow is
-    // released before we potentially call `s.shutdown()` on EOF.
-    let mut response = String::new();
-    let read_result: Result<usize, std::io::Error> = {
-        let stdout = s
-            .stdout
-            .as_mut()
-            .ok_or_else(|| "no stdout reader".to_string())?;
-        stdout.read_line(&mut response)
-    };
-
-    let n = match read_result {
-        Ok(n) => n,
-        Err(e) => {
-            // Read error likely means the sidecar died — tear down so the
-            // next interactive_start() begins with a clean slate.
-            s.shutdown();
-            return Err(format!("read: {}", e));
-        }
-    };
-    if n == 0 {
-        // EOF — the sidecar died. Clean up so the next interactive_start()
-        // begins with a clean slate.
-        s.shutdown();
-        return Err("interactive sidecar exited unexpectedly".to_string());
-    }
-    Ok(response.trim().to_string())
-}
-
-/// Stop the sidecar (if any). Safe to call multiple times.
-#[tauri::command]
-fn interactive_stop(state: tauri::State<'_, Mutex<InteractiveState>>) -> Result<(), String> {
-    let mut s = state.lock().map_err(|e| format!("lock poisoned: {}", e))?;
-    s.shutdown();
-    Ok(())
-}
-
-#[tauri::command]
-fn open_screenshots() -> Result<String, String> {
-    let dir = std::env::current_dir()
-        .unwrap_or_default()
-        .join("screenshots");
-    let _ = std::fs::create_dir_all(&dir);
-    Command::new("open")
-        .arg(&dir)
-        .spawn()
-        .map_err(|e| format!("Failed to open: {}", e))?;
-    Ok(dir.to_string_lossy().to_string())
-}
+//! AutoPilot Composer — Tauri entry point.
+//!
+//! Modular backend:
+//!   - `cli`      — CLI binary resolution + async invocation
+//!   - `tree`     — AX tree + element index parsers
+//!   - `executor` — async NDJSON session manager for `auto interactive`
+//!   - `db`       — SQLite persistence layer
+//!   - `commands` — thin #[tauri::command] wrappers
+
+pub mod cli;
+pub mod commands;
+pub mod db;
+pub mod executor;
+pub mod tree;
+
+use std::sync::Arc;
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    // Resolve workspace DB path: $APPDATA/autopilot-editor/workspace.db on
+    // macOS, or $HOME/.autopilot-editor/workspace.db as a fallback.
+    let home = std::env::var("HOME").unwrap_or_else(|_| "/tmp".to_string());
+    let db_path = std::path::PathBuf::from(home)
+        .join("Library/Application Support/autopilot-editor/workspace.db");
+
+    let db = db::Db::open(db_path.clone())
+        .or_else(|_| db::Db::open(std::path::PathBuf::from("/tmp/autopilot-editor.db")))
+        .expect("failed to open editor workspace db");
+
+    let executor = Arc::new(executor::ExecutorRegistry::new());
+
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
-        .manage(Mutex::new(InteractiveState::new()))
+        .manage(executor)
+        .manage(db)
         .invoke_handler(tauri::generate_handler![
-            run_auto,
-            get_ax_tree,
-            get_element_index,
-            inspect,
-            open_screenshots,
-            interactive_start,
-            interactive_send,
-            interactive_stop,
+            // legacy / cli-backed
+            commands::run_auto,
+            commands::get_ax_tree,
+            commands::get_element_index,
+            commands::inspect,
+            commands::screenshot_only,
+            commands::open_screenshots,
+            // executor (new)
+            commands::executor_spawn,
+            commands::executor_send,
+            commands::executor_kill,
+            commands::executor_status,
+            // legacy single-session wrappers
+            commands::interactive_start,
+            commands::interactive_send,
+            commands::interactive_stop,
+            // db
+            commands::db_list_projects,
+            commands::db_upsert_project,
+            commands::db_delete_project,
+            commands::db_list_flows,
+            commands::db_upsert_flow,
+            commands::db_delete_flow,
+            commands::db_list_components,
+            commands::db_upsert_component,
+            commands::db_delete_component,
+            commands::db_list_env_vars,
+            commands::db_upsert_env_var,
+            commands::db_delete_env_var,
+            commands::db_save_run,
+            commands::db_list_runs,
+            // utility
+            commands::bundle_cli_path,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

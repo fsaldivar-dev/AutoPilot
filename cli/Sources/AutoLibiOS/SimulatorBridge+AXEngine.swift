@@ -50,7 +50,20 @@ extension SimulatorBridge {
     }
 
     public func findSimulatorContent() throws -> AXUIElement {
-        // Re-discover the Simulator process each time (handles PID changes)
+        // Fast path: if we already have the PID cached and the AX window is
+        // ready, read it directly without activating. Preserves caller focus
+        // (editor, terminal). Activation is only needed as a fallback when
+        // the Simulator just booted and its AX tree isn't hydrated yet.
+        if let pid = simulatorPID {
+            let app = AXUIElementCreateApplication(pid)
+            if let window = getFirstWindow(of: app),
+               let children = getChildren(of: window),
+               !children.isEmpty {
+                return window
+            }
+        }
+
+        // Slow path: re-discover PID and activate to force AX hydration.
         let workspace = NSWorkspace.shared
         guard let simRunning = workspace.runningApplications.first(where: {
             $0.bundleIdentifier == "com.apple.iphonesimulator"
@@ -60,24 +73,28 @@ extension SimulatorBridge {
 
         simulatorPID = simRunning.processIdentifier
 
-        // Activate to make AX tree available (ignoring other apps ensures
-        // it works even when launched from editor/Tauri subprocesses)
-        simRunning.activate(options: .activateIgnoringOtherApps)
-
         let app = AXUIElementCreateApplication(simRunning.processIdentifier)
 
-        // Retry getting window — AX tree needs time after activation
+        // Try without activating first — maybe the tree is already live
+        // after a PID refresh.
+        if let window = getFirstWindow(of: app),
+           let children = getChildren(of: window),
+           !children.isEmpty {
+            return window
+        }
+
+        // Last resort: activate to force AX tree hydration.
+        simRunning.activate(options: .activateIgnoringOtherApps)
+
         for _ in 0..<15 {
-            if let window = getFirstWindow(of: app) {
-                // Verify the window has children (fully loaded)
-                if let children = getChildren(of: window), !children.isEmpty {
-                    return window
-                }
+            if let window = getFirstWindow(of: app),
+               let children = getChildren(of: window),
+               !children.isEmpty {
+                return window
             }
             usleep(200_000)
         }
 
-        // If we got here, check if it's a permissions issue
         if !AXIsProcessTrusted() {
             throw BridgeError.accessibilityNotTrusted
         }
