@@ -131,6 +131,83 @@ public final class BuildInterceptor {
 
         print("[auto build] Build succeeded with camera mock injected")
     }
+
+    // MARK: - Observer lib build (ARD-002)
+
+    /// Builds the app with libAutoPilotObserver.a linked via -force_load.
+    /// Does NOT inject the camera mock — use build(args:) for that.
+    public func buildWithObserver(args: [String]) throws {
+        let libPath = try buildObserverLib()
+        print("[auto build] Observer lib: \(libPath)")
+
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
+
+        var xcodebuildArgs = ["xcodebuild"] + args
+        xcodebuildArgs += [
+            "OTHER_LDFLAGS=$(inherited) -force_load \(libPath)",
+            "ENABLE_DEBUG_DYLIB=NO",
+        ]
+
+        process.arguments = xcodebuildArgs
+        process.standardOutput = FileHandle.standardOutput
+        process.standardError = FileHandle.standardError
+
+        try process.run()
+        process.waitUntilExit()
+
+        guard process.terminationStatus == 0 else {
+            throw BuildError.xcodebuildFailed(process.terminationStatus)
+        }
+        print("[auto build] Build succeeded with AutoPilot observer injected")
+    }
+
+    private func buildObserverLib() throws -> String {
+        let libDir = try findObserverLibDir()
+        let outPath = "\(libDir)/build/libAutoPilotObserver.a"
+
+        print("[auto build] Building libAutoPilotObserver.a...")
+        let make = Process()
+        make.executableURL = URL(fileURLWithPath: "/usr/bin/make")
+        make.arguments = ["-C", libDir]
+        make.standardOutput = FileHandle.standardOutput
+        make.standardError = FileHandle.standardError
+
+        try make.run()
+        make.waitUntilExit()
+
+        guard make.terminationStatus == 0 else {
+            throw BuildError.compileFailed("make failed in \(libDir)")
+        }
+        guard fileManager.fileExists(atPath: outPath) else {
+            throw BuildError.compileFailed("libAutoPilotObserver.a not found after make at \(outPath)")
+        }
+        return outPath
+    }
+
+    private func findObserverLibDir() throws -> String {
+        // Development: resolve relative to this source file → repo root / libs / AutoPilotObserver.
+        // Installed binary: path relative to the CLI binary.
+        let candidates: [String] = [
+            URL(fileURLWithPath: #file)
+                .deletingLastPathComponent()  // AutoLibiOS/
+                .deletingLastPathComponent()  // Sources/
+                .deletingLastPathComponent()  // cli/
+                .deletingLastPathComponent()  // repo root
+                .appendingPathComponent("libs/AutoPilotObserver")
+                .path,
+            URL(fileURLWithPath: CommandLine.arguments[0])
+                .deletingLastPathComponent()
+                .appendingPathComponent("../libs/AutoPilotObserver")
+                .standardized.path,
+        ]
+        for candidate in candidates {
+            if fileManager.fileExists(atPath: "\(candidate)/Makefile") { return candidate }
+        }
+        throw BuildError.compileFailed(
+            "libs/AutoPilotObserver not found. Ensure the full repo is cloned."
+        )
+    }
 }
 
 // MARK: - Errors
