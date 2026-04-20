@@ -18,18 +18,19 @@ export function DevicePreview({ platform }: Props) {
   const elements = useStore((s) => s.elements);
   const setElements = useStore((s) => s.setElements);
   const showToast = useStore((s) => s.showToast);
-  const autoRefresh = useStore((s) => s.autoRefresh);
   const running = useStore((s) => s.running);
+  const sessionId = useStore((s) => s.sessionId);
   const setDetectedApp = useStore((s) => s.setDetectedApp);
+  const refreshTick = useStore((s) => s.refreshTick);
   const [screenshot, setScreenshot] = useState<string>("");
   const [loading, setLoading] = useState(false);
   const runningRef = useRef(running);
   const inFlightRef = useRef(false);
   useEffect(() => { runningRef.current = running; }, [running]);
 
+  // Full inspect: screenshot + tree + index + detected app. ~500-800ms.
+  // Se usa para el refresh manual (botón ↻) y mount inicial.
   const refresh = useCallback(async (silent = false) => {
-    // Skip if a refresh is already running — avoids stacking slow refreshes
-    // when the Simulator is in background and each call takes 500ms+.
     if (inFlightRef.current) return;
     inFlightRef.current = true;
     if (!silent) setLoading(true);
@@ -51,6 +52,21 @@ export function DevicePreview({ platform }: Props) {
     }
   }, [platform, setElements, setDetectedApp, showToast]);
 
+  // Fast screenshot-only refresh. Si hay sessionId activa, el backend reusa el
+  // sidecar vivo y evita cold-start de simctl → ~100-200ms vs 300-500ms.
+  const refreshScreenshotOnly = useCallback(async () => {
+    if (inFlightRef.current) return;
+    inFlightRef.current = true;
+    try {
+      const img = await invoke<string>("screenshot_only", {
+        platform: platform === "android" ? "android" : "ios",
+        sessionId: sessionId ?? null,
+      });
+      if (img) setScreenshot(img);
+    } catch { /* silent — ya hay log en stderr del CLI */ }
+    finally { inFlightRef.current = false; }
+  }, [platform, sessionId]);
+
   useEffect(() => {
     void refresh();
   }, [refresh]);
@@ -59,13 +75,27 @@ export function DevicePreview({ platform }: Props) {
     setDetectedApp(null);
   }, [platform, setDetectedApp]);
 
+  // Refresh reactivo post-acción: 100ms para dejar que la UI asiente sin
+  // perder fluidez. Usa screenshot-only (rápido) — el tree se actualiza solo
+  // en refresh manual.
   useEffect(() => {
-    if (!autoRefresh || running) return;
+    if (refreshTick === 0) return;
+    const id = setTimeout(() => {
+      if (!inFlightRef.current) void refreshScreenshotOnly();
+    }, 100);
+    return () => clearTimeout(id);
+  }, [refreshTick, refreshScreenshotOnly]);
+
+  // Polling continuo mientras running=true: 200ms per-frame → ~5fps mirror.
+  // Con el sidecar reusado (no cold-start simctl) cada frame tarda 100-200ms,
+  // lo suficiente para ver animaciones fluidas sin saturar.
+  useEffect(() => {
+    if (!running) return;
     const id = setInterval(() => {
-      if (!runningRef.current && !inFlightRef.current) void refresh(true);
-    }, 2000);
+      if (!inFlightRef.current) void refreshScreenshotOnly();
+    }, 200);
     return () => clearInterval(id);
-  }, [autoRefresh, running, refresh]);
+  }, [running, refreshScreenshotOnly]);
 
   return (
     <div data-testid="device-preview">

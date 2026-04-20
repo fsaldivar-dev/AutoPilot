@@ -16,6 +16,7 @@ export function RunFlowButton({ platform }: Props) {
   const setRunning = useStore((s) => s.setRunning);
   const updateBlock = useStore((s) => s.updateBlock);
   const showToast = useStore((s) => s.showToast);
+  const bumpRefreshTick = useStore((s) => s.bumpRefreshTick);
   const [aborting, setAborting] = useState(false);
 
   const disabled = !flow || flow.blocks.length === 0;
@@ -65,6 +66,7 @@ export function RunFlowButton({ platform }: Props) {
       },
       shouldAbortOnError: () => aborting,
       onSessionChange: (newSid) => setSession(newSid, runtime),
+      onUIMutation: () => bumpRefreshTick(),
     });
 
     setRunning(false);

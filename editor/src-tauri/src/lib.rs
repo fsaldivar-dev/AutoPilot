@@ -40,6 +40,7 @@ pub fn run() {
             commands::get_ax_tree,
             commands::get_element_index,
             commands::inspect,
+            commands::screenshot_only,
             commands::open_screenshots,
             // executor (new)
             commands::executor_spawn,

@@ -35,6 +35,7 @@ export function CommandBar({ platform }: Props) {
   const pushRecent = useStore((s) => s.pushRecent);
   const setRunning = useStore((s) => s.setRunning);
   const showToast = useStore((s) => s.showToast);
+  const bumpRefreshTick = useStore((s) => s.bumpRefreshTick);
 
   const components = project?.components ?? [];
   const envVars = project?.env ?? [];
@@ -191,11 +192,21 @@ export function CommandBar({ platform }: Props) {
   }
 
   async function runCurrent() {
-    const line = value.trim();
+    let line = value.trim();
     if (!line || !flow) return;
 
     // Keyword de control flow → no va al CLI; crea logic block estructural.
     if (handleLogicKeyword(line)) return;
+
+    // Auto-inyectar --observer en `launch <bundleId>` (solo iOS) para que el
+    // Simulator deje de tomar foco en los subsequent tree/inspect.
+    // No se agrega si ya está presente o si es Android.
+    if (runtimePlatform === "ios") {
+      const tokens = line.split(/\s+/);
+      if (tokens[0] === "launch" && tokens.length >= 2 && !tokens.includes("--observer")) {
+        line = `${line} --observer`;
+      }
+    }
 
     const blockId = `blk_${nanoid(8)}`;
     const block: Block = {
@@ -235,6 +246,7 @@ export function CommandBar({ platform }: Props) {
         meta: { status: "ok", ms: frame.ms, ranAt: Date.now() },
       });
       pushRecent(block);
+      bumpRefreshTick();   // refresh reactivo del preview
       showToast("ok", `✓ ${line} (${frame.ms ?? 0}ms)`);
     } else {
       updateBlock(flow.id, blockId, {

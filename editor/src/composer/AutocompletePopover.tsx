@@ -114,6 +114,12 @@ export function AutocompletePopover({
           </span>
           complete
         </span>
+        <span>
+          <span className="kbd" style={{ padding: "1px 5px", border: "1px solid var(--border)", borderRadius: 3, marginRight: 4 }}>
+            ⎋
+          </span>
+          cerrar
+        </span>
         <span style={{ marginLeft: "auto", color: "var(--fg-dim)" }}>
           {suggestions.length} matches
         </span>

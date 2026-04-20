@@ -100,6 +100,54 @@ async fn take_screenshot_async(bin: &std::path::PathBuf) -> String {
     String::new()
 }
 
+/// Captura solo un screenshot (sin tree/index) para el mirror reactivo del
+/// preview. Estrategia:
+///   1. Si hay session_id activa → reusa el sidecar interactive (no cold start)
+///      via executor.send "screenshot /tmp/x.png" — ~100-200ms.
+///   2. Fallback: spawn `auto screenshot` fresco (~300-500ms por cold start).
+///
+/// El sidecar reusado es crítico para que el preview sienta fluido.
+#[tauri::command]
+pub async fn screenshot_only(
+    platform: Option<String>,
+    session_id: Option<String>,
+    registry: State<'_, Arc<ExecutorRegistry>>,
+) -> Result<String, String> {
+    use base64::Engine;
+
+    let plat = platform.as_deref().unwrap_or("ios").to_string();
+    let tmp = std::env::temp_dir().join("autopilot-mirror.png");
+    let tmp_str = tmp.to_string_lossy().to_string();
+    let _ = tokio::fs::remove_file(&tmp).await;
+
+    // Path 1 (rápido): sidecar ya corriendo — mandar screenshot por stdin.
+    if let Some(sid) = session_id.as_deref() {
+        let line = format!("screenshot {}", tmp_str);
+        match registry.send(sid, &line, Some(2_000)).await {
+            Ok(frame) if frame.ok => {
+                if tmp.exists() {
+                    if let Ok(bytes) = tokio::fs::read(&tmp).await {
+                        let _ = tokio::fs::remove_file(&tmp).await;
+                        let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+                        return Ok(format!("data:image/png;base64,{}", b64));
+                    }
+                }
+            }
+            _ => {
+                // Sidecar no respondió OK — fallback a spawn fresco.
+            }
+        }
+    }
+
+    // Path 2 (cold start): spawn proceso fresco.
+    let bin = auto_binary(&plat);
+    let b64 = take_screenshot_async(&bin).await;
+    if b64.is_empty() {
+        return Err("screenshot failed (empty)".into());
+    }
+    Ok(format!("data:image/png;base64,{}", b64))
+}
+
 // ---- NDJSON executor ----
 
 #[tauri::command]
