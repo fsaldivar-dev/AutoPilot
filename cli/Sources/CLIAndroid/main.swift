@@ -60,8 +60,11 @@ func runScript(path: String) throws {
         }
     }
 
+    // Bridge sync → async. nonisolated(unsafe) evita el error de strict
+    // concurrency; la sincronización real la garantiza el DispatchSemaphore
+    // (main thread espera hasta que el Task termine y signalee).
     let sem = DispatchSemaphore(value: 0)
-    var runError: Error?
+    nonisolated(unsafe) var runError: Error?
     Task {
         defer { sem.signal() }
         do {
