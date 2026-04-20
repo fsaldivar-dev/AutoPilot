@@ -8,7 +8,12 @@ import Foundation
 ///   - bridge: the primary DeviceBridge (usually HybridBridge on iOS, AgentBridge on Android)
 ///   - deepBridge: optional deep-only bridge (e.g. XCUIBridge on iOS). When provided,
 ///                 `tree deep` and `tree full` subcommands will use it. On Android this is nil.
-public func executeSharedCommand(_ args: [String], bridge: any DeviceBridge, deepBridge: (any DeviceBridge)? = nil) throws -> Bool {
+public func executeSharedCommand(
+    _ args: [String],
+    bridge: any DeviceBridge,
+    deepBridge: (any DeviceBridge)? = nil,
+    router: ActionRouter? = nil
+) throws -> Bool {
     guard let rawCmd = args.first else { return false }
 
     // Strip [role] suffix for switch matching: "tap[button]" → "tap"
@@ -65,7 +70,12 @@ public func executeSharedCommand(_ args: [String], bridge: any DeviceBridge, dee
             }
             print("\n(\(ms)ms — full)")
         } else {
-            let tree = try bridge.tree()
+            let tree = try runActionReturning(
+                .tree,
+                router: router,
+                fallback: { try bridge.tree() },
+                extract: { if case .elements(let es) = $0 { return es } else { return nil } }
+            )
             let ms = elapsedMs(start)
             TreePrinter.printAX(tree)
             print("\n(\(ms)ms)")
@@ -79,7 +89,7 @@ public func executeSharedCommand(_ args: [String], bridge: any DeviceBridge, dee
         }
         let targets = args[1].split(separator: ",").map(String.init)
         for target in targets {
-            try bridge.tap(target: target)
+            try runAction(.tap(target: target), router: router, fallback: { try bridge.tap(target: target) })
             print("Tapped '\(target)' (\(elapsedMs(start))ms)")
         }
 
@@ -89,7 +99,8 @@ public func executeSharedCommand(_ args: [String], bridge: any DeviceBridge, dee
             return true
         }
         let duration = args.count >= 3 ? Double(args[2]) ?? 1.0 : 1.0
-        try bridge.longPress(target: args[1], duration: duration)
+        try runAction(.longPress(target: args[1], duration: duration), router: router,
+                      fallback: { try bridge.longPress(target: args[1], duration: duration) })
         let ms = elapsedMs(start)
         print("Long pressed '\(args[1])' for \(duration)s (\(ms)ms)")
 
@@ -98,7 +109,8 @@ public func executeSharedCommand(_ args: [String], bridge: any DeviceBridge, dee
             print("Usage: auto doubleTap <identifier|title|label>")
             return true
         }
-        try bridge.doubleTap(target: args[1])
+        try runAction(.doubleTap(target: args[1]), router: router,
+                      fallback: { try bridge.doubleTap(target: args[1]) })
         let ms = elapsedMs(start)
         print("Double tapped '\(args[1])' (\(ms)ms)")
 
@@ -107,7 +119,8 @@ public func executeSharedCommand(_ args: [String], bridge: any DeviceBridge, dee
             print("Usage: auto clear <identifier|title|label>")
             return true
         }
-        try bridge.clear(target: args[1])
+        try runAction(.clear(target: args[1]), router: router,
+                      fallback: { try bridge.clear(target: args[1]) })
         let ms = elapsedMs(start)
         print("Cleared '\(args[1])' (\(ms)ms)")
 
@@ -136,7 +149,7 @@ public func executeSharedCommand(_ args: [String], bridge: any DeviceBridge, dee
             // resolves to a sibling AXStaticText with the same label.
             try tapNthTextInput(bridge: bridge, index: n)
             usleep(200_000)
-            try bridge.typeText(args[1])
+            try runAction(.typeText(args[1]), router: router, fallback: { try bridge.typeText(args[1]) })
         } else if args.count >= 3 {
             // type "target" "text" — smart resolution: prefer the text input whose
             // label/value/identifier matches the target over a sibling AXStaticText
@@ -146,14 +159,14 @@ public func executeSharedCommand(_ args: [String], bridge: any DeviceBridge, dee
             // the field) and an AXTextField (placeholder text inside the field) with
             // the same string.
             if try !tapTextInputByLabel(bridge: bridge, label: args[1]) {
-                // Fallback to plain bridge.tap when no text input matches the label
+                // Fallback to plain tap when no text input matches the label
                 // (the target may be a button, link, etc.)
-                try bridge.tap(target: args[1])
+                try runAction(.tap(target: args[1]), router: router, fallback: { try bridge.tap(target: args[1]) })
             }
             usleep(200_000)
-            try bridge.typeText(args[2])
+            try runAction(.typeText(args[2]), router: router, fallback: { try bridge.typeText(args[2]) })
         } else {
-            try bridge.typeText(args[1])
+            try runAction(.typeText(args[1]), router: router, fallback: { try bridge.typeText(args[1]) })
         }
         let ms = elapsedMs(start)
         print("Typed text (\(ms)ms)")
@@ -163,7 +176,8 @@ public func executeSharedCommand(_ args: [String], bridge: any DeviceBridge, dee
             print("Usage: auto scroll <identifier|title|label> <up|down|left|right>")
             return true
         }
-        try bridge.scroll(target: args[1], direction: args[2])
+        try runAction(.scroll(target: args[1], direction: args[2]), router: router,
+                      fallback: { try bridge.scroll(target: args[1], direction: args[2]) })
         let ms = elapsedMs(start)
         print("Scrolled '\(args[1])' \(args[2]) (\(ms)ms)")
 
@@ -172,7 +186,8 @@ public func executeSharedCommand(_ args: [String], bridge: any DeviceBridge, dee
             print("Usage: auto swipe <up|down|left|right>")
             return true
         }
-        try bridge.swipe(direction: args[1])
+        try runAction(.swipe(direction: args[1]), router: router,
+                      fallback: { try bridge.swipe(direction: args[1]) })
         let ms = elapsedMs(start)
         print("Swiped \(args[1]) (\(ms)ms)")
 
@@ -188,7 +203,12 @@ public func executeSharedCommand(_ args: [String], bridge: any DeviceBridge, dee
             print("Usage: auto exists <identifier|title|label>")
             return true
         }
-        let results = try bridge.search(query: args[1])
+        let results = try runActionReturning(
+            .search(query: args[1]),
+            router: router,
+            fallback: { try bridge.search(query: args[1]) },
+            extract: { if case .elements(let es) = $0 { return es } else { return nil } }
+        )
         let ms = elapsedMs(start)
         print(results.isEmpty ? "NO (\(ms)ms)" : "YES (\(ms)ms)")
 
@@ -252,7 +272,21 @@ public func executeSharedCommand(_ args: [String], bridge: any DeviceBridge, dee
             print("Usage: auto elementAt <x> <y>")
             return true
         }
-        if let el = try bridge.elementAt(x: x, y: y) {
+        // Wrap in a single-element array so `runActionReturning` can distinguish
+        // "extracted nil" from "did not extract". [nil] passes through, [] =
+        // extract failed → fallback. extract() returns [element] or [] or nil.
+        let wrapped: [[String: Any]?] = try runActionReturning(
+            .elementAt(x: x, y: y),
+            router: router,
+            fallback: { [try bridge.elementAt(x: x, y: y)] },
+            extract: {
+                if case .element(let e) = $0 { return [e] }
+                // Some backends may return .void when no element found.
+                if case .void = $0 { return [nil] }
+                return nil
+            }
+        )
+        if let el = wrapped.first ?? nil {
             printElement(el)
         } else {
             print("No element at (\(args[1]), \(args[2]))")
@@ -265,7 +299,8 @@ public func executeSharedCommand(_ args: [String], bridge: any DeviceBridge, dee
             print("Usage: auto tapAt <x> <y>")
             return true
         }
-        try bridge.tapAtCoordinate(x: x, y: y)
+        try runAction(.tapAtCoordinate(x: x, y: y), router: router,
+                      fallback: { try bridge.tapAtCoordinate(x: x, y: y) })
         let ms = elapsedMs(start)
         print("Tapped at (\(args[1]), \(args[2])) (\(ms)ms)")
 
@@ -567,12 +602,13 @@ public func executeSharedCommand(_ args: [String], bridge: any DeviceBridge, dee
             print("Usage: auto pressKey <home|back|enter|delete|volumeUp|volumeDown|power|tab|escape>")
             return true
         }
-        try bridge.pressKey(key: args[1])
+        try runAction(.pressKey(key: args[1]), router: router,
+                      fallback: { try bridge.pressKey(key: args[1]) })
         let ms = elapsedMs(start)
         print("Pressed key '\(args[1])' (\(ms)ms)")
 
     case "hideKeyboard":
-        try bridge.hideKeyboard()
+        try runAction(.hideKeyboard, router: router, fallback: { try bridge.hideKeyboard() })
         let ms = elapsedMs(start)
         print("Keyboard dismissed (\(ms)ms)")
 
@@ -644,7 +680,11 @@ public func executeSharedCommand(_ args: [String], bridge: any DeviceBridge, dee
         }
         let direction = args.count >= 3 ? args[2] : "down"
         let maxAttempts = args.count >= 4 ? Int(args[3]) ?? 20 : 20
-        try bridge.scrollTo(target: args[1], direction: direction, maxAttempts: maxAttempts)
+        try runAction(
+            .scrollTo(target: args[1], direction: direction, maxAttempts: maxAttempts),
+            router: router,
+            fallback: { try bridge.scrollTo(target: args[1], direction: direction, maxAttempts: maxAttempts) }
+        )
         let ms = elapsedMs(start)
         print("Scrolled '\(args[1])' into view (\(ms)ms)")
 
@@ -723,6 +763,45 @@ public func executeSharedCommand(_ args: [String], bridge: any DeviceBridge, dee
     }
 
     return true
+}
+
+// MARK: - Router dispatch helpers (ARD-001)
+
+/// Dispatch an action through the router when available; otherwise
+/// execute the provided sync fallback against the legacy bridge.
+/// This preserves the existing test-suite signature while giving migrated
+/// commands the router's automatic escalation (ARD-001).
+private func runAction(
+    _ action: Action,
+    router: ActionRouter?,
+    fallback: () throws -> Void
+) throws {
+    guard let router else { try fallback(); return }
+    do {
+        _ = try runAsyncThrowing { try await router.execute(action) }
+    } catch ActionRouterError.noBackendForAction {
+        // Router doesn't know this action → fall back to bridge.
+        try fallback()
+    }
+}
+
+/// Like `runAction` but returns a value extracted from the `ActionResult`.
+/// When the router returns a shape the extractor doesn't recognize, it falls
+/// back to the sync closure — keeps behavior identical to pre-router code.
+private func runActionReturning<T>(
+    _ action: Action,
+    router: ActionRouter?,
+    fallback: () throws -> T,
+    extract: (ActionResult) -> T?
+) throws -> T {
+    guard let router else { return try fallback() }
+    do {
+        let r = try runAsyncThrowing { try await router.execute(action) }
+        if let v = extract(r) { return v }
+        return try fallback()
+    } catch ActionRouterError.noBackendForAction {
+        return try fallback()
+    }
 }
 
 // MARK: - Shared helpers
