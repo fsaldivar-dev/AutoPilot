@@ -212,6 +212,50 @@ public func executeSharedCommand(
         let ms = elapsedMs(start)
         print(results.isEmpty ? "NO (\(ms)ms)" : "YES (\(ms)ms)")
 
+    case "visible", "isVisible":
+        guard args.count >= 2 else {
+            print("Usage: auto visible <identifier|title|label>")
+            return true
+        }
+        let tree = try bridge.tree()
+        var visible = false
+        if let el = ViewportUtil.findFirst(in: tree, matching: args[1]),
+           let frame = ViewportUtil.rect(from: el["frame"] as? [String: Any]) {
+            let vp = try bridge.viewport()
+            visible = ViewportUtil.isVisible(frame: frame, inViewport: vp)
+        }
+        let ms = elapsedMs(start)
+        print(visible ? "YES (\(ms)ms)" : "NO (\(ms)ms)")
+
+    case "hasText":
+        guard args.count >= 3 else {
+            print("Usage: auto hasText <identifier|title|label> <expected>")
+            return true
+        }
+        let tree = try bridge.tree()
+        var match = false
+        if let el = ViewportUtil.findFirst(in: tree, matching: args[1]) {
+            let expected = args[2]
+            let label = el["label"] as? String ?? ""
+            let value = el["value"] as? String ?? ""
+            let title = el["title"] as? String ?? ""
+            match = label.contains(expected) || value.contains(expected) || title.contains(expected)
+        }
+        let ms = elapsedMs(start)
+        print(match ? "YES (\(ms)ms)" : "NO (\(ms)ms)")
+
+    case "platform":
+        // Platform runtime. iOS CLI siempre emite "ios"; Android CLI override
+        // este comando en su propio dispatcher si hace falta.
+        let ms = elapsedMs(start)
+        print("ios (\(ms)ms)")
+
+    case "orientation":
+        let rect = try bridge.viewport()
+        let orient = rect.height >= rect.width ? "portrait" : "landscape"
+        let ms = elapsedMs(start)
+        print("\(orient) (\(ms)ms)")
+
     case "terminate":
         guard args.count >= 2 else {
             print("Usage: auto terminate <bundleId>")

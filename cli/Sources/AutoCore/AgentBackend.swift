@@ -22,7 +22,8 @@ public enum AgentBackend {
         .startRecording, .stopRecording,
         .setLocation, .setAppearance,
         .pushFile, .pullFile,
-        .biometricEnroll, .biometricUnenroll, .biometricMatch, .biometricFail, .biometricIsEnrolled
+        .biometricEnroll, .biometricUnenroll, .biometricMatch, .biometricFail, .biometricIsEnrolled,
+        .exists, .isVisible, .hasText, .getPlatform, .getOrientation
     ]
 
     public static func make(agentBridge: AgentBridge) -> any Backend {
