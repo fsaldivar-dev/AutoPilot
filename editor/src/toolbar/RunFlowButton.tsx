@@ -49,7 +49,7 @@ export function RunFlowButton({ platform }: Props) {
     setRunning(true);
     setAborting(false);
 
-    const result = await runFlow(sess, flow, project.env, {
+    const result = await runFlow(sess, runtime, flow, project.env, {
       onBlockStart: (id) => {
         updateBlock(flow.id, id, { meta: { status: "running", ranAt: Date.now() } });
       },
@@ -64,6 +64,7 @@ export function RunFlowButton({ platform }: Props) {
         });
       },
       shouldAbortOnError: () => aborting,
+      onSessionChange: (newSid) => setSession(newSid, runtime),
     });
 
     setRunning(false);

@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import { BlockCanvas } from "../composer/BlockCanvas";
+import { CodeView } from "../composer/CodeView";
 import { ComponentLibrary } from "../library/ComponentLibrary";
 import { DevicePreview } from "../inspector/DevicePreview";
 import { FlowList } from "../projects/FlowList";
@@ -21,6 +22,7 @@ export function AppShell() {
   const toast = useStore((s) => s.toast);
   const dismissToast = useStore((s) => s.dismissToast);
   const selectedIds = useStore((s) => s.selectedBlockIds);
+  const viewMode = useStore((s) => s.viewMode);
 
   useEffect(() => {
     void hydrateFromDisk();
@@ -47,7 +49,7 @@ export function AppShell() {
         <EnvChips />
       </aside>
       <main className="panel-main">
-        <BlockCanvas platform={platform} />
+        {viewMode === "code" ? <CodeView /> : <BlockCanvas platform={platform} />}
       </main>
       <aside className="panel-right">
         <DevicePreview platform={platform} />

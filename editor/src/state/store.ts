@@ -9,9 +9,17 @@ import type {
   Flow,
   IndexedElement,
   Platform,
+  Predicate,
   Project,
+  RepeatMode,
   Suggestion,
 } from "../domain/types";
+import {
+  insertIntoSlot,
+  moveWithinSlot,
+  removeFromSlot,
+  updateBlockById,
+} from "./blockTree";
 
 interface ProjectSlice {
   projects: Project[];
@@ -39,6 +47,15 @@ interface ComposerSlice {
   updateBlock: (flowId: string, blockId: string, patch: Partial<Block>) => void;
   removeBlock: (flowId: string, blockId: string) => void;
   moveBlock: (flowId: string, blockId: string, toIndex: number) => void;
+
+  // Acciones jerárquicas (Fase 1.1) — operan sobre `slots` anidados.
+  addChildBlock: (flowId: string, parentId: string, slot: number, block: Block) => void;
+  removeChildBlock: (flowId: string, parentId: string, slot: number, blockId: string) => void;
+  moveChildBlock: (
+    flowId: string, parentId: string, slot: number, blockId: string, toIndex: number
+  ) => void;
+  updatePredicate: (flowId: string, blockId: string, predicate: Predicate) => void;
+  updateRepeat: (flowId: string, blockId: string, repeat: RepeatMode) => void;
 }
 
 interface ExecutorSlice {
@@ -47,10 +64,14 @@ interface ExecutorSlice {
   running: boolean;
   elements: IndexedElement[];
   recentBlocks: Block[];
+  autoRefresh: boolean;
+  detectedApp: { name: string; bundle: string } | null;
   setSession: (id: string | undefined, platform?: Platform) => void;
   setRunning: (r: boolean) => void;
   setElements: (els: IndexedElement[]) => void;
   pushRecent: (block: Block) => void;
+  setAutoRefresh: (v: boolean) => void;
+  setDetectedApp: (app: { name: string; bundle: string } | null) => void;
 }
 
 interface UiSlice {
@@ -59,11 +80,13 @@ interface UiSlice {
   autocompleteInput: string;
   autocompleteCursor: number;
   toast?: { level: "info" | "ok" | "err"; text: string };
+  viewMode: "blocks" | "code";
   setAutocompleteOpen: (open: boolean) => void;
   setAutocompleteInput: (input: string, cursor: number) => void;
   setAutocompleteSuggestions: (s: Suggestion[]) => void;
   showToast: (level: "info" | "ok" | "err", text: string) => void;
   dismissToast: () => void;
+  setViewMode: (mode: "blocks" | "code") => void;
 }
 
 export type Store = ProjectSlice & ComposerSlice & ExecutorSlice & UiSlice;
@@ -217,17 +240,89 @@ export const useStore = create<Store>((set) => ({
       })),
     })),
 
+  addChildBlock: (flowId, parentId, slot, block) =>
+    set((s) => ({
+      projects: s.projects.map((p) => ({
+        ...p,
+        flows: p.flows.map((f) =>
+          f.id === flowId
+            ? { ...f, blocks: insertIntoSlot(f.blocks, parentId, slot, block), updatedAt: Date.now() }
+            : f
+        ),
+      })),
+    })),
+
+  removeChildBlock: (flowId, parentId, slot, blockId) =>
+    set((s) => ({
+      projects: s.projects.map((p) => ({
+        ...p,
+        flows: p.flows.map((f) =>
+          f.id === flowId
+            ? { ...f, blocks: removeFromSlot(f.blocks, parentId, slot, blockId), updatedAt: Date.now() }
+            : f
+        ),
+      })),
+    })),
+
+  moveChildBlock: (flowId, parentId, slot, blockId, toIndex) =>
+    set((s) => ({
+      projects: s.projects.map((p) => ({
+        ...p,
+        flows: p.flows.map((f) =>
+          f.id === flowId
+            ? { ...f, blocks: moveWithinSlot(f.blocks, parentId, slot, blockId, toIndex), updatedAt: Date.now() }
+            : f
+        ),
+      })),
+    })),
+
+  updatePredicate: (flowId, blockId, predicate) =>
+    set((s) => ({
+      projects: s.projects.map((p) => ({
+        ...p,
+        flows: p.flows.map((f) =>
+          f.id === flowId
+            ? {
+                ...f,
+                blocks: updateBlockById(f.blocks, blockId, (b) => ({ ...b, predicate })),
+                updatedAt: Date.now(),
+              }
+            : f
+        ),
+      })),
+    })),
+
+  updateRepeat: (flowId, blockId, repeat) =>
+    set((s) => ({
+      projects: s.projects.map((p) => ({
+        ...p,
+        flows: p.flows.map((f) =>
+          f.id === flowId
+            ? {
+                ...f,
+                blocks: updateBlockById(f.blocks, blockId, (b) => ({ ...b, repeat })),
+                updatedAt: Date.now(),
+              }
+            : f
+        ),
+      })),
+    })),
+
   // executor
   sessionId: undefined,
   sessionPlatform: undefined,
   running: false,
   elements: [],
   recentBlocks: [],
+  autoRefresh: false,
+  detectedApp: null,
   setSession: (id, platform) => set({ sessionId: id, sessionPlatform: platform }),
   setRunning: (r) => set({ running: r }),
   setElements: (elements) => set({ elements }),
   pushRecent: (block) =>
     set((s) => ({ recentBlocks: [block, ...s.recentBlocks].slice(0, 20) })),
+  setAutoRefresh: (autoRefresh) => set({ autoRefresh }),
+  setDetectedApp: (detectedApp) => set({ detectedApp }),
 
   // ui
   autocompleteOpen: false,
@@ -242,6 +337,8 @@ export const useStore = create<Store>((set) => ({
     set({ autocompleteSuggestions }),
   showToast: (level, text) => set({ toast: { level, text } }),
   dismissToast: () => set({ toast: undefined }),
+  viewMode: "blocks",
+  setViewMode: (viewMode) => set({ viewMode }),
 }));
 
 // Selector helpers

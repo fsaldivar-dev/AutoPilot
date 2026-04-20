@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useStore } from "../state/store";
 import type { Platform } from "../domain/types";
@@ -18,28 +18,54 @@ export function DevicePreview({ platform }: Props) {
   const elements = useStore((s) => s.elements);
   const setElements = useStore((s) => s.setElements);
   const showToast = useStore((s) => s.showToast);
+  const autoRefresh = useStore((s) => s.autoRefresh);
+  const running = useStore((s) => s.running);
+  const setDetectedApp = useStore((s) => s.setDetectedApp);
   const [screenshot, setScreenshot] = useState<string>("");
   const [loading, setLoading] = useState(false);
+  const runningRef = useRef(running);
+  const inFlightRef = useRef(false);
+  useEffect(() => { runningRef.current = running; }, [running]);
 
-  async function refresh() {
-    setLoading(true);
+  const refresh = useCallback(async (silent = false) => {
+    // Skip if a refresh is already running — avoids stacking slow refreshes
+    // when the Simulator is in background and each call takes 500ms+.
+    if (inFlightRef.current) return;
+    inFlightRef.current = true;
+    if (!silent) setLoading(true);
     try {
       const result = await invoke<InspectPayload>("inspect", {
         platform: platform === "android" ? "android" : "ios",
       });
-      setScreenshot(result.screenshot);
+      if (result.screenshot) setScreenshot(result.screenshot);
       setElements(result.indexed);
+      const root = result.elements[0] as { role?: string; label?: string; id?: string } | undefined;
+      if (root?.role === "Application" && root?.id) {
+        setDetectedApp({ name: root.label || root.id, bundle: root.id });
+      }
     } catch (e) {
-      showToast("err", `Inspect fallo: ${(e as Error).message ?? e}`);
+      if (!silent) showToast("err", `Inspect fallo: ${(e as Error).message ?? e}`);
     } finally {
-      setLoading(false);
+      inFlightRef.current = false;
+      if (!silent) setLoading(false);
     }
-  }
+  }, [platform, setElements, setDetectedApp, showToast]);
 
   useEffect(() => {
     void refresh();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [platform]);
+  }, [refresh]);
+
+  useEffect(() => {
+    setDetectedApp(null);
+  }, [platform, setDetectedApp]);
+
+  useEffect(() => {
+    if (!autoRefresh || running) return;
+    const id = setInterval(() => {
+      if (!runningRef.current && !inFlightRef.current) void refresh(true);
+    }, 2000);
+    return () => clearInterval(id);
+  }, [autoRefresh, running, refresh]);
 
   return (
     <div data-testid="device-preview">
