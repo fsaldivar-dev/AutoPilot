@@ -50,6 +50,31 @@ public func runAsyncReturning<T: Sendable>(_ block: @escaping @Sendable () async
     return v
 }
 
+/// Synchronous wrapper for async throwing functions; re-throws errors
+/// (unlike `runAsyncReturning` which calls `exit(1)`).
+public func runAsyncThrowing<T>(_ work: @escaping @Sendable () async throws -> T) throws -> T {
+    let sema = DispatchSemaphore(value: 0)
+    let box = AnyResultBox<T>()
+    Task {
+        do { box.value = try await work() }
+        catch { box.error = error }
+        sema.signal()
+    }
+    sema.wait()
+    if let e = box.error { throw e }
+    guard let v = box.value else {
+        throw NSError(domain: "RunAsync", code: -1, userInfo: [NSLocalizedDescriptionKey: "runAsyncThrowing produced no value"])
+    }
+    return v
+}
+
+/// Box used by `runAsyncThrowing` (no Sendable constraint on T — needed because
+/// `ActionResult` contains `[[String: Any]]` and thus isn't Sendable).
+final class AnyResultBox<T>: @unchecked Sendable {
+    var value: T?
+    var error: Error?
+}
+
 /// Scratchpad thread-safe para propagar resultados/errores de un Task al
 /// hilo principal que está esperando en DispatchGroup.
 final class ErrorBox: @unchecked Sendable {
