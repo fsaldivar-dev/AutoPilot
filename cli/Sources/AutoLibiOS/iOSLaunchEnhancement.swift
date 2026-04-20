@@ -20,6 +20,7 @@ public enum iOSLaunchEnhancement {
         var envVars: [String: String] = [:]
         var injectImage: String? = nil
         var recompile = false
+        var withObserver = false
 
         if let img = config["image"] {
             envVars["AUTOPILOT_CAMERA_IMAGE"] = img
@@ -46,26 +47,38 @@ public enum iOSLaunchEnhancement {
             } else if args[i] == "--recompile" {
                 recompile = true
                 i += 1
+            } else if args[i] == "--observer" {
+                withObserver = true
+                i += 1
             } else {
                 i += 1
             }
         }
 
-        if let injectImg = injectImage {
-            var imgPath = injectImg
-            if !imgPath.hasPrefix("/") {
-                imgPath = FileManager.default.currentDirectoryPath + "/" + imgPath
-            }
+        if recompile {
+            try DylibInjector().recompile()
+            if withObserver { try ObserverInjector().recompile() }
+        }
 
-            if recompile {
-                let injector = DylibInjector()
-                try injector.recompile()
-            }
+        // 4 combinaciones: {camera?, observer?} → dispatch al helper correcto.
+        let imgPath: String? = injectImage.map { img in
+            img.hasPrefix("/") ? img : FileManager.default.currentDirectoryPath + "/" + img
+        }
 
-            try simulatorBridge.injectAndLaunch(bundleId: bundleId, imagePath: imgPath, extraEnv: envVars)
-            let ms = elapsedMs(start)
-            print("Launched \(bundleId) with camera mock → \(imgPath) (\(ms)ms)")
-        } else {
+        switch (imgPath, withObserver) {
+        case (.some(let path), true):
+            try simulatorBridge.injectCameraAndObserverAndLaunch(
+                bundleId: bundleId, imagePath: path, extraEnv: envVars)
+            print("Launched \(bundleId) with camera + observer → \(path) (\(elapsedMs(start))ms)")
+        case (.some(let path), false):
+            try simulatorBridge.injectAndLaunch(
+                bundleId: bundleId, imagePath: path, extraEnv: envVars)
+            print("Launched \(bundleId) with camera mock → \(path) (\(elapsedMs(start))ms)")
+        case (.none, true):
+            try simulatorBridge.injectObserverAndLaunch(
+                bundleId: bundleId, extraEnv: envVars)
+            print("Launched \(bundleId) with observer (\(elapsedMs(start))ms)")
+        case (.none, false):
             // Launch vía router → SimCtlBackend (declara .launchApp).
             _ = try await router.execute(.launchApp(bundleId: bundleId, envVars: envVars))
             let ms = elapsedMs(start)
@@ -78,8 +91,15 @@ public enum iOSLaunchEnhancement {
     }
 
     private static func printUsage() {
-        print("Usage: auto launch <bundleId> [--inject image.jpg] [--env KEY=VALUE ...]")
+        print("Usage: auto launch <bundleId> [--inject image.jpg] [--observer] [--env KEY=VALUE ...]")
         print("   or: auto config bundle com.example.app")
         print("       auto launch")
+        print("")
+        print("Flags:")
+        print("  --inject [img]   Inyecta camera mock dylib al arrancar")
+        print("  --observer       Inyecta libAutoPilotObserver.dylib (solo simulator)")
+        print("                   → `tree`/`inspect` dejan de depender de Simulator.app foreground")
+        print("  --env KEY=VALUE  Pasa env var al proceso del app")
+        print("  --recompile      Fuerza recompilar dylib(s) antes de inyectar")
     }
 }
