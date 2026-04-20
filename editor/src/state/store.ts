@@ -69,6 +69,11 @@ interface ExecutorSlice {
   setSession: (id: string | undefined, platform?: Platform) => void;
   setRunning: (r: boolean) => void;
   setElements: (els: IndexedElement[]) => void;
+  // Contador monotónico que incrementa cada vez que se ejecuta un comando
+  // que podría haber mutado la UI. DevicePreview suscribe a este valor para
+  // disparar un refresh reactivo (mirror fluido del simulator).
+  refreshTick: number;
+  bumpRefreshTick: () => void;
   pushRecent: (block: Block) => void;
   setAutoRefresh: (v: boolean) => void;
   setDetectedApp: (app: { name: string; bundle: string } | null) => void;
@@ -319,6 +324,8 @@ export const useStore = create<Store>((set) => ({
   setSession: (id, platform) => set({ sessionId: id, sessionPlatform: platform }),
   setRunning: (r) => set({ running: r }),
   setElements: (elements) => set({ elements }),
+  refreshTick: 0,
+  bumpRefreshTick: () => set((s) => ({ refreshTick: s.refreshTick + 1 })),
   pushRecent: (block) =>
     set((s) => ({ recentBlocks: [block, ...s.recentBlocks].slice(0, 20) })),
   setAutoRefresh: (autoRefresh) => set({ autoRefresh }),

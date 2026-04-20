@@ -43,7 +43,11 @@ pub struct Session {
     pub id: SessionId,
     pub platform: String,
     writer: Arc<Mutex<Option<ChildStdin>>>,
-    pending: Arc<Mutex<VecDeque<oneshot::Sender<Frame>>>>,
+    // Pending requests keyed by a monotonic request id. FIFO order preservado
+    // (el sidecar responde en orden). El request id permite que un timeout
+    // elimine EL tx correcto (no `pop_front` que puede agarrar otro).
+    pending: Arc<Mutex<VecDeque<(u64, oneshot::Sender<Frame>)>>>,
+    next_req_id: Arc<Mutex<u64>>,
     dead: Arc<Mutex<Option<String>>>,
     child: Arc<Mutex<Option<Child>>>,
 }
@@ -58,10 +62,18 @@ impl Session {
             return Err(format!("session dead: {}", reason));
         }
 
+        // Allocar un id monotónico para esta request — permite que el timeout
+        // elimine exactamente este tx sin afectar otros in-flight.
+        let req_id = {
+            let mut id = self.next_req_id.lock().await;
+            *id += 1;
+            *id
+        };
+
         let (tx, rx) = oneshot::channel::<Frame>();
         {
             let mut pending = self.pending.lock().await;
-            pending.push_back(tx);
+            pending.push_back((req_id, tx));
         }
 
         {
@@ -84,10 +96,11 @@ impl Session {
             Ok(Ok(frame)) => Ok(frame),
             Ok(Err(_)) => Err("sender dropped — session likely crashed".to_string()),
             Err(_) => {
-                // Mark session dead so UI can restart. The reader may still
-                // receive the frame but nobody is listening.
+                // Eliminar ESTE req_id de la queue sin tocar otros. Si el
+                // frame llega después, el reader lo consumirá (el próximo
+                // del pending que ya avanzó) o lo logueará como orphan.
                 let mut pending = self.pending.lock().await;
-                pending.pop_front();
+                pending.retain(|(id, _)| *id != req_id);
                 Err(format!("timeout after {:?}", timeout))
             }
         }
@@ -103,7 +116,7 @@ impl Session {
         self.writer.lock().await.take();
         // Drain pending with failure
         let mut pending = self.pending.lock().await;
-        while let Some(tx) = pending.pop_front() {
+        while let Some((_, tx)) = pending.pop_front() {
             let _ = tx.send(Frame {
                 ok: false,
                 err: Some("session killed".to_string()),
@@ -152,8 +165,9 @@ impl ExecutorRegistry {
         let stdout = child.stdout.take().ok_or("no stdout")?;
 
         let id = format!("sess_{}", uuid::Uuid::new_v4());
-        let pending: Arc<Mutex<VecDeque<oneshot::Sender<Frame>>>> =
+        let pending: Arc<Mutex<VecDeque<(u64, oneshot::Sender<Frame>)>>> =
             Arc::new(Mutex::new(VecDeque::new()));
+        let next_req_id: Arc<Mutex<u64>> = Arc::new(Mutex::new(0));
         let dead: Arc<Mutex<Option<String>>> = Arc::new(Mutex::new(None));
 
         let session = Arc::new(Session {
@@ -161,6 +175,7 @@ impl ExecutorRegistry {
             platform: platform.to_string(),
             writer: Arc::new(Mutex::new(Some(stdin))),
             pending: pending.clone(),
+            next_req_id,
             dead: dead.clone(),
             child: Arc::new(Mutex::new(Some(child))),
         });
@@ -186,9 +201,12 @@ impl ExecutorRegistry {
                             ready_seen = true;
                             continue;
                         }
+                        // El sidecar responde en orden FIFO — pop del primer
+                        // pending. Si un send() expiró su timeout, ya se
+                        // removió del queue vía retain() por id.
                         let maybe_tx = {
                             let mut pending = pending_r.lock().await;
-                            pending.pop_front()
+                            pending.pop_front().map(|(_, tx)| tx)
                         };
                         if let Some(tx) = maybe_tx {
                             let _ = tx.send(frame);
@@ -199,7 +217,7 @@ impl ExecutorRegistry {
                     Ok(None) => {
                         *dead_r.lock().await = Some("EOF from CLI".to_string());
                         let mut pending = pending_r.lock().await;
-                        while let Some(tx) = pending.pop_front() {
+                        while let Some((_, tx)) = pending.pop_front() {
                             let _ = tx.send(Frame {
                                 ok: false,
                                 err: Some("session closed (EOF)".to_string()),

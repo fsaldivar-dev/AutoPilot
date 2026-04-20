@@ -20,6 +20,28 @@ export interface RunnerCallbacks {
   // Fired when the sidecar was respawned mid-run. Caller should persist
   // the new sessionId in the store.
   onSessionChange?: (newSessionId: string) => void;
+  // Disparado después de cada comando que puede haber mutado la UI
+  // (tap, type, swipe, scroll, launch, etc.). El caller típicamente
+  // triggerea un screenshot/tree refresh en el inspector para mantener
+  // la vista fluida. Safe para fire-and-forget — el runner no espera.
+  onUIMutation?: () => void;
+}
+
+// Comandos que típicamente mutan la UI y justifican un refresh reactivo.
+// Queries/predicados (exists/visible/tree/etc) NO están en la lista.
+const UI_MUTATORS = new Set([
+  "tap", "doubleTap", "longPress", "tapAt",
+  "type", "clear", "eraseText", "pressKey", "hideKeyboard",
+  "swipe", "scroll", "scrollTo", "scrollUntilVisible", "drag",
+  "launch", "terminate", "install", "uninstall", "clearState",
+  "rotate", "setAppearance", "lockDevice", "unlockDevice",
+  "openurl", "paste", "media",
+  "waitFor", "waitUntilGone",
+]);
+
+function isUIMutator(command: string): boolean {
+  const first = command.trim().split(/\s+/)[0]?.split("[")[0] ?? "";
+  return UI_MUTATORS.has(first);
 }
 
 export function substituteVars(command: string, vars: EnvVar[]): string {
@@ -58,6 +80,7 @@ export async function runBlock(
     onStart?: () => void;
     onEnd: (ok: boolean, ms: number | undefined, err?: string) => void;
     onSessionChange?: (newSessionId: string) => void;
+    onUIMutation?: () => void;
   }
 ): Promise<string | undefined> {
   if (block.kind === "logic" || !block.command) {
@@ -79,6 +102,9 @@ export async function runBlock(
     );
     if (newSid !== sessionId) cb.onSessionChange?.(newSid);
     cb.onEnd(frame.ok, frame.ms, frame.err ?? undefined);
+    if (frame.ok && isUIMutator(block.command)) {
+      cb.onUIMutation?.();
+    }
     return newSid;
   } catch (e) {
     cb.onEnd(false, undefined, (e as Error).message ?? String(e));
@@ -139,6 +165,12 @@ async function runCommandBlock(
     }
     state.ran++;
     cb.onBlockEnd(block.id, frame.ok, frame.ms, frame.err ?? undefined);
+    // Refresh reactivo: si el comando probable mutó la UI, disparamos un
+    // refresh del inspector después de un pequeño delay (para dejar que las
+    // animaciones terminen). Fire-and-forget.
+    if (frame.ok && isUIMutator(block.command)) {
+      cb.onUIMutation?.();
+    }
     if (!frame.ok && cb.shouldAbortOnError()) {
       state.errored = block.id;
       throw new AbortedError();

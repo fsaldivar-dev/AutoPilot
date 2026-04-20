@@ -14,8 +14,6 @@ export function Toolbar({ platform, setPlatform }: Props) {
   const currentFlowId = useStore((s) => s.currentFlowId);
   const sessionId = useStore((s) => s.sessionId);
   const running = useStore((s) => s.running);
-  const autoRefresh = useStore((s) => s.autoRefresh);
-  const setAutoRefresh = useStore((s) => s.setAutoRefresh);
   const detectedApp = useStore((s) => s.detectedApp);
   const viewMode = useStore((s) => s.viewMode);
   const setViewMode = useStore((s) => s.setViewMode);
@@ -99,17 +97,6 @@ export function Toolbar({ platform, setPlatform }: Props) {
           <span className="app-chip-name">{copied ? "¡Copiado!" : detectedApp.name}</span>
         </button>
       )}
-
-      <button
-        className={`btn btn-autorefresh${autoRefresh ? " active" : ""}`}
-        onClick={() => setAutoRefresh(!autoRefresh)}
-        disabled={running}
-        title={autoRefresh ? "Auto-refresh ON (2s) — click para desactivar" : "Auto-refresh OFF — click para activar"}
-        data-testid="auto-refresh-btn"
-      >
-        <span className="btn-autorefresh-icon">⟳</span>
-        <span>Auto</span>
-      </button>
 
       <div
         data-testid="session-badge"

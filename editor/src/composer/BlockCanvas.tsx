@@ -26,6 +26,7 @@ export function BlockCanvas({ platform }: Props) {
   const running = useStore((s) => s.running);
   const setRunning = useStore((s) => s.setRunning);
   const showToast = useStore((s) => s.showToast);
+  const bumpRefreshTick = useStore((s) => s.bumpRefreshTick);
 
   const [showGroupModal, setShowGroupModal] = useState(false);
   const [draggingId, setDraggingId] = useState<string | null>(null);
@@ -125,6 +126,7 @@ export function BlockCanvas({ platform }: Props) {
           if (!ok && err) showToast("err", `✗ ${err}`);
         },
         onSessionChange: (newSid) => setSession(newSid, runtime),
+        onUIMutation: () => bumpRefreshTick(),
       });
     } finally {
       setRunning(false);
