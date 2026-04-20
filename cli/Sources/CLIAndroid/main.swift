@@ -211,8 +211,7 @@ func executeCommand(_ args: [String]) throws {
             if wasHandled { return }
         }
         // Fall-through a executeSharedCommand para listar devices
-        // TODO(ARD-001): migrate Android dispatcher to pass router (follow-up PR).
-        let handled = try executeSharedCommand(args, bridge: bridge, router: nil)
+        let handled = try executeSharedCommand(args, bridge: bridge, router: router)
         if !handled {
             print("Unknown command: \(cmd)")
             AndroidUsage.printUsage()
@@ -253,7 +252,7 @@ func executeCommand(_ args: [String]) throws {
         AndroidDoctor.run(bridge: bridge, useLegacy: useLegacy)
 
     default:
-        let handled = try executeSharedCommand(args, bridge: bridge)
+        let handled = try executeSharedCommand(args, bridge: bridge, router: router)
         if !handled {
             print("Unknown command: \(cmd)")
             AndroidUsage.printUsage()
