@@ -7,7 +7,24 @@ export type BlockStatus = "idle" | "running" | "ok" | "err";
 
 export type BlockKind = "command" | "component" | "logic" | "comment";
 
-export type LogicKind = "if" | "else" | "repeat" | "try" | "catch" | "foreach";
+// "else", "catch", "foreach" quedan como valores legacy reconocidos por migrate.ts;
+// el editor no crea nuevos bloques con esos kinds. "assert" es nuevo.
+export type LogicKind =
+  | "if" | "else" | "repeat" | "try" | "catch" | "foreach" | "assert";
+
+// AST de predicados — espejo de Predicate en cli/Sources/AutoCore/ScriptAST.swift.
+// Se usa en if, repeat (while/until) y assert.
+export type Predicate =
+  | { kind: "call"; name: string; args: string[] }
+  | { kind: "and"; left: Predicate; right: Predicate }
+  | { kind: "or"; left: Predicate; right: Predicate }
+  | { kind: "not"; inner: Predicate };
+
+export type RepeatMode =
+  | { mode: "times"; n: number }
+  | { mode: "while"; pred: Predicate }
+  | { mode: "until"; pred: Predicate }
+  | { mode: "foreach"; variable: string; list: string };
 
 export interface BlockMeta {
   status: BlockStatus;
@@ -22,9 +39,16 @@ export interface Block {
   kind: BlockKind;
   command?: string;
   args?: Record<string, string | number | boolean>;
-  // For logic blocks: slots hold nested blocks (if: [then, else]; repeat: [body]; try: [try, catch])
+  // For logic blocks: slots hold nested blocks
+  //   if:     [then, else]
+  //   repeat: [body]
+  //   try:    [body, catch]
+  //   assert: []
   slots?: Block[][];
   logicKind?: LogicKind;
+  // Nuevo (solo logic):
+  predicate?: Predicate;   // if / assert / repeat (while|until)
+  repeat?: RepeatMode;     // repeat
   meta: BlockMeta;
 }
 
@@ -196,6 +220,10 @@ export interface CursorContext {
   afterDollar: boolean;
   commandWord?: string;
   paramIndex?: number;
+  // Cuando el popover está sobre un PredicateEditor, el provider de predicados
+  // muestra `exists`, `visible`, `and/or/not`, etc. en el CommandBar normal es
+  // undefined/false.
+  predicateMode?: boolean;
 }
 
 // Live element index (from device).

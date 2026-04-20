@@ -14,7 +14,22 @@ export function Toolbar({ platform, setPlatform }: Props) {
   const currentFlowId = useStore((s) => s.currentFlowId);
   const sessionId = useStore((s) => s.sessionId);
   const running = useStore((s) => s.running);
+  const autoRefresh = useStore((s) => s.autoRefresh);
+  const setAutoRefresh = useStore((s) => s.setAutoRefresh);
+  const detectedApp = useStore((s) => s.detectedApp);
+  const viewMode = useStore((s) => s.viewMode);
+  const setViewMode = useStore((s) => s.setViewMode);
   const [showShare, setShowShare] = useState(false);
+  const [copied, setCopied] = useState(false);
+
+  async function copyBundle() {
+    if (!detectedApp) return;
+    try {
+      await navigator.clipboard.writeText(detectedApp.bundle);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch { /* clipboard puede fallar */ }
+  }
 
   return (
     <div className="toolbar" data-testid="toolbar">
@@ -41,6 +56,23 @@ export function Toolbar({ platform, setPlatform }: Props) {
 
       <div style={{ flex: 1 }} />
 
+      <div className="platform-toggle" data-testid="view-toggle">
+        <button
+          className={viewMode === "blocks" ? "active" : ""}
+          onClick={() => setViewMode("blocks")}
+          title="Vista por bloques"
+        >
+          Bloques
+        </button>
+        <button
+          className={viewMode === "code" ? "active" : ""}
+          onClick={() => setViewMode("code")}
+          title="Vista de código .auto"
+        >
+          Código
+        </button>
+      </div>
+
       <div className="platform-toggle" data-testid="platform-toggle">
         <button
           className={platform === "ios" ? "active" : ""}
@@ -55,6 +87,29 @@ export function Toolbar({ platform, setPlatform }: Props) {
           Android
         </button>
       </div>
+
+      {detectedApp && (
+        <button
+          className={`app-chip${copied ? " copied" : ""}`}
+          onClick={copyBundle}
+          title={copied ? "¡Copiado!" : detectedApp.bundle}
+          data-testid="app-chip"
+        >
+          <span className="app-chip-dot" />
+          <span className="app-chip-name">{copied ? "¡Copiado!" : detectedApp.name}</span>
+        </button>
+      )}
+
+      <button
+        className={`btn btn-autorefresh${autoRefresh ? " active" : ""}`}
+        onClick={() => setAutoRefresh(!autoRefresh)}
+        disabled={running}
+        title={autoRefresh ? "Auto-refresh ON (2s) — click para desactivar" : "Auto-refresh OFF — click para activar"}
+        data-testid="auto-refresh-btn"
+      >
+        <span className="btn-autorefresh-icon">⟳</span>
+        <span>Auto</span>
+      </button>
 
       <div
         data-testid="session-badge"

@@ -2,9 +2,15 @@ import { nanoid } from "nanoid";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { suggest } from "./autocomplete";
 import { AutocompletePopover } from "./AutocompletePopover";
+import { parsePredicate } from "./predicateText";
+import { tokenizeLine } from "../domain/autoTokenize";
 import { useStore, selectCurrentFlow, selectCurrentProject } from "../state/store";
-import type { Block, Frame, Platform, Suggestion } from "../domain/types";
+import type {
+  Block, Frame, Platform, RepeatMode, Suggestion,
+} from "../domain/types";
 import * as executor from "../services/executor";
+
+const LOGIC_KEYWORDS = new Set(["if", "repeat", "try", "assert"]);
 
 interface Props {
   platform: Platform;
@@ -93,9 +99,103 @@ export function CommandBar({ platform }: Props) {
     }
   }
 
+  function makeLogic(
+    logicKind: "if" | "repeat" | "try" | "assert",
+    partial: Partial<Block>,
+  ): Block {
+    return {
+      id: `${logicKind}_${nanoid(8)}`,
+      kind: "logic",
+      logicKind,
+      ...partial,
+      meta: { status: "idle" },
+    };
+  }
+
+  function parseRepeatHeader(args: string[]): RepeatMode {
+    if (args.length === 0) {
+      throw new Error("repeat necesita argumentos (N times / while / until / for)");
+    }
+    switch (args[0]) {
+      case "while": {
+        const pred = parsePredicate(args.slice(1), 0);
+        return { mode: "while", pred };
+      }
+      case "until": {
+        const pred = parsePredicate(args.slice(1), 0);
+        return { mode: "until", pred };
+      }
+      case "for": {
+        if (args.length < 4 || args[2] !== "in") {
+          throw new Error("repeat for $var in $list");
+        }
+        return { mode: "foreach", variable: args[1], list: args[3] };
+      }
+      default: {
+        const n = parseInt(args[0], 10);
+        if (!Number.isInteger(n) || args.length < 2 || args[1] !== "times") {
+          throw new Error("repeat N times");
+        }
+        return { mode: "times", n };
+      }
+    }
+  }
+
+  // Intenta interpretar el input como un keyword de control flow
+  // (if/repeat/try/assert). Si matchea, crea un logic block estructural sin
+  // ejecutar nada en el CLI y devuelve true. Si no matchea o el predicado
+  // está mal formado, devuelve false para que el caller siga con runCurrent.
+  function handleLogicKeyword(line: string): boolean {
+    if (!flow) return false;
+    const tokens = tokenizeLine(line);
+    if (tokens.length === 0) return false;
+    const head = tokens[0];
+    if (!LOGIC_KEYWORDS.has(head)) return false;
+
+    let block: Block | null = null;
+    try {
+      switch (head) {
+        case "if": {
+          const cond = parsePredicate(tokens.slice(1), 0);
+          block = makeLogic("if", { predicate: cond, slots: [[], []] });
+          break;
+        }
+        case "assert": {
+          const cond = parsePredicate(tokens.slice(1), 0);
+          block = makeLogic("assert", { predicate: cond, slots: [] });
+          break;
+        }
+        case "repeat": {
+          const repeat = parseRepeatHeader(tokens.slice(1));
+          block = makeLogic("repeat", { repeat, slots: [[]] });
+          break;
+        }
+        case "try": {
+          block = makeLogic("try", { slots: [[], []] });
+          break;
+        }
+      }
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      showToast("err", `✗ sintaxis inválida: ${msg}`);
+      // Dejamos el texto intacto para que el usuario corrija sin perder trabajo.
+      return true;
+    }
+
+    if (block) {
+      appendBlock(flow.id, block);
+      setValue("");
+      setCursor(0);
+    }
+    return true;
+  }
+
   async function runCurrent() {
     const line = value.trim();
     if (!line || !flow) return;
+
+    // Keyword de control flow → no va al CLI; crea logic block estructural.
+    if (handleLogicKeyword(line)) return;
 
     const blockId = `blk_${nanoid(8)}`;
     const block: Block = {
