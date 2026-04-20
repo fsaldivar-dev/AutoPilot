@@ -160,13 +160,57 @@ extension SimulatorBridge {
     /// Launches an app with the camera mock dylib injected via DYLD_INSERT_LIBRARIES.
     /// Optionally sets an initial image for the mock.
     public func injectAndLaunch(bundleId: String, imagePath: String?, extraEnv: [String: String] = [:]) throws {
-        let injector = DylibInjector()
-        let dylibPath = try injector.ensureDylib()
+        try launchWithDylibs(
+            bundleId: bundleId,
+            dylibPaths: [try DylibInjector().ensureDylib()],
+            extraEnv: extraEnv,
+            setupBeforeLaunch: {
+                if let img = imagePath { try self.setInjectImage(img) }
+            }
+        )
+    }
 
-        // Copy initial image if provided
-        if let img = imagePath {
-            try setInjectImage(img)
-        }
+    /// Launches the app with libAutoPilotObserver.dylib injected. Once attached,
+    /// the observer answers AX queries over TCP :7002 — `tree`/`inspect`/etc. no
+    /// longer depend on Simulator.app being frontmost.
+    ///
+    /// Simulator-only: iOS device sandbox blocks DYLD injection. Device uses
+    /// the static lib with `-force_load` at build time (see BuildInterceptor).
+    public func injectObserverAndLaunch(bundleId: String, extraEnv: [String: String] = [:]) throws {
+        try launchWithDylibs(
+            bundleId: bundleId,
+            dylibPaths: [try ObserverInjector().ensureDylib()],
+            extraEnv: extraEnv
+        )
+    }
+
+    /// Camera + observer combinados en un único launch (multi-dylib injection).
+    public func injectCameraAndObserverAndLaunch(
+        bundleId: String,
+        imagePath: String?,
+        extraEnv: [String: String] = [:]
+    ) throws {
+        let cameraDylib = try DylibInjector().ensureDylib()
+        let observerDylib = try ObserverInjector().ensureDylib()
+        try launchWithDylibs(
+            bundleId: bundleId,
+            dylibPaths: [cameraDylib, observerDylib],
+            extraEnv: extraEnv,
+            setupBeforeLaunch: {
+                if let img = imagePath { try self.setInjectImage(img) }
+            }
+        )
+    }
+
+    // MARK: - Shared dylib injection path
+
+    private func launchWithDylibs(
+        bundleId: String,
+        dylibPaths: [String],
+        extraEnv: [String: String],
+        setupBeforeLaunch: (() throws -> Void)? = nil
+    ) throws {
+        try setupBeforeLaunch?()
 
         let deviceId = try getBootedDeviceId()
 
@@ -177,15 +221,14 @@ extension SimulatorBridge {
         try? term.run()
         term.waitUntilExit()
 
-        // Build env vars — only need dylib path, image is read from fixed file
+        // DYLD_INSERT_LIBRARIES acepta múltiples dylibs separadas por ":".
         var env = ProcessInfo.processInfo.environment
-        env["SIMCTL_CHILD_DYLD_INSERT_LIBRARIES"] = dylibPath
+        env["SIMCTL_CHILD_DYLD_INSERT_LIBRARIES"] = dylibPaths.joined(separator: ":")
 
         for (key, value) in extraEnv {
             env["SIMCTL_CHILD_\(key)"] = value
         }
 
-        // Launch with dylib injection
         let launch = Process()
         launch.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
         launch.arguments = ["simctl", "launch", deviceId, bundleId]
