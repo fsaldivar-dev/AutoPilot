@@ -82,6 +82,13 @@ public enum ActionKind: Hashable, CaseIterable {
 
     // Viewport
     case viewport
+
+    // Predicates (return ActionResult.bool / .text)
+    case exists              // → .bool
+    case isVisible           // → .bool
+    case hasText             // → .bool
+    case getPlatform         // → .text  ("ios" | "android")
+    case getOrientation      // → .text  ("portrait" | "landscape")
 }
 
 // MARK: - Action
@@ -166,6 +173,13 @@ public enum Action {
     // Viewport
     case viewport
 
+    // Predicates
+    case exists(target: String)
+    case isVisible(target: String)
+    case hasText(target: String, text: String)
+    case getPlatform
+    case getOrientation
+
     /// El ActionKind correspondiente a esta acción.
     public var kind: ActionKind {
         switch self {
@@ -219,6 +233,11 @@ public enum Action {
         case .pushFile: return .pushFile
         case .pullFile: return .pullFile
         case .viewport: return .viewport
+        case .exists: return .exists
+        case .isVisible: return .isVisible
+        case .hasText: return .hasText
+        case .getPlatform: return .getPlatform
+        case .getOrientation: return .getOrientation
         }
     }
 }
