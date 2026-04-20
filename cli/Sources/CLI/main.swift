@@ -389,7 +389,7 @@ func executeCommand(_ args: [String]) throws {
             // Unknown arg → fall through to shared dispatcher (will print usage)
         }
         // No args or unrecognized arg → legacy "list simulators"
-        _ = try executeSharedCommand(args, bridge: bridge, deepBridge: xcuiBridge)
+        _ = try executeSharedCommand(args, bridge: bridge, deepBridge: xcuiBridge, router: router)
 
     case "stats":
         if let hybrid = bridge as? HybridBridge {
@@ -417,7 +417,7 @@ func executeCommand(_ args: [String]) throws {
 
     default:
         // Delegate to shared (platform-agnostic) dispatcher
-        let handled = try executeSharedCommand(args, bridge: bridge, deepBridge: xcuiBridge)
+        let handled = try executeSharedCommand(args, bridge: bridge, deepBridge: xcuiBridge, router: router)
         if !handled {
             print("Unknown command: \(cmd)")
             iOSUsage.printUsage()

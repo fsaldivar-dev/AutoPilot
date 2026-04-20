@@ -29,20 +29,17 @@ public final class iOSDeviceResolver: DeviceResolver {
         let registry = CapabilityRegistry()
         var backends: [any Backend] = []
 
-        // ARD-002: if the in-process observer is reachable, register it first so
-        // it takes priority over AX for all UI actions (tree/tap/etc.).
-        // Also wraps legacyBridge so CommandDispatcher routes through the observer.
-        // Falls back to AX+XCUI transparently when the observer is not available.
+        // ARD-002: register the observer backend at highest priority when reachable.
+        // Escalation to AX/XCUI happens automatically via ActionRouter (ARD-001);
+        // no DeviceBridge-level wrapper is needed.
         let agent = iOSAgentBridge()
         if agent.probeSocket() {
             self.agentBridge = agent
-            let hybridFallback = Self.makeLegacyBridge(sim: sim, xcui: xcui)
-            self.legacyBridge = ObserverBridge(observer: agent, fallback: hybridFallback)
             backends.append(iOSAgentBackend.make(bridge: agent))
         } else {
             self.agentBridge = nil
-            self.legacyBridge = Self.makeLegacyBridge(sim: sim, xcui: xcui)
         }
+        self.legacyBridge = Self.makeLegacyBridge(sim: sim, xcui: xcui)
 
         backends.append(contentsOf: [
             AXBackend.make(simulatorBridge: sim),
