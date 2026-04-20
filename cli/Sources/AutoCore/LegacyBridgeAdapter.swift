@@ -241,6 +241,46 @@ public final class LegacyBridgeAdapter: Backend, @unchecked Sendable {
         case .viewport:
             let rect = try bridge.viewport()
             return .rect(rect)
+
+        // MARK: Predicates
+        //
+        // Los predicados devuelven `.bool` cuando el elemento falta (en vez de
+        // throw `.elementNotFound`), para que `ActionRouter` no escale una
+        // respuesta negativa legítima. Ver PredicateTests y plan fase 1.
+
+        case .exists(let target):
+            let results = try bridge.search(query: target)
+            return .bool(!results.isEmpty)
+
+        case .isVisible(let target):
+            let tree = try bridge.tree()
+            guard let element = ViewportUtil.findFirst(in: tree, matching: target),
+                  let frame = ViewportUtil.rect(from: element["frame"] as? [String: Any])
+            else {
+                return .bool(false)
+            }
+            let viewport = try bridge.viewport()
+            return .bool(ViewportUtil.isVisible(frame: frame, inViewport: viewport))
+
+        case .hasText(let target, let text):
+            let tree = try bridge.tree()
+            guard let element = ViewportUtil.findFirst(in: tree, matching: target) else {
+                return .bool(false)
+            }
+            let label = element["label"] as? String ?? ""
+            let value = element["value"] as? String ?? ""
+            let title = element["title"] as? String ?? ""
+            let match = label.contains(text) || value.contains(text) || title.contains(text)
+            return .bool(match)
+
+        case .getPlatform:
+            // Plataforma efectiva del runtime. iOS CLI corre en iOS simulator host;
+            // Android CLI hace override via override más adelante si hace falta.
+            return .text("ios")
+
+        case .getOrientation:
+            let rect = try bridge.viewport()
+            return .text(rect.height >= rect.width ? "portrait" : "landscape")
         }
     }
 }
