@@ -414,6 +414,41 @@ enum MockHeaders {
     }
 
     // ============================================================
+    // Catch-all no-op for unknown AVCaptureDevice setters
+    // ============================================================
+    // VisionKit (DocumentCamera) calls private setters on AVCaptureDevice
+    // (e.g. setProvidesStortorgetMetadata:) that exist but throw
+    // NSInvalidArgumentException on the simulator. We blanket-replace every
+    // single-arg void setter on AVCaptureDevice with a no-op. Safe because
+    // the device returned by our mock is never a real capture device.
+    static void ap_noop_setter(id self, SEL _cmd, ...) {
+        // Variadic signature ignores all incoming arg registers (scalar/object).
+    }
+
+    static int ap_patch_avdevice_setters(Class deviceClass) {
+        unsigned int methodCount = 0;
+        Method *methods = class_copyMethodList(deviceClass, &methodCount);
+        int patched = 0;
+        for (unsigned int i = 0; i < methodCount; i++) {
+            SEL sel = method_getName(methods[i]);
+            const char *name = sel_getName(sel);
+            size_t len = strlen(name);
+            if (len < 5) continue;
+            if (strncmp(name, "set", 3) != 0) continue;
+            if (name[len-1] != ':') continue;
+            int colons = 0;
+            for (size_t j = 0; j < len; j++) if (name[j] == ':') colons++;
+            if (colons != 1) continue;
+            const char *enc = method_getTypeEncoding(methods[i]);
+            if (!enc || enc[0] != 'v') continue;
+            method_setImplementation(methods[i], (IMP)ap_noop_setter);
+            patched++;
+        }
+        free(methods);
+        return patched;
+    }
+
+    // ============================================================
     // Constructor — runs at load time
     // ============================================================
 
@@ -443,6 +478,11 @@ enum MockHeaders {
         ap_swizzle_class_method(deviceClass,
             @selector(defaultDeviceWithDeviceType:mediaType:position:),
             (IMP)ap_defaultDeviceWithType, &orig_defaultDeviceWithType);
+
+        // Defuse private setters (e.g. setProvidesStortorgetMetadata: from VisionKit)
+        // that throw "Not supported by this device" on simulator.
+        int patchedSetters = ap_patch_avdevice_setters(deviceClass);
+        NSLog(@"[AutoPilot] AVCaptureDevice: no-op'd %d single-arg void setters", patchedSetters);
 
         // Swizzle AVCaptureDeviceInput
         Class deviceInputClass = [AVCaptureDeviceInput class];
