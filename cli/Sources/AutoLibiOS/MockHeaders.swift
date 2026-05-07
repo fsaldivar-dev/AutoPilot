@@ -24,6 +24,8 @@ enum MockHeaders {
     static const void *kAPTimestampKey = &kAPTimestampKey;
     static const void *kAPSessionInputsKey = &kAPSessionInputsKey;
     static const void *kAPSessionOutputsKey = &kAPSessionOutputsKey;
+    static const void *kAPVideoDelegateKey = &kAPVideoDelegateKey;
+    static const void *kAPVideoQueueKey = &kAPVideoQueueKey;
 
     // ============================================================
     // Swizzle helper
@@ -131,14 +133,27 @@ enum MockHeaders {
     static IMP orig_isRunning = NULL;
     static const void *kAPSessionRunningKey = &kAPSessionRunningKey;
 
+    // Forward declarations for video frame pump (defined further below).
+    static void ap_startFrameTimerIfNeeded(void);
+    static void ap_stopFrameTimerIfIdle(void);
+    // ap_resolveImagePath is defined later but used by the frame pump.
+    static NSString *ap_resolveImagePath(void);
+
     static void ap_startRunning(id self, SEL _cmd) {
-        NSLog(@"[AutoPilot] startRunning (mock no-op)");
+        NSLog(@"[AutoPilot] startRunning");
         objc_setAssociatedObject(self, kAPSessionRunningKey, @YES, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        // Kick the video frame pump for any AVCaptureVideoDataOutput delegates
+        // that were attached to this session (or any other). VisionKit's
+        // VNDocumentCameraViewController needs a continuous stream of
+        // CMSampleBuffers — without it, FigCaptureSourceSimulator dereferences
+        // null and crashes with SIGSEGV.
+        ap_startFrameTimerIfNeeded();
     }
 
     static void ap_stopRunning(id self, SEL _cmd) {
-        NSLog(@"[AutoPilot] stopRunning (mock no-op)");
+        NSLog(@"[AutoPilot] stopRunning");
         objc_setAssociatedObject(self, kAPSessionRunningKey, @NO, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        ap_stopFrameTimerIfIdle();
     }
 
     static BOOL ap_isRunning(id self, SEL _cmd) {
@@ -199,6 +214,172 @@ enum MockHeaders {
     static NSArray *ap_outputs(id self, SEL _cmd) {
         NSArray *arr = objc_getAssociatedObject(self, kAPSessionOutputsKey);
         return arr ?: @[];
+    }
+
+    // ============================================================
+    // Replacement: AVCaptureVideoDataOutput
+    // ============================================================
+    // VisionKit (VNDocumentCameraViewController, ICDocCamViewController)
+    // and any custom video pipeline (AR, ML, real-time filters) attaches a
+    // delegate to AVCaptureVideoDataOutput and expects a continuous stream
+    // of CMSampleBuffers. Without that stream, FigCaptureSourceSimulator
+    // pushes a malformed FormatDescription and code paths that don't null-
+    // check segfault. We:
+    //   1. Capture every (delegate, queue) pair via swizzled setter.
+    //   2. Run a dispatch_source_t timer at ~15fps.
+    //   3. On each tick: load the mock image, build a fresh CVPixelBuffer +
+    //      CMSampleBuffer, fan out to every tracked delegate on its queue.
+
+    static NSMutableArray *ap_videoOutputs = nil;          // strong refs
+    static dispatch_queue_t ap_outputsQueue = nil;          // serializes mutations
+    static dispatch_source_t ap_frameTimer = nil;
+    static dispatch_queue_t ap_frameTimerQueue = nil;
+
+    static CVPixelBufferRef ap_pixelBufferFromImage(UIImage *image) {
+        if (!image || !image.CGImage) return NULL;
+
+        size_t width = (size_t)CGImageGetWidth(image.CGImage);
+        size_t height = (size_t)CGImageGetHeight(image.CGImage);
+        // Cap at a reasonable preview size to keep CPU low; document detection
+        // works fine at 720p.
+        const size_t maxEdge = 1280;
+        if (width > maxEdge || height > maxEdge) {
+            double scale = (double)maxEdge / (double)MAX(width, height);
+            width = (size_t)(width * scale);
+            height = (size_t)(height * scale);
+        }
+
+        NSDictionary *attrs = @{
+            (NSString *)kCVPixelBufferCGImageCompatibilityKey: @YES,
+            (NSString *)kCVPixelBufferCGBitmapContextCompatibilityKey: @YES,
+            (NSString *)kCVPixelBufferIOSurfacePropertiesKey: @{}
+        };
+        CVPixelBufferRef pxBuf = NULL;
+        CVReturn ok = CVPixelBufferCreate(kCFAllocatorDefault, width, height,
+                                          kCVPixelFormatType_32BGRA,
+                                          (__bridge CFDictionaryRef)attrs, &pxBuf);
+        if (ok != kCVReturnSuccess || !pxBuf) return NULL;
+
+        CVPixelBufferLockBaseAddress(pxBuf, 0);
+        void *base = CVPixelBufferGetBaseAddress(pxBuf);
+        size_t bpr = CVPixelBufferGetBytesPerRow(pxBuf);
+        CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
+        CGContextRef ctx = CGBitmapContextCreate(base, width, height, 8, bpr, cs,
+            kCGImageAlphaNoneSkipFirst | kCGBitmapByteOrder32Little);
+        if (ctx) {
+            CGContextDrawImage(ctx, CGRectMake(0, 0, width, height), image.CGImage);
+            CGContextRelease(ctx);
+        }
+        CGColorSpaceRelease(cs);
+        CVPixelBufferUnlockBaseAddress(pxBuf, 0);
+        return pxBuf;
+    }
+
+    static CMSampleBufferRef ap_sampleBufferFromPixelBuffer(CVPixelBufferRef pxBuf, CMTime presentationTime) {
+        if (!pxBuf) return NULL;
+        CMVideoFormatDescriptionRef fmt = NULL;
+        OSStatus s = CMVideoFormatDescriptionCreateForImageBuffer(kCFAllocatorDefault, pxBuf, &fmt);
+        if (s != noErr || !fmt) return NULL;
+
+        CMSampleTimingInfo timing;
+        timing.duration = CMTimeMake(1, 15);
+        timing.presentationTimeStamp = presentationTime;
+        timing.decodeTimeStamp = kCMTimeInvalid;
+
+        CMSampleBufferRef sampleBuf = NULL;
+        s = CMSampleBufferCreateForImageBuffer(kCFAllocatorDefault, pxBuf, true,
+                                               NULL, NULL, fmt, &timing, &sampleBuf);
+        CFRelease(fmt);
+        if (s != noErr) {
+            if (sampleBuf) { CFRelease(sampleBuf); }
+            return NULL;
+        }
+        return sampleBuf;
+    }
+
+    static void ap_pumpFrame(void) {
+        // Snapshot tracked outputs to avoid holding the lock during dispatch.
+        NSArray *outputs = nil;
+        @synchronized (ap_videoOutputs) {
+            outputs = [ap_videoOutputs copy];
+        }
+        if (outputs.count == 0) return;
+
+        NSString *imagePath = ap_resolveImagePath();
+        UIImage *img = nil;
+        if (imagePath) {
+            NSData *data = [NSData dataWithContentsOfFile:imagePath];
+            if (data) img = [UIImage imageWithData:data];
+        }
+        if (!img) return;
+
+        CVPixelBufferRef pxBuf = ap_pixelBufferFromImage(img);
+        if (!pxBuf) return;
+
+        CMTime ts = CMTimeMakeWithSeconds(CACurrentMediaTime(), 1000000);
+        CMSampleBufferRef sample = ap_sampleBufferFromPixelBuffer(pxBuf, ts);
+        CVPixelBufferRelease(pxBuf);
+        if (!sample) return;
+
+        for (id output in outputs) {
+            id delegate = objc_getAssociatedObject(output, kAPVideoDelegateKey);
+            dispatch_queue_t q = objc_getAssociatedObject(output, kAPVideoQueueKey);
+            if (!delegate || !q) continue;
+            if (![delegate respondsToSelector:@selector(captureOutput:didOutputSampleBuffer:fromConnection:)]) continue;
+
+            CFRetain(sample);
+            dispatch_async(q, ^{
+                @try {
+                    [delegate captureOutput:output didOutputSampleBuffer:sample fromConnection:nil];
+                } @catch (NSException *e) {
+                    NSLog(@"[AutoPilot] frame delegate threw: %@", e);
+                }
+                CFRelease(sample);
+            });
+        }
+        CFRelease(sample);
+    }
+
+    static void ap_startFrameTimerIfNeeded(void) {
+        @synchronized (ap_videoOutputs ?: [NSNull null]) {
+            if (ap_frameTimer) return;
+            if (!ap_frameTimerQueue) {
+                ap_frameTimerQueue = dispatch_queue_create("dev.autopilot.frame-pump", DISPATCH_QUEUE_SERIAL);
+            }
+            ap_frameTimer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, ap_frameTimerQueue);
+            // ~15 fps is enough for VisionKit's document edge detection and
+            // keeps the simulator's CPU happy.
+            uint64_t interval = NSEC_PER_SEC / 15;
+            dispatch_source_set_timer(ap_frameTimer, dispatch_time(DISPATCH_TIME_NOW, interval),
+                                      interval, NSEC_PER_SEC / 30);
+            dispatch_source_set_event_handler(ap_frameTimer, ^{ ap_pumpFrame(); });
+            dispatch_resume(ap_frameTimer);
+            NSLog(@"[AutoPilot] Frame pump started @ 15fps");
+        }
+    }
+
+    static void ap_stopFrameTimerIfIdle(void) {
+        // Conservative: keep pumping until shutdown. Stopping per-session is
+        // tricky if multiple sessions exist; the cost of an idle 15fps timer
+        // is negligible.
+    }
+
+    static void ap_setSampleBufferDelegate(id self, SEL _cmd, id delegate, dispatch_queue_t queue) {
+        NSLog(@"[AutoPilot] AVCaptureVideoDataOutput.setSampleBufferDelegate (tracked, delegate=%@)",
+              NSStringFromClass([delegate class]));
+        objc_setAssociatedObject(self, kAPVideoDelegateKey, delegate, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        objc_setAssociatedObject(self, kAPVideoQueueKey, queue, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        if (!ap_videoOutputs) {
+            ap_videoOutputs = [NSMutableArray new];
+            ap_outputsQueue = dispatch_queue_create("dev.autopilot.video-outputs", DISPATCH_QUEUE_SERIAL);
+        }
+        @synchronized (ap_videoOutputs) {
+            if (delegate && ![ap_videoOutputs containsObject:self]) {
+                [ap_videoOutputs addObject:self];
+            } else if (!delegate) {
+                [ap_videoOutputs removeObject:self];
+            }
+        }
     }
 
     // ============================================================
@@ -550,6 +731,16 @@ enum MockHeaders {
         ap_swizzle_instance_method(photoClass,
             @selector(isRawPhoto),
             (IMP)ap_isRawPhoto, &orig_isRawPhoto);
+
+        // Swizzle AVCaptureVideoDataOutput so VisionKit / ML / AR pipelines
+        // get a real CMSampleBuffer stream instead of waiting forever (and
+        // eventually segfaulting in FigCaptureSourceSimulator).
+        Class videoOutputClass = [AVCaptureVideoDataOutput class];
+        if (videoOutputClass) {
+            ap_swizzle_instance_method(videoOutputClass,
+                @selector(setSampleBufferDelegate:queue:),
+                (IMP)ap_setSampleBufferDelegate, NULL);
+        }
 
         // Swizzle AVCaptureMetadataOutput
         Class metadataOutputClass = [AVCaptureMetadataOutput class];
