@@ -44,8 +44,10 @@ public enum iOSTapEnhancement {
             return
         }
 
-        // Multi-tap: "a,b,c" o sintaxis individual
-        let targets = args[1].split(separator: ",").map(String.init)
+        // Multi-tap: "a,b,c" — la coma solo separa si el label completo no
+        // existe como elemento (labels de celdas iOS contienen comas:
+        // "Nombre, iPhone"). Match exacto sobre el árbol AX rápido (#124).
+        let targets = try TapTargets.resolve(args[1]) { try deps.simulatorBridge.tree() }
         for target in targets {
             try await executeSingle(target: target, deps: deps, start: start)
         }
