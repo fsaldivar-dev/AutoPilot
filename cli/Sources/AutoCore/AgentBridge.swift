@@ -682,7 +682,14 @@ public final class AgentBridge: DeviceBridge {
         guard let element = findElement(in: currentTree, matching: target) else {
             throw BridgeError.elementNotFound(target)
         }
-        return element["text"] as? String ?? element["label"] as? String ?? ""
+        // El árbol del agente expone node.text como "title"/"value" y
+        // contentDescription como "label" (ver TreeSerializer.kt) — no existe key "text"
+        for key in ["title", "value", "label"] {
+            if let text = element[key] as? String, !text.isEmpty {
+                return text
+            }
+        }
+        return ""
     }
 
     // MARK: - DeviceBridge: App Lifecycle (via adb)
