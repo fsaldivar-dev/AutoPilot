@@ -31,8 +31,24 @@ func run() throws {
         return
     }
 
-    try executeCommand(args)
+    // Uso interactivo (invocación directa desde la terminal): un comando
+    // desconocido SÍ imprime el help completo — pero con exit 1 (#152).
+    do {
+        try executeCommand(args)
+    } catch let err as UnknownCommandError {
+        print(err.description)
+        print()
+        AndroidUsage.printUsage()
+        exit(1)
+    }
 }
+
+/// Comandos que resuelve este main (no están en el shared dispatcher).
+/// Alimenta la sugerencia Levenshtein del fallthrough (#152).
+let androidCommandCatalogExtras: [String] = [
+    "ping", "index", "inspect", "launch", "camera", "inject", "build",
+    "record", "agent", "setup", "doctor", "help", "run", "interactive",
+]
 
 func runScript(path: String) throws {
     let content = try String(contentsOfFile: path, encoding: .utf8)
@@ -241,8 +257,7 @@ func executeCommand(_ args: [String]) throws {
         // Fall-through a executeSharedCommand para listar devices
         let handled = try executeSharedCommand(args, bridge: bridge, router: router)
         if !handled {
-            print("Unknown command: \(cmd)")
-            AndroidUsage.printUsage()
+            throw CommandCatalog.unknownCommandError(cmd, extra: androidCommandCatalogExtras)
         }
 
     case "record":
@@ -312,8 +327,10 @@ func executeCommand(_ args: [String]) throws {
     default:
         let handled = try executeSharedCommand(args, bridge: bridge, router: router)
         if !handled {
-            print("Unknown command: \(cmd)")
-            AndroidUsage.printUsage()
+            // Comando no reconocido → error tipado. En modo script el
+            // interpreter lo convierte en `FAIL at line N` + exit 1; en uso
+            // interactivo `run()` lo captura e imprime el help (#152).
+            throw CommandCatalog.unknownCommandError(cmd, extra: androidCommandCatalogExtras)
         }
     }
 }
