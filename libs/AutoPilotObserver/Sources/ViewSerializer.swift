@@ -3,14 +3,25 @@ import UIKit
 enum ViewSerializer {
 
     static func serialize(maxDepth: Int = 20) -> [[String: Any]] {
-        allWindows().flatMap { serializeView($0, depth: 0, maxDepth: maxDepth) }
+        // `visited` dedupes objects reachable by more than one path — a view
+        // can appear BOTH in a container's accessibilityElements AND as a
+        // subview (we intentionally walk both, see below), which used to
+        // serialize entire subtrees several times on tabbed screens.
+        var visited = Set<ObjectIdentifier>()
+        return allWindows().flatMap { serializeView($0, depth: 0, maxDepth: maxDepth, visited: &visited) }
     }
 
     // MARK: - UIView tree walk
 
-    private static func serializeView(_ view: UIView, depth: Int, maxDepth: Int) -> [[String: Any]] {
+    private static func serializeView(_ view: UIView, depth: Int, maxDepth: Int,
+                                      visited: inout Set<ObjectIdentifier>) -> [[String: Any]] {
         guard depth < maxDepth else { return [] }
         guard !view.isHidden, view.alpha > 0.01 else { return [] }
+        // Skip retained-but-detached views (e.g. views of non-selected tabs
+        // that SwiftUI/UIKit keeps alive and still lists in some container's
+        // accessibilityElements) — they are not on screen.
+        guard view is UIWindow || view.window != nil else { return [] }
+        guard visited.insert(ObjectIdentifier(view)).inserted else { return [] }
 
         let className = String(describing: type(of: view))
         let screenFrame = view.superview?.convert(view.frame, to: nil) ?? view.frame
@@ -35,11 +46,11 @@ enum ViewSerializer {
         // missing toolbar buttons like "Cancelar" / "Guardar".
         if let axElems = view.accessibilityElements, !axElems.isEmpty {
             for elem in axElems {
-                result.append(contentsOf: serializeAXElem(elem, depth: depth + 1, maxDepth: maxDepth))
+                result.append(contentsOf: serializeAXElem(elem, depth: depth + 1, maxDepth: maxDepth, visited: &visited))
             }
         }
         for sub in view.subviews {
-            result.append(contentsOf: serializeView(sub, depth: depth + 1, maxDepth: maxDepth))
+            result.append(contentsOf: serializeView(sub, depth: depth + 1, maxDepth: maxDepth, visited: &visited))
         }
 
         // UIBarButtonItems are NOT UIViews and don't live in the accessibility tree
@@ -78,16 +89,18 @@ enum ViewSerializer {
         return node
     }
 
-    private static func serializeAXElem(_ elem: Any, depth: Int, maxDepth: Int) -> [[String: Any]] {
+    private static func serializeAXElem(_ elem: Any, depth: Int, maxDepth: Int,
+                                        visited: inout Set<ObjectIdentifier>) -> [[String: Any]] {
         guard depth < maxDepth else { return [] }
 
         // UIView subclass in the AX list → recurse as a normal view
-        if let view = elem as? UIView { return serializeView(view, depth: depth, maxDepth: maxDepth) }
+        if let view = elem as? UIView { return serializeView(view, depth: depth, maxDepth: maxDepth, visited: &visited) }
 
         // Treat any NSObject-based AX element (UIAccessibilityElement,
         // SwiftUI.AccessibilityNode, or any other NSObject that responds
         // to the informal UIAccessibility protocol) as a generic AX node.
         let obj = elem as AnyObject
+        guard visited.insert(ObjectIdentifier(obj)).inserted else { return [] }
         let traits = obj.accessibilityTraits ?? []
         let frame  = obj.accessibilityFrame ?? .zero
 
@@ -111,10 +124,107 @@ enum ViewSerializer {
         let rawChildren: [Any]?? = obj.accessibilityElements
         if let children = rawChildren?.flatMap({ $0 }), !children.isEmpty {
             for child in children {
-                result.append(contentsOf: serializeAXElem(child, depth: depth + 1, maxDepth: maxDepth))
+                result.append(contentsOf: serializeAXElem(child, depth: depth + 1, maxDepth: maxDepth, visited: &visited))
             }
         }
         return result
+    }
+
+    // MARK: - Fuzzy candidate collection
+
+    /// A tappable element found by fuzzy matching, tagged by kind so the
+    /// caller can dispatch the right activation path.
+    enum Candidate {
+        case view(UIView)
+        case axElement(AnyObject)
+        case barButton(UIBarButtonItem)
+    }
+
+    /// Collects every on-screen element whose label / identifier / text /
+    /// title satisfies `predicate`, deduplicated by identity. Used by the tap
+    /// fallback (exact → prefix → contains); the returned `label` is what the
+    /// element matched with, for ambiguity error messages.
+    static func collectCandidates(where predicate: (String) -> Bool) -> [(object: Candidate, label: String)] {
+        var visited = Set<ObjectIdentifier>()
+        var out: [(object: Candidate, label: String)] = []
+        for window in allWindows() {
+            collectInView(window, predicate: predicate, visited: &visited, out: &out)
+        }
+        return out
+    }
+
+    private static func collectInView(_ view: UIView, predicate: (String) -> Bool,
+                                      visited: inout Set<ObjectIdentifier>,
+                                      out: inout [(object: Candidate, label: String)]) {
+        guard !view.isHidden, view.alpha > 0.01 else { return }
+        guard view is UIWindow || view.window != nil else { return }
+        guard visited.insert(ObjectIdentifier(view)).inserted else { return }
+
+        let keys = [view.accessibilityLabel, view.accessibilityIdentifier,
+                    (view as? UILabel)?.text, (view as? UIButton)?.title(for: .normal)]
+        if let matched = firstMatch(keys, predicate) {
+            out.append((.view(view), matched))
+        }
+
+        if let axElems = view.accessibilityElements {
+            for elem in axElems {
+                collectInAXElem(elem, predicate: predicate, visited: &visited, out: &out)
+            }
+        }
+        for sub in view.subviews {
+            collectInView(sub, predicate: predicate, visited: &visited, out: &out)
+        }
+
+        if let navBar = view as? UINavigationBar {
+            for item in (navBar.items ?? []) {
+                let all = (item.leftBarButtonItems ?? []) + (item.rightBarButtonItems ?? [])
+                for bbi in all { collectBarButton(bbi, predicate: predicate, visited: &visited, out: &out) }
+            }
+        } else if let toolbar = view as? UIToolbar {
+            for bbi in (toolbar.items ?? []) {
+                collectBarButton(bbi, predicate: predicate, visited: &visited, out: &out)
+            }
+        }
+    }
+
+    private static func collectInAXElem(_ elem: Any, predicate: (String) -> Bool,
+                                        visited: inout Set<ObjectIdentifier>,
+                                        out: inout [(object: Candidate, label: String)]) {
+        if let view = elem as? UIView {
+            collectInView(view, predicate: predicate, visited: &visited, out: &out)
+            return
+        }
+        let obj = elem as AnyObject
+        guard visited.insert(ObjectIdentifier(obj)).inserted else { return }
+
+        let keys = [(obj.accessibilityLabel ?? nil), (obj.accessibilityIdentifier ?? nil)]
+        if let matched = firstMatch(keys, predicate) {
+            out.append((.axElement(obj), matched))
+        }
+
+        let raw: [Any]?? = obj.accessibilityElements
+        if let children = raw?.flatMap({ $0 }) {
+            for child in children {
+                collectInAXElem(child, predicate: predicate, visited: &visited, out: &out)
+            }
+        }
+    }
+
+    private static func collectBarButton(_ bbi: UIBarButtonItem, predicate: (String) -> Bool,
+                                         visited: inout Set<ObjectIdentifier>,
+                                         out: inout [(object: Candidate, label: String)]) {
+        guard visited.insert(ObjectIdentifier(bbi)).inserted else { return }
+        let keys = [bbi.accessibilityLabel, bbi.title, bbi.accessibilityIdentifier]
+        if let matched = firstMatch(keys, predicate) {
+            out.append((.barButton(bbi), matched))
+        }
+    }
+
+    private static func firstMatch(_ keys: [String?], _ predicate: (String) -> Bool) -> String? {
+        for key in keys {
+            if let k = key, !k.isEmpty, predicate(k) { return k }
+        }
+        return nil
     }
 
     // MARK: - Element finder
