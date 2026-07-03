@@ -14,9 +14,19 @@ const UNQUOTED_KEYWORDS = new Set([
   "true", "false",
 ]);
 
+// Operadores de comparación: NUNCA se quotean. Quotearlos corrompía el
+// round-trip: `platform == "ios"` → `platform "==" ios` (#175 — las comillas
+// migraban al operador porque `==` contiene chars no alfanuméricos).
+const OPERATOR_TOKENS = new Set(["==", "!=", "<=", ">=", "<", ">"]);
+
+function isNumeric(arg: string): boolean {
+  return /^-?\d+(\.\d+)?$/.test(arg);
+}
+
 function quoteIfNeeded(arg: string): string {
   if (arg.length === 0) return '""';
   if (arg.startsWith("$")) return arg;                  // $var
+  if (OPERATOR_TOKENS.has(arg)) return arg;             // == != < > <= >=
   if (UNQUOTED_KEYWORDS.has(arg.toLowerCase())) return arg;
   // Sin espacios ni chars especiales → sin comillas es seguro para round-trip
   // pero preferimos quotear strings "reales" para diferenciarlos de keywords.
@@ -27,11 +37,24 @@ function quoteIfNeeded(arg: string): string {
   return `"${arg}"`;
 }
 
+// El operando que sigue a un operador de comparación es un VALOR, no un
+// keyword: se quotea (salvo $var / número / booleano). Así `platform == "ios"`
+// round-trippea idéntico — las comillas se quedan en el valor.
+function quoteValue(arg: string): string {
+  if (arg.length === 0) return '""';
+  if (arg.startsWith("$")) return arg;
+  if (isNumeric(arg)) return arg;
+  if (arg === "true" || arg === "false") return arg;
+  return `"${arg}"`;
+}
+
 export function predicateToText(p: Predicate): string {
   switch (p.kind) {
     case "call": {
       if (p.args.length === 0) return p.name;
-      const partsArgs = p.args.map(quoteIfNeeded);
+      const partsArgs = p.args.map((a, i) =>
+        i > 0 && OPERATOR_TOKENS.has(p.args[i - 1]) ? quoteValue(a) : quoteIfNeeded(a),
+      );
       return [p.name, ...partsArgs].join(" ");
     }
     case "and":

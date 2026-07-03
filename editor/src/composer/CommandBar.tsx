@@ -1,7 +1,8 @@
 import { nanoid } from "nanoid";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { suggest } from "./autocomplete";
+import { suggest, tokenize } from "./autocomplete";
 import { AutocompletePopover } from "./AutocompletePopover";
+import { matchCommandLine } from "./catalog";
 import { parsePredicate } from "./predicateText";
 import { tokenizeLine } from "../domain/autoTokenize";
 import { useStore, selectCurrentFlow, selectCurrentProject } from "../state/store";
@@ -22,6 +23,12 @@ export function CommandBar({ platform }: Props) {
   const [activeIndex, setActiveIndex] = useState(0);
   const [focused, setFocused] = useState(false);
   const [dismissed, setDismissed] = useState(false);
+  // Feedback inline de validación (#180): comando desconocido → borde rojo +
+  // mensaje, sin insertar bloque ni tocar el CLI.
+  const [inputError, setInputError] = useState<string | null>(null);
+  // true si el usuario navegó el popover con ↑/↓ (Enter entonces acepta la
+  // selección aunque el token actual esté vacío).
+  const [navigated, setNavigated] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const flow = useStore(selectCurrentFlow);
@@ -56,11 +63,14 @@ export function CommandBar({ platform }: Props) {
 
   useEffect(() => {
     setActiveIndex(0);
+    setNavigated(false);
     // Any typing clears the dismissed flag so the popover can re-appear.
     if (value.length > 0) setDismissed(false);
   }, [value]);
 
-  function pickSuggestion(s: Suggestion) {
+  // Devuelve el nuevo value para que el caller (Enter) pueda detectar el caso
+  // "la sugerencia ya está aplicada" y ejecutar en vez de re-aceptar.
+  function pickSuggestion(s: Suggestion): string {
     // Replace current token with the insertText.
     const prefix = value.slice(0, cursor);
     const suffix = value.slice(cursor);
@@ -86,6 +96,7 @@ export function CommandBar({ platform }: Props) {
       inputRef.current?.focus();
       inputRef.current?.setSelectionRange(newCursor, newCursor);
     }, 0);
+    return newValue;
   }
 
   async function ensureSession(): Promise<string | null> {
@@ -194,9 +205,19 @@ export function CommandBar({ platform }: Props) {
   async function runCurrent() {
     let line = value.trim();
     if (!line || !flow) return;
+    setInputError(null);
 
     // Keyword de control flow → no va al CLI; crea logic block estructural.
     if (handleLogicKeyword(line)) return;
+
+    // Validación contra el catálogo (#180): texto que no empieza con un
+    // comando conocido NO se inserta como bloque ni se ejecuta — feedback
+    // inline y el texto queda intacto para corregir.
+    if (!matchCommandLine(line, runtimePlatform)) {
+      const head = line.split(/\s+/)[0];
+      setInputError(`comando desconocido: «${head}» — no está en el catálogo (${runtimePlatform})`);
+      return;
+    }
 
     // Auto-inyectar --observer en `launch <bundleId>` (solo iOS) para que el
     // Simulator deje de tomar foco en los subsequent tree/inspect.
@@ -264,15 +285,28 @@ export function CommandBar({ platform }: Props) {
   function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === "ArrowDown") {
       e.preventDefault();
+      setNavigated(true);
       setActiveIndex((i) => Math.min(i + 1, Math.max(suggestions.length - 1, 0)));
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
+      setNavigated(true);
       setActiveIndex((i) => Math.max(i - 1, 0));
     } else if (e.key === "Tab" && suggestions.length > 0) {
       e.preventDefault();
       pickSuggestion(suggestions[activeIndex]);
     } else if (e.key === "Enter") {
       e.preventDefault();
+      // Enter con el predictivo abierto ACEPTA la sugerencia seleccionada
+      // (#180) — antes inyectaba el prefijo crudo como bloque. Solo ejecuta
+      // cuando la sugerencia ya está aplicada (aceptar sería un no-op) o
+      // cuando no hay popover.
+      if (popoverVisible) {
+        const token = tokenize(value, cursor).token;
+        if (navigated || token.length > 0) {
+          const newValue = pickSuggestion(suggestions[activeIndex]);
+          if (newValue !== value) return; // completado; el próximo Enter ejecuta
+        }
+      }
       setDismissed(true);
       void runCurrent();
     } else if (e.key === "Escape") {
@@ -283,6 +317,7 @@ export function CommandBar({ platform }: Props) {
         setValue("");
         setDismissed(false);
       }
+      setInputError(null);
     }
   }
 
@@ -298,7 +333,11 @@ export function CommandBar({ platform }: Props) {
     suggestions.length > 0;
 
   return (
-    <div className="command-bar" style={{ position: "relative" }} data-testid="command-bar">
+    <div
+      className={`command-bar${inputError ? " has-error" : ""}`}
+      style={{ position: "relative" }}
+      data-testid="command-bar"
+    >
       <span className="slash" aria-hidden="true">
         /
       </span>
@@ -318,6 +357,7 @@ export function CommandBar({ platform }: Props) {
           setValue(e.target.value);
           setCursor(e.target.selectionStart ?? e.target.value.length);
           setDismissed(false);
+          setInputError(null);
         }}
         onKeyDown={onKeyDown}
         onClick={(e) => {
@@ -334,10 +374,16 @@ export function CommandBar({ platform }: Props) {
         autoComplete="off"
         spellCheck={false}
       />
-      <span style={{ color: "var(--fg-faint)", fontSize: 11, fontFamily: "JetBrains Mono, monospace" }}>
-        <span className="kbd">⏎</span> run <span style={{ color: "var(--fg-mute)", margin: "0 6px" }}>·</span>{" "}
-        <span className="kbd">⎋</span> cancel
-      </span>
+      {inputError ? (
+        <span className="command-bar-error" data-testid="command-bar-error" role="alert">
+          ✗ {inputError}
+        </span>
+      ) : (
+        <span style={{ color: "var(--fg-faint)", fontSize: 11, fontFamily: "JetBrains Mono, monospace" }}>
+          <span className="kbd">⏎</span> run <span style={{ color: "var(--fg-mute)", margin: "0 6px" }}>·</span>{" "}
+          <span className="kbd">⎋</span> cancel
+        </span>
+      )}
       {popoverVisible && (
         <AutocompletePopover
           suggestions={suggestions}

@@ -201,4 +201,35 @@ describe("autoSerializer", () => {
       });
     }
   });
+
+  // #175 — el caso reportado en vivo: `if platform == "ios"` quedaba como
+  // `if platform "==" ios` tras Aplicar. Ahora N aplicaciones (parse→serialize,
+  // que es exactamente lo que hace el Aplicar de CodeView) = mismo texto.
+  describe("round-trip de predicados estable (#175)", () => {
+    const scripts = [
+      `if platform == "ios"\n  tap "Login"\nend`,
+      `if platform == "ios"\n  tap "iOS"\nelse\n  tap "Android"\nend`,
+      `assert platform != "android"`,
+      `repeat while count < 5\n  tap "Next"\nend`,
+    ];
+    for (const s of scripts) {
+      it(`aplicar 3 veces = idéntico: ${s.replace(/\n/g, " · ")}`, () => {
+        let current = s;
+        for (let i = 0; i < 3; i++) {
+          const { blocks, errors } = parseAuto(current);
+          expect(errors).toEqual([]);
+          current = serializeFlow(makeFlow(blocks));
+          expect(current).toBe(s);
+        }
+      });
+    }
+
+    it("las comillas ya no migran al operador", () => {
+      const { blocks, errors } = parseAuto(`if platform == "ios"\nend`);
+      expect(errors).toEqual([]);
+      const out = serializeFlow(makeFlow(blocks));
+      expect(out).not.toContain('"=="');
+      expect(out).toContain('platform == "ios"');
+    });
+  });
 });
