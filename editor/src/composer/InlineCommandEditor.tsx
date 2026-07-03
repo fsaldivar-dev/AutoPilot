@@ -1,8 +1,14 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { suggest } from "./autocomplete";
+import { suggest, tokenize } from "./autocomplete";
 import { AutocompletePopover } from "./AutocompletePopover";
+import { matchCommandLine } from "./catalog";
 import { selectCurrentProject, useStore } from "../state/store";
 import type { Suggestion } from "../domain/types";
+
+// Keywords de control flow: la edición inline puede convertir la línea en
+// estructura al próximo round-trip código↔bloques — no se validan contra el
+// catálogo de comandos (paridad con CommandBar, #180).
+const LOGIC_KEYWORDS = new Set(["if", "repeat", "try", "assert"]);
 
 interface Props {
   initial: string;
@@ -19,6 +25,10 @@ export function InlineCommandEditor({ initial, platform, onSave, onCancel }: Pro
   const [cursor, setCursor] = useState(initial.length);
   const [activeIndex, setActiveIndex] = useState(0);
   const [dismissed, setDismissed] = useState(false);
+  // true si el usuario navegó el popover con ↑/↓ (Enter entonces acepta la
+  // sugerencia seleccionada en vez de guardar) — paridad con CommandBar (#180).
+  const [navigated, setNavigated] = useState(false);
+  const [inputError, setInputError] = useState<string | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const project = useStore(selectCurrentProject);
@@ -39,7 +49,9 @@ export function InlineCommandEditor({ initial, platform, onSave, onCancel }: Pro
 
   useEffect(() => { setActiveIndex(0); }, [value]);
 
-  function pick(s: Suggestion) {
+  // Devuelve el nuevo value para que el caller (Enter) detecte si la
+  // sugerencia ya estaba aplicada (aceptar sería no-op → guardar).
+  function pick(s: Suggestion): string {
     const prefix = value.slice(0, cursor);
     const suffix = value.slice(cursor);
     const tokenStart = Math.max(
@@ -56,29 +68,60 @@ export function InlineCommandEditor({ initial, platform, onSave, onCancel }: Pro
     setValue(newValue);
     const newCursor = leftKeep + s.insertText.length;
     setCursor(newCursor);
+    setNavigated(false);
     setTimeout(() => {
       inputRef.current?.focus();
       inputRef.current?.setSelectionRange(newCursor, newCursor);
     }, 0);
+    return newValue;
+  }
+
+  // Guarda solo si la línea es un comando del catálogo o un keyword de
+  // lógica; texto desconocido → error inline, NO se persiste (#182, misma
+  // clase de bug que #180 en CommandBar).
+  function saveCurrent() {
+    const trimmed = value.trim();
+    if (trimmed.length === 0) {
+      onCancel();
+      return;
+    }
+    const head = trimmed.split(/\s+/)[0];
+    if (!LOGIC_KEYWORDS.has(head) && !matchCommandLine(trimmed, platform)) {
+      setInputError(`comando desconocido: «${head}» — no está en el catálogo (${platform})`);
+      return;
+    }
+    setInputError(null);
+    onSave(trimmed);
   }
 
   function onKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
     if (e.key === "ArrowDown") {
       e.preventDefault();
+      setNavigated(true);
       setActiveIndex((i) => Math.min(i + 1, Math.max(suggestions.length - 1, 0)));
     } else if (e.key === "ArrowUp") {
       e.preventDefault();
+      setNavigated(true);
       setActiveIndex((i) => Math.max(i - 1, 0));
     } else if (e.key === "Tab" && suggestions.length > 0 && !dismissed) {
       e.preventDefault();
       pick(suggestions[activeIndex]);
     } else if (e.key === "Enter") {
       e.preventDefault();
-      const trimmed = value.trim();
-      if (trimmed.length === 0) onCancel();
-      else onSave(trimmed);
+      // Enter con el predictivo abierto ACEPTA la sugerencia (#182) — antes
+      // guardaba el prefijo crudo. Solo guarda cuando la sugerencia ya está
+      // aplicada (aceptar sería no-op) o no hay popover.
+      if (popoverVisible) {
+        const token = tokenize(value, cursor).token;
+        if (navigated || token.length > 0) {
+          const newValue = pick(suggestions[activeIndex]);
+          if (newValue !== value) return; // completado; el próximo Enter guarda
+        }
+      }
+      saveCurrent();
     } else if (e.key === "Escape") {
       e.preventDefault();
+      setInputError(null);
       if (!dismissed && suggestions.length > 0) setDismissed(true);
       else onCancel();
     }
@@ -88,7 +131,7 @@ export function InlineCommandEditor({ initial, platform, onSave, onCancel }: Pro
 
   return (
     <div
-      className="block inline-editor"
+      className={`block inline-editor${inputError ? " has-error" : ""}`}
       data-testid="inline-editor"
       onClick={(e) => e.stopPropagation()}
     >
@@ -101,6 +144,8 @@ export function InlineCommandEditor({ initial, platform, onSave, onCancel }: Pro
           setValue(e.target.value);
           setCursor(e.target.selectionStart ?? e.target.value.length);
           setDismissed(false);
+          setNavigated(false);
+          setInputError(null);
         }}
         onClick={(e) => setCursor((e.target as HTMLInputElement).selectionStart ?? 0)}
         onKeyUp={(e) => setCursor((e.target as HTMLInputElement).selectionStart ?? 0)}
@@ -109,9 +154,15 @@ export function InlineCommandEditor({ initial, platform, onSave, onCancel }: Pro
         autoComplete="off"
         spellCheck={false}
       />
-      <span className="inline-editor-hint">
-        <span className="kbd">⏎</span> guardar · <span className="kbd">⎋</span> cancelar
-      </span>
+      {inputError ? (
+        <span className="command-bar-error" data-testid="inline-editor-error" role="alert">
+          {inputError}
+        </span>
+      ) : (
+        <span className="inline-editor-hint">
+          <span className="kbd">⏎</span> guardar · <span className="kbd">⎋</span> cancelar
+        </span>
+      )}
       {popoverVisible && (
         <AutocompletePopover
           suggestions={suggestions}

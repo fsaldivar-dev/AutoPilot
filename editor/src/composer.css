@@ -520,6 +520,12 @@ body.dnd-active * {
   box-shadow: 0 0 0 4px rgba(247, 118, 142, 0.12), 0 10px 30px -10px rgba(0, 0, 0, 0.5);
 }
 
+/* Misma validación en la edición inline de bloques (#182). */
+.inline-editor.has-error {
+  border-color: var(--coral);
+  box-shadow: 0 0 0 3px rgba(247, 118, 142, 0.12);
+}
+
 .command-bar-error {
   color: var(--coral);
   font-size: 11px;
