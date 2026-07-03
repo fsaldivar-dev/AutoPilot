@@ -37,6 +37,9 @@ public enum iOSUsage {
           install <path/to/app.app>        Install app on simulator
           elementAt <x> <y>                 Element at coordinate
           screenshot [filename.png]         Screenshot (via simctl)
+          assertScreen <baseline.png> [tol] Visual diff vs baseline (dHash 64 bits)
+                                            tol: max bits distintos, default 10
+                                            --create: guarda baseline si no existe
           inspect <query> --context           Parent chain + within suggestions
           inject <image.jpg>                 Change mock camera image (hot-swap)
           camera start <image>              Start virtual camera feed

@@ -22,6 +22,9 @@ public enum BridgeError: Error, CustomStringConvertible {
     case timeout(String)
     case recordingAlreadyInProgress(String)
     case noRecordingInProgress
+    case imageDecodeFailed(String)
+    case baselineNotFound(String)
+    case screenMismatch(distance: Int, tolerance: Int)
     case unknown(String)
 
     public var description: String {
@@ -57,6 +60,9 @@ public enum BridgeError: Error, CustomStringConvertible {
         case .timeout(let msg): return msg
         case .recordingAlreadyInProgress(let device): return "Recording already in progress on '\(device)'. Run stopRecording first."
         case .noRecordingInProgress: return "No recording in progress. Run startRecording first."
+        case .imageDecodeFailed(let p): return "Cannot decode image: '\(p)'"
+        case .baselineNotFound(let p): return "Baseline not found: '\(p)'. Create it with: assertScreen \(p) --create"
+        case .screenMismatch(let d, let t): return "MISMATCH (distance \(d)/\(PerceptualHash.bits), tolerance \(t))"
         case .unknown(let msg): return msg
         }
     }
