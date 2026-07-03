@@ -216,8 +216,9 @@ public func executeSharedCommand(
             // type[N] "text" — find Nth text input in tree, tap its center, then type.
             // Filters by role (AXTextField/AXSecureTextField/EditText) so it never
             // resolves to a sibling AXStaticText with the same label.
-            try tapNthTextInput(bridge: bridge, index: n)
-            usleep(200_000)
+            let snapshot = try preTapTreeSnapshot(bridge: bridge)
+            try tapNthTextInput(tree: snapshot.tree, bridge: bridge, index: n)
+            settleBeforeType(bridge: bridge, snapshot: snapshot)
             try runAction(.typeText(args[1]), router: router, fallback: { try bridge.typeText(args[1]) })
         } else if args.count >= 3 {
             // type "target" "text" — smart resolution: prefer the text input whose
@@ -227,12 +228,13 @@ public func executeSharedCommand(
             // work even when the form has both an AXStaticText (visible label above
             // the field) and an AXTextField (placeholder text inside the field) with
             // the same string.
-            if try !tapTextInputByLabel(bridge: bridge, label: args[1]) {
+            let snapshot = try preTapTreeSnapshot(bridge: bridge)
+            if try !tapTextInputByLabel(tree: snapshot.tree, bridge: bridge, label: args[1]) {
                 // Fallback to plain tap when no text input matches the label
                 // (the target may be a button, link, etc.)
                 try runAction(.tap(target: args[1]), router: router, fallback: { try bridge.tap(target: args[1]) })
             }
-            usleep(200_000)
+            settleBeforeType(bridge: bridge, snapshot: snapshot)
             try runAction(.typeText(args[2]), router: router, fallback: { try bridge.typeText(args[2]) })
         } else {
             try runAction(.typeText(args[1]), router: router, fallback: { try bridge.typeText(args[1]) })
@@ -1045,10 +1047,64 @@ private func collectTextInputs(_ elements: [[String: Any]], into result: inout [
     }
 }
 
-/// Finds the Nth text input in the live tree (1-indexed) and taps the center of its frame.
-/// Throws BridgeError if N is out of range or the element has no usable frame.
-func tapNthTextInput(bridge: any DeviceBridge, index: Int) throws {
+// MARK: - Settle tap→type (#159)
+
+/// Snapshot único del tree para el flujo tap→type: se usa tanto para
+/// resolver el text input como para el fingerprint pre-tap del settle.
+/// `costMs` mide lo que tardó `bridge.tree()` — es el auto-tuning del
+/// settle: si el tree es caro, el poll no vale la pena.
+struct PreTapTreeSnapshot {
+    let tree: [[String: Any]]
+    let fingerprint: ViewFingerprint
+    let costMs: Int
+}
+
+func preTapTreeSnapshot(bridge: any DeviceBridge) throws -> PreTapTreeSnapshot {
+    let t0 = CFAbsoluteTimeGetCurrent()
     let tree = try bridge.tree()
+    let costMs = Int((CFAbsoluteTimeGetCurrent() - t0) * 1000)
+    return PreTapTreeSnapshot(tree: tree,
+                              fingerprint: ViewFingerprint.capture(tree: tree),
+                              costMs: costMs)
+}
+
+/// Espera adaptativa entre tap y type — sustituye el usleep(200ms) fijo (#159).
+///
+/// Señal de "listo": el fingerprint estructural del tree difiere del pre-tap
+/// (la UI reaccionó — foco, teclado o transición). Contrato de tiempos:
+///   - mínimo 100ms de gracia (el foco/teclado sigue en vuelo aunque el
+///     tree ya haya cambiado),
+///   - techo 200ms desde el tap = el valor fijo anterior, así el peor caso
+///     (fingerprint estable, p.ej. teclado que no altera el top-level) NO
+///     empeora y el mejor caso ahorra ~100ms por type.
+///
+/// Decisión documentada: `ViewFingerprint.capture(root:)` (AX) es iOS-only;
+/// este dispatcher es compartido, así que el fingerprint se calcula sobre el
+/// snapshot de `bridge.tree()` (`ViewFingerprint.capture(tree:)` en AutoCore).
+/// Si el tree() pre-tap costó >80ms (p.ej. XCUI runner sin observer), cada
+/// poll costaría más de lo que ahorra: degradamos al sleep fijo de 200ms.
+/// TODO(#157): converger con AutoWait/retryTapIfNoChange cuando aterrice en
+/// main — hoy no existe ahí y este helper no depende de él a propósito.
+func settleBeforeType(bridge: any DeviceBridge, snapshot: PreTapTreeSnapshot) {
+    guard snapshot.costMs <= 80 else {
+        usleep(200_000)
+        return
+    }
+    let start = CFAbsoluteTimeGetCurrent()
+    usleep(100_000) // gracia mínima
+    while (CFAbsoluteTimeGetCurrent() - start) < 0.2 {
+        if let tree = try? bridge.tree(),
+           ViewFingerprint.capture(tree: tree) != snapshot.fingerprint {
+            debugTimingLog("settleBeforeType: UI changed at \(Int((CFAbsoluteTimeGetCurrent() - start) * 1000))ms — typing early")
+            return
+        }
+        usleep(50_000)
+    }
+}
+
+/// Finds the Nth text input in `tree` (1-indexed) and taps the center of its frame.
+/// Throws BridgeError if N is out of range or the element has no usable frame.
+func tapNthTextInput(tree: [[String: Any]], bridge: any DeviceBridge, index: Int) throws {
     var inputs: [[String: Any]] = []
     collectTextInputs(tree, into: &inputs)
 
@@ -1070,8 +1126,7 @@ func tapNthTextInput(bridge: any DeviceBridge, index: Int) throws {
 /// prefers a text input over a sibling AXStaticText with the same label, which
 /// is what allows `type "Email o DNI" "user@example.com"` to work even when the
 /// form has both a label-only StaticText and a TextField with the same string.
-func tapTextInputByLabel(bridge: any DeviceBridge, label: String) throws -> Bool {
-    let tree = try bridge.tree()
+func tapTextInputByLabel(tree: [[String: Any]], bridge: any DeviceBridge, label: String) throws -> Bool {
     var inputs: [[String: Any]] = []
     collectTextInputs(tree, into: &inputs)
     if inputs.isEmpty { return false }

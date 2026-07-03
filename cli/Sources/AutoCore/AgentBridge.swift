@@ -581,8 +581,24 @@ public final class AgentBridge: DeviceBridge {
         // 1. Launch the app
         try launchApp(bundleId: pkg, envVars: [:])
 
-        // 2. Wait for app process to start
-        usleep(2_000_000) // 2 seconds
+        // 2. Espera a que el proceso de la app exista.
+        //    #159: señal = `pidof <pkg>` devuelve un pid. Antes: usleep(2s)
+        //    fijo. Ahora: poll cada 100ms con deadline de 5s — happy path
+        //    ~200-400ms (el fork del zygote es rápido). Tras ver el pid,
+        //    300ms de gracia para que ART termine bindApplication antes del
+        //    attach-agent (attach demasiado temprano racea con el init del
+        //    runtime). Si el pid nunca aparece seguimos igual: cameraStart
+        //    falla con el error accionable de siempre ("App not running").
+        let deadline = Date().addingTimeInterval(5)
+        while Date() < deadline {
+            let pid = (try? legacy.runAdbPublic(["shell", "pidof", pkg]))?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            if !pid.isEmpty {
+                usleep(300_000)
+                break
+            }
+            usleep(100_000)
+        }
 
         // 3. Attach JVMTI agent with camera hooks
         try cameraStart(imagePath: resolvedImage, package: pkg)
