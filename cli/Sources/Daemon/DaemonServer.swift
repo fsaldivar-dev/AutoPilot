@@ -1,4 +1,5 @@
 import Foundation
+import AutoCore
 
 // MARK: - DaemonServer
 //
@@ -204,6 +205,12 @@ final class DaemonServer {
             return errorResponse("cannot connect to runner at 127.0.0.1:\(port)")
         }
 
+        // #156: sin SO_RCVTIMEO un runner zombie dejaba este recv() bloqueado
+        // para siempre y, como el accept loop es secuencial, ningun cliente
+        // futuro podia conectar (wedge permanente de autopilotd hasta kill
+        // manual). 60s cubre el primer comando tras cold boot (~45s).
+        SocketTimeouts.applyReceiveTimeout(fd: fd, seconds: SocketTimeouts.runnerReceiveSeconds)
+
         // Build and send request
         var request: [String: Any] = ["method": method]
         if !params.isEmpty { request["params"] = params }
@@ -220,16 +227,32 @@ final class DaemonServer {
         var responseBuf = [UInt8](repeating: 0, count: 65536)
         var responseData = Data()
 
-        while true {
+        readLoop: while true {
             let n = recv(fd, &responseBuf, responseBuf.count, 0)
-            if n <= 0 { break }
-            for i in 0..<n {
-                if responseBuf[i] == 0x0A {
-                    responseData.append(responseBuf, count: i)
-                    return String(data: responseData, encoding: .utf8) ?? errorResponse("decode failed")
+            switch SocketReadOutcome.classify(bytesRead: n, errnoValue: errno) {
+            case .data(let count):
+                for i in 0..<count {
+                    if responseBuf[i] == 0x0A {
+                        responseData.append(responseBuf, count: i)
+                        return String(data: responseData, encoding: .utf8) ?? errorResponse("decode failed")
+                    }
                 }
+                responseData.append(responseBuf, count: count)
+            case .interrupted:
+                continue
+            case .timedOut:
+                // Runner colgado (#156): responder error al cliente y marcar
+                // el runner muerto para que el siguiente request lo relance
+                // via el auto-boot de forwardToRunner.
+                fputs("autopilotd: runner timed out after \(SocketTimeouts.runnerReceiveSeconds)s (method: \(method)) — shutting it down\n", stderr)
+                runner.shutdownRunner()
+                return errorResponse(
+                    "runner did not respond within \(SocketTimeouts.runnerReceiveSeconds)s (method: \(method)); " +
+                    "runner marked dead — retry the command to relaunch it"
+                )
+            case .closed, .failed:
+                break readLoop // el chequeo de respuesta vacia decide abajo
             }
-            responseData.append(responseBuf, count: n)
         }
 
         if responseData.isEmpty {
