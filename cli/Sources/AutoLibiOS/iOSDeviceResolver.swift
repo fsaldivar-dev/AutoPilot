@@ -40,7 +40,7 @@ public final class iOSDeviceResolver: DeviceResolver {
         } else {
             self.agentBridge = nil
         }
-        self.legacyBridge = Self.makeLegacyBridge(sim: sim, xcui: xcui, observerLive: observerLive)
+        self.legacyBridge = Self.makeLegacyBridge(sim: sim, xcui: xcui, observer: observerLive ? agent : nil)
 
         // ARD #164: AX macOS está FUERA del path por defecto. Es el único
         // motor que requiere `NSRunningApplication.activate()` y roba el foco
@@ -70,7 +70,7 @@ public final class iOSDeviceResolver: DeviceResolver {
     ///     XCUI queda como fallback deep. Sim (AX macOS) NO se usa — así no
     ///     activamos Simulator.app.
     private static func makeLegacyBridge(
-        sim: SimulatorBridge, xcui: XCUIBridge, observerLive: Bool
+        sim: SimulatorBridge, xcui: XCUIBridge, observer: iOSAgentBridge?
     ) -> any DeviceBridge {
         let mode = ProcessInfo.processInfo.environment["AUTO_BRIDGE"]
         if let explicit = mode {
@@ -81,8 +81,15 @@ public final class iOSDeviceResolver: DeviceResolver {
             default:          break
             }
         }
-        // ARD #164: default XCUI siempre — nunca AX (hybrid/simulator quedan
-        // como opt-in explícito via AUTO_BRIDGE para debug/benchmarks).
+        // ARD #164: nunca AX (hybrid/simulator son opt-in via AUTO_BRIDGE).
+        // #165: con el observer vivo, es el fast path del legacy bridge —
+        // tree/tap/type en ~ms — y XCUI queda como fallback deep para lo que
+        // el observer no soporta (device-mgmt, algunos gestos). Antes se
+        // devolvía xcui a secas: su tree() de ~14s hacía que el pre-wait de
+        // AutoWait pagara ese costo en cada type/tap.
+        if let observer = observer {
+            return HybridBridge(fast: observer, deep: xcui)
+        }
         return xcui
     }
 }

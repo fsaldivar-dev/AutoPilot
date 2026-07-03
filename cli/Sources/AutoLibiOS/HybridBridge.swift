@@ -29,13 +29,26 @@ public final class HybridBridge: DeviceBridge {
 
     // MARK: - Escalation helper
 
-    /// Try fast, if elementNotFound → retry with deep.
+    /// Escala al backend deep cuando el fast no encontró el elemento O cuando
+    /// no soporta la operación. Esto último permite usar el observer (que lanza
+    /// "not supported/implemented" para device-mgmt y algunos gestos) como fast
+    /// path con XCUI de fallback, sin romper esos comandos (#165).
+    private func shouldEscalate(_ error: BridgeError) -> Bool {
+        if case .elementNotFound = error { return true }
+        if case .unknown(let msg) = error {
+            let m = msg.lowercased()
+            return m.contains("not supported") || m.contains("not implemented")
+        }
+        return false
+    }
+
+    /// Try fast, if not-found / not-supported → retry with deep.
     private func escalate(_ action: String, fast fastFn: () throws -> Void, deep deepFn: () throws -> Void) throws {
         do {
             try fastFn()
             fastCount += 1
         } catch let error as BridgeError {
-            if case .elementNotFound = error {
+            if shouldEscalate(error) {
                 escalationCount += 1
                 deepCount += 1
                 try deepFn()
@@ -45,14 +58,14 @@ public final class HybridBridge: DeviceBridge {
         }
     }
 
-    /// Try fast returning a value, if elementNotFound → retry with deep.
+    /// Try fast returning a value, if not-found / not-supported → retry with deep.
     private func escalateValue<T>(_ action: String, fast fastFn: () throws -> T, deep deepFn: () throws -> T) throws -> T {
         do {
             let result = try fastFn()
             fastCount += 1
             return result
         } catch let error as BridgeError {
-            if case .elementNotFound = error {
+            if shouldEscalate(error) {
                 escalationCount += 1
                 deepCount += 1
                 return try deepFn()
