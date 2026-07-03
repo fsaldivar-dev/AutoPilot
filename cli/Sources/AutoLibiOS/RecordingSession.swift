@@ -25,6 +25,12 @@ public final class RecordingSession {
     // Cached state
     private var simulatorPID: pid_t = 0
 
+    // #132: refresco periódico del window frame. El frame se capturaba una
+    // sola vez en start() — si el usuario movía/redimensionaba la ventana del
+    // Simulator a mitad de la grabación, todos los clicks posteriores caían
+    // fuera del frame stale y se filtraban en silencio.
+    private var windowFrameTimer: DispatchSourceTimer?
+
     // #52: stale AX tree detection en clicks consecutivos rápidos.
     // Si el anterior mouseDown sucedió hace < `fastClickWindow` y el tree
     // sigue matcheando el fingerprint de entonces, esperamos a que el
@@ -65,20 +71,52 @@ public final class RecordingSession {
 
         // 5. Start event recorder with Simulator window bounds
         let eventRecorder = EventRecorder(simulatorPID: pid)
-        eventRecorder.windowFrame = bridge.getSimulatorWindowFrame() ?? .zero
+        let frame = bridge.getSimulatorWindowFrame()
+        eventRecorder.windowFrame = frame ?? .zero
+        if frame == nil {
+            // #132: sin frame, EventRecorder captura TODO el escritorio
+            // (fail-open) en vez de descartar clicks en silencio. Avisar.
+            fputs("[record] WARNING: no pude determinar el frame de la ventana del Simulator — se grabarán clicks de todo el escritorio.\n", stderr)
+        }
         self.recorder = eventRecorder
 
+        // #132: refrescar el frame cada 1s por si el usuario mueve/redimensiona
+        // la ventana del Simulator durante la grabación.
+        startWindowFrameRefresh()
+
         print("Recording... Interact with the Simulator. Press Ctrl+C to stop.\n")
+        // #132: el recorder captura CGEvents de hardware (mouse/teclado del
+        // host). Los taps sintéticos del propio CLI (`auto tap`) usan AXPress
+        // o XCUITest dentro del simulador — no generan CGEvents y el recorder
+        // no puede verlos. Es una limitación arquitectónica, no un bug.
+        print("Nota: los taps del propio CLI (`auto tap`) no se graban — usa clicks reales sobre la ventana del Simulator.\n")
 
         eventRecorder.start { [weak self] event in
             self?.handleEvent(event)
         }
     }
 
+    private func startWindowFrameRefresh() {
+        let timer = DispatchSource.makeTimerSource(queue: resolveQueue)
+        timer.schedule(deadline: .now() + 1.0, repeating: 1.0)
+        timer.setEventHandler { [weak self] in
+            guard let self, let recorder = self.recorder else { return }
+            // Si el lookup falla momentáneamente, conservamos el último frame
+            // conocido — nunca degradamos a .zero desde un frame válido.
+            if let frame = self.bridge.getSimulatorWindowFrame() {
+                recorder.windowFrame = frame
+            }
+        }
+        timer.resume()
+        windowFrameTimer = timer
+    }
+
     public func stop() throws -> String {
         // Stop capturing
         recorder?.stop()
         stabilizer.detach()
+        windowFrameTimer?.cancel()
+        windowFrameTimer = nil
 
         // Flush pending work synchronously on resolveQueue
         resolveQueue.sync {
@@ -91,8 +129,10 @@ public final class RecordingSession {
         let script = generator.render()
         try script.write(toFile: outputPath, atomically: true, encoding: .utf8)
 
-        let count = generator.lineCount
-        print("\n\(count) line(s) recorded → \(outputPath)")
+        // #133 (aplica igual en iOS): reportar comandos ejecutables — lineCount
+        // incluye la línea en blanco del header terminate/launch y comments.
+        let count = generator.commandCount
+        print("\n\(count) command(s) recorded → \(outputPath)")
 
         return outputPath
     }
