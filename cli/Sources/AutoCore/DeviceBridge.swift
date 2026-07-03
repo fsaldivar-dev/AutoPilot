@@ -112,9 +112,33 @@ public protocol DeviceBridge {
     /// Sign-In, "Continue with Google", Facebook Login) store their
     /// accounts in device-wide system services that survive
     /// `uninstall`. For those, add an explicit
-    /// `clearState "com.google.android.gms"` step next to this one.
-    /// Tracked in the follow-up issue for AccountManager clearing.
+    /// `accounts clear "com.google"` step next to this one (issue #86).
     func resetKeychain() throws
+
+    // MARK: - System Accounts
+
+    /// Accounts registered in the system-wide `AccountManager` (Android).
+    ///
+    /// - **Android**: parses `adb shell dumpsys account` (read-only).
+    /// - **iOS**: no equivalent concept — default returns an empty list
+    ///   with a printed note.
+    func listAccounts() throws -> [AccountDump.Account]
+
+    /// Remove all system accounts of the given type (e.g. `com.google`)
+    /// so repeated login flows see a fresh device (issue #86).
+    ///
+    /// - **Android**: resolves the authenticator package that provides the
+    ///   type via `dumpsys account` and runs `pm clear` on it. There is NO
+    ///   surgical per-account removal without root on API 35 emulators:
+    ///   `adb root` is blocked on production builds, `cmd account` exposes
+    ///   no remove command, and `accounts_ce.db` is system-owned. Clearing
+    ///   the authenticator package is the least-bad scriptable option —
+    ///   nuclear for that provider (for `com.google` it wipes ALL Google
+    ///   accounts + GMS state, ~30s to re-initialize), harmless for the
+    ///   rest of the device. Prints an explicit warning before acting.
+    /// - **iOS**: no-op with a printed note — credentials live in the
+    ///   keychain, use `keychain reset` instead.
+    func clearAccounts(type: String) throws
 
     // MARK: - Scroll Search
 
@@ -179,6 +203,23 @@ public extension DeviceBridge {
     /// because it was already handled by `uninstall`).
     func resetKeychain() throws {
         print("Keychain reset: no-op on this platform (Android Keystore is per-app, already cleared by uninstall)")
+    }
+
+    /// Default `listAccounts`: iOS (y cualquier bridge sin AccountManager)
+    /// no tiene cuentas de sistema — lista vacía con nota, sin fallar, para
+    /// que el mismo `.auto` corra en ambas plataformas.
+    func listAccounts() throws -> [AccountDump.Account] {
+        print("Accounts: no system AccountManager on this platform (Android-only)")
+        return []
+    }
+
+    /// Default `clearAccounts`: no-op con nota. En iOS las credenciales
+    /// viven en el keychain compartido — `keychain reset` ya cubre la
+    /// post-condición "fresh credential state". Los bridges Android
+    /// (`AdbLegacyBridge`, y `AgentBridge` via delegación) hacen el
+    /// trabajo real.
+    func clearAccounts(type: String) throws {
+        print("Accounts clear: no-op on this platform (no system AccountManager; on iOS use `keychain reset`)")
     }
 
     /// Scroll until the element is VISIBLE in the viewport (≥50% covered).

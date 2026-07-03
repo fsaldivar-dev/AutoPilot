@@ -160,6 +160,7 @@ auto launch
 - Con `--legacy`: `uiautomator dump` toma 1-2 segundos (el AgentBridge default no tiene este problema)
 - Con `--legacy` y el agente corriendo: `--legacy tree` y `--legacy tap` NO funcionan — Android solo permite un cliente UiAutomation a la vez, y mientras el agente (am instrument) retiene la conexion, `uiautomator dump` devuelve vacio (`--legacy ping/screenshot/swipe` si funcionan). Es limitacion de plataforma, no bug: el CLI la detecta y falla con mensaje accionable. Flujo para benchmarks (#62): `auto-android agent stop` → comandos `--legacy tree/tap` → `auto-android agent start`. `auto-android agent status` reporta socket + proceso. Ojo: cualquier comando en modo agente (sin `--legacy`) relanza el agente automaticamente via auto-recovery. Ver issue #135
 - Clipboard read no soportado via ADB (solo write como workaround)
+- Cuentas de AccountManager (Google Sign-In) sobreviven a `uninstall` + `keychain reset` — usar `auto-android accounts clear com.google` para flujos de login repetibles. Hace `pm clear` del paquete autenticador (resuelto via `dumpsys account`): nuclear para ese proveedor (para `com.google` borra TODAS las cuentas Google + estado GMS, ~30s de re-init). Sin root no existe borrado quirurgico (`adb root` bloqueado en builds `user`, `cmd account` no expone remove, `accounts_ce.db` es del uid system). Issue #86
 - Camera mock no implementado aun en Android
 - Element index `$N` en Android: `auto-android index` funciona, `tap $N` auto-construye el indice
 
