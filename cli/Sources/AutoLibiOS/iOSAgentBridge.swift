@@ -200,28 +200,17 @@ public final class iOSAgentBridge: DeviceBridge {
     }
 
     public func search(query: String) throws -> [[String: Any]] {
-        let allElements = try tree()
-        let q = query.lowercased()
-        return allElements.filter { node in
-            let label = (node["label"] as? String ?? "").lowercased()
-            let id = (node["identifier"] as? String ?? "").lowercased()
-            let text = (node["text"] as? String ?? "").lowercased()
-            let title = (node["title"] as? String ?? "").lowercased()
-            return label.contains(q) || id.contains(q) || text.contains(q) || title.contains(q)
-        }
+        // #150: el observer emite árbol ANIDADO (children) — la búsqueda
+        // recursa igual que AgentBridge en Android (TreeQuery compartido).
+        return TreeQuery.search(try tree(), query: query)
     }
 
     public func elementAt(x: Double, y: Double) throws -> [String: Any]? {
-        let allElements = try tree()
-        for node in allElements {
-            guard let frameDict = node["frame"] as? [String: Any],
-                  let fx = frameDict["x"] as? Double, let fy = frameDict["y"] as? Double,
-                  let fw = frameDict["w"] as? Double, let fh = frameDict["h"] as? Double
-            else { continue }
-            let frame = CGRect(x: fx, y: fy, width: fw, height: fh)
-            if frame.contains(CGPoint(x: x, y: y)) { return node }
-        }
-        return nil
+        // #150: recursivo sobre children y con las keys de frame reales
+        // (width/height — el código anterior leía "w"/"h", que el observer
+        // nunca emitió, así que jamás matcheaba). Devuelve el nodo más
+        // pequeño que contiene el punto, como el findDeepest de Android.
+        return TreeQuery.deepestNode(x: x, y: y, in: try tree())
     }
 
     // MARK: - DeviceBridge: Actions (via observer)

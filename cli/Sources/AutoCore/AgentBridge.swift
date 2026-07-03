@@ -328,15 +328,12 @@ public final class AgentBridge: DeviceBridge {
     }
 
     public func search(query: String) throws -> [[String: Any]] {
-        let tree = try tree()
-        var results: [[String: Any]] = []
-        searchRecursive(elements: tree, query: query.lowercased(), results: &results)
-        return results
+        // #150: recursión compartida con iOSAgentBridge (TreeQuery).
+        return TreeQuery.search(try tree(), query: query)
     }
 
     public func elementAt(x: Double, y: Double) throws -> [String: Any]? {
-        let tree = try tree()
-        return findDeepest(in: tree, x: x, y: y)
+        return TreeQuery.deepestNode(x: x, y: y, in: try tree())
     }
 
     // MARK: - DeviceBridge: Actions (via agent)
@@ -697,21 +694,6 @@ public final class AgentBridge: DeviceBridge {
 
     // MARK: - Helpers
 
-    private func searchRecursive(elements: [[String: Any]], query: String, results: inout [[String: Any]]) {
-        for el in elements {
-            let title = (el["title"] as? String ?? "").lowercased()
-            let label = (el["label"] as? String ?? "").lowercased()
-            let identifier = (el["identifier"] as? String ?? "").lowercased()
-
-            if title.contains(query) || label.contains(query) || identifier.contains(query) {
-                results.append(el)
-            }
-            if let children = el["children"] as? [[String: Any]] {
-                searchRecursive(elements: children, query: query, results: &results)
-            }
-        }
-    }
-
     private func findElement(in tree: [[String: Any]], matching query: String) -> [String: Any]? {
         let q = query.lowercased()
         for el in tree {
@@ -738,27 +720,6 @@ public final class AgentBridge: DeviceBridge {
             }
         }
         return nil
-    }
-
-    private func findDeepest(in tree: [[String: Any]], x: Double, y: Double) -> [String: Any]? {
-        var best: [String: Any]?
-        var bestArea = Int.max
-
-        func recurse(_ elements: [[String: Any]]) {
-            for el in elements {
-                if let frame = el["frame"] as? [String: Any],
-                   let fx = frame["x"] as? Int, let fy = frame["y"] as? Int,
-                   let fw = frame["width"] as? Int, let fh = frame["height"] as? Int {
-                    if x >= Double(fx) && x <= Double(fx + fw) && y >= Double(fy) && y <= Double(fy + fh) {
-                        let area = fw * fh
-                        if area < bestArea { bestArea = area; best = el }
-                    }
-                }
-                if let children = el["children"] as? [[String: Any]] { recurse(children) }
-            }
-        }
-        recurse(tree)
-        return best
     }
 
     // MARK: - DeviceBridge: Keyboard & Text (via adb)
