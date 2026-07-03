@@ -217,26 +217,15 @@ extension SimulatorBridge {
         try resetProcess.run()
         resetProcess.waitUntilExit()
 
-        // Get app data container and delete its contents
-        let containerProcess = Process()
-        let pipe = Pipe()
-        containerProcess.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
-        containerProcess.arguments = ["simctl", "get_app_container", deviceId, bundleId, "data"]
-        containerProcess.standardOutput = pipe
-        containerProcess.standardError = Pipe()
-        try containerProcess.run()
-        containerProcess.waitUntilExit()
-
-        if containerProcess.terminationStatus == 0 {
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            let containerPath = String(data: data, encoding: .utf8)?
-                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            if !containerPath.isEmpty {
-                let fm = FileManager.default
-                if let contents = try? fm.contentsOfDirectory(atPath: containerPath) {
-                    for item in contents {
-                        try? fm.removeItem(atPath: containerPath + "/" + item)
-                    }
+        // Get app data container and delete its contents.
+        // dataContainerPath valida el output de simctl (#122): sin la validación,
+        // "(null)" con exit 0 borraría el contenido de un directorio relativo
+        // "./(null)" en el cwd del usuario. Apps sin container → skip silencioso.
+        if let containerPath = try? dataContainerPath(bundleId: bundleId) {
+            let fm = FileManager.default
+            if let contents = try? fm.contentsOfDirectory(atPath: containerPath) {
+                for item in contents {
+                    try? fm.removeItem(atPath: containerPath + "/" + item)
                 }
             }
         }
@@ -598,6 +587,47 @@ extension SimulatorBridge {
 
     // MARK: - Push / Pull File
 
+    /// Data container validado de una app. Valida el output de simctl: para
+    /// apps de sistema sin container el comando puede imprimir "(null)" con
+    /// exit 0 — sin esta validación se crearían (o borrarían) directorios
+    /// literales "(null)/..." en el cwd (#122).
+    private func dataContainerPath(bundleId: String) throws -> String {
+        let deviceId = try getBootedDeviceId()
+        let containerProcess = Process()
+        let pipe = Pipe()
+        containerProcess.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
+        containerProcess.arguments = ["simctl", "get_app_container", deviceId, bundleId, "data"]
+        containerProcess.standardOutput = pipe
+        containerProcess.standardError = Pipe()
+        try containerProcess.run()
+        containerProcess.waitUntilExit()
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        let container = String(data: data, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        guard containerProcess.terminationStatus == 0,
+              container.hasPrefix("/"),
+              FileManager.default.fileExists(atPath: container) else {
+            throw BridgeError.simctlFailed(
+                "Could not resolve data container for '\(bundleId)' — " +
+                "usa una ruta absoluta o un bundleId con data container (apps de sistema no suelen tenerlo)")
+        }
+        return container
+    }
+
+    /// Resuelve una ruta relativa `<bundleId>/<ruta>` a una ruta absoluta
+    /// dentro del data container de la app. El segmento bundleId se descarta:
+    /// `com.example.app/Documents/f.txt` → `<container>/Documents/f.txt`.
+    private func resolveContainerPath(remotePath: String) throws -> String {
+        let parts = remotePath.components(separatedBy: "/")
+        let bundleId = parts.first ?? ""
+        let relative = parts.dropFirst().joined(separator: "/")
+        guard !relative.isEmpty else {
+            throw BridgeError.simctlFailed(
+                "remotePath debe ser '<bundleId>/<ruta>' — falta la ruta después de '\(bundleId)'")
+        }
+        return try dataContainerPath(bundleId: bundleId) + "/" + relative
+    }
+
     public func pushFile(localPath: String, remotePath: String) throws {
         let fm = FileManager.default
         guard fm.fileExists(atPath: localPath) else {
@@ -606,26 +636,17 @@ extension SimulatorBridge {
 
         var destPath = remotePath
         if !remotePath.hasPrefix("/") {
-            let deviceId = try getBootedDeviceId()
-            let containerProcess = Process()
-            let pipe = Pipe()
-            containerProcess.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
-            containerProcess.arguments = ["simctl", "get_app_container", deviceId,
-                                          remotePath.components(separatedBy: "/").first ?? "", "data"]
-            containerProcess.standardOutput = pipe
-            containerProcess.standardError = Pipe()
-            try containerProcess.run()
-            containerProcess.waitUntilExit()
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            let container = String(data: data, encoding: .utf8)?
-                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            if container.isEmpty {
-                throw BridgeError.simctlFailed("Could not resolve app container for remotePath")
-            }
-            destPath = container + "/" + remotePath
+            destPath = try resolveContainerPath(remotePath: remotePath)
         }
 
-        if fm.fileExists(atPath: destPath) {
+        // Nunca reemplazar un directorio existente — borrar Documents/ entero
+        // porque el usuario omitió el nombre de archivo sería pérdida de datos
+        var isDirectory: ObjCBool = false
+        if fm.fileExists(atPath: destPath, isDirectory: &isDirectory) {
+            guard !isDirectory.boolValue else {
+                throw BridgeError.unknown(
+                    "Destination is a directory: '\(destPath)' — incluye el nombre de archivo en remotePath")
+            }
             try fm.removeItem(atPath: destPath)
         }
 
@@ -641,23 +662,7 @@ extension SimulatorBridge {
 
         var srcPath = remotePath
         if !remotePath.hasPrefix("/") {
-            let deviceId = try getBootedDeviceId()
-            let containerProcess = Process()
-            let pipe = Pipe()
-            containerProcess.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
-            containerProcess.arguments = ["simctl", "get_app_container", deviceId,
-                                          remotePath.components(separatedBy: "/").first ?? "", "data"]
-            containerProcess.standardOutput = pipe
-            containerProcess.standardError = Pipe()
-            try containerProcess.run()
-            containerProcess.waitUntilExit()
-            let data = pipe.fileHandleForReading.readDataToEndOfFile()
-            let container = String(data: data, encoding: .utf8)?
-                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-            if container.isEmpty {
-                throw BridgeError.simctlFailed("Could not resolve app container for remotePath")
-            }
-            srcPath = container + "/" + remotePath
+            srcPath = try resolveContainerPath(remotePath: remotePath)
         }
 
         guard fm.fileExists(atPath: srcPath) else {
@@ -668,9 +673,12 @@ extension SimulatorBridge {
             try fm.removeItem(atPath: localPath)
         }
 
-        // Ensure parent directory exists
+        // Ensure parent directory exists — localPath relativo sin directorio
+        // ("pulled.txt") produce parentDir vacío y createDirectory("") lanza
         let parentDir = (localPath as NSString).deletingLastPathComponent
-        try fm.createDirectory(atPath: parentDir, withIntermediateDirectories: true)
+        if !parentDir.isEmpty {
+            try fm.createDirectory(atPath: parentDir, withIntermediateDirectories: true)
+        }
 
         try fm.copyItem(atPath: srcPath, toPath: localPath)
     }
