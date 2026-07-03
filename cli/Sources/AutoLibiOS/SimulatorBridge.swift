@@ -11,8 +11,8 @@ public final class SimulatorBridge {
     // Internal visibility — accedidos desde extensions en archivos separados
     // (SimulatorBridge+MediaEngine.swift, etc.)
     var simulatorPID: pid_t?
-    var recordingProcess: Process?
-    var recordingTempPath: String?
+    // Estado de grabación: persistido en /tmp vía RecordingStateStore (issue #125),
+    // ya no vive en memoria — ver SimulatorBridge+MediaEngine.swift.
 
     public init() {}
 
