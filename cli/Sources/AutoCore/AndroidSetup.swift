@@ -130,7 +130,8 @@ public enum AndroidSetup {
         let apkPath = findAgentApk()
         guard let apk = apkPath else {
             print("⚠ Agent APK not found in repo — skipping install")
-            print("  Build with: cd agent/android && ./gradlew :agent:assembleDebug")
+            print("  Build with: cd agent && ./gradlew :app:assembleDebug")
+            print("  (requiere ANDROID_HOME o agent/local.properties con sdk.dir)")
             return
         }
 
@@ -150,12 +151,9 @@ public enum AndroidSetup {
     }
 
     private static func findAgentApk() -> String? {
-        let repoRoot = findRepoRoot()
-        let candidates = [
-            "\(repoRoot)/agent/android/agent/build/outputs/apk/debug/agent-debug.apk",
-            "\(repoRoot)/Demo/Android/AgentApp/app/build/outputs/apk/debug/app-debug.apk"
-        ]
-        return candidates.first(where: { FileManager.default.fileExists(atPath: $0) })
+        // Proyecto gradle en agent/, módulo :app — ver agent/settings.gradle.kts
+        let apk = "\(findRepoRoot())/agent/app/build/outputs/apk/debug/app-debug.apk"
+        return FileManager.default.fileExists(atPath: apk) ? apk : nil
     }
 
     private static func findRepoRoot() -> String {
