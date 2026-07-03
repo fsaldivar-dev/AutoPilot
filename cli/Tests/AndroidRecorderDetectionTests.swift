@@ -247,4 +247,136 @@ final class AndroidRecorderDetectionTests: XCTestCase {
         let tree = treeWithKeyboard(fieldValue: "", keys: false)
         XCTAssertFalse(AndroidRecorderDetection.isEnterKeyTap(x: 1000, y: 2260, tree: tree))
     }
+
+    // MARK: - #53: diálogo de permisos
+
+    /// Diálogo de permisos como ventana activa (root directo del tree),
+    /// con la app solicitante como ventana secundaria "Application".
+    private func permissionTree(
+        message: String = "Allow TestApp to take pictures and record video?",
+        allowLabel: String = "While using the app",
+        controllerPackage: String = "com.google.android.permissioncontroller"
+    ) -> [[String: Any]] {
+        let dialog: [String: Any] = [
+            "role": "FrameLayout",
+            "title": "", "label": "",
+            "identifier": "",
+            "focused": true,
+            "package": controllerPackage,
+            "frame": ["x": 0, "y": 700, "width": 1080, "height": 1000],
+            "children": [
+                ["role": "TextView", "title": message, "value": message, "label": "",
+                 "identifier": "\(controllerPackage):id/permission_message",
+                 "package": controllerPackage,
+                 "frame": ["x": 100, "y": 800, "width": 880, "height": 200],
+                 "children": [[String: Any]]()],
+                ["role": "Button", "title": allowLabel, "value": allowLabel, "label": "",
+                 "identifier": "\(controllerPackage):id/permission_allow_foreground_only_button",
+                 "package": controllerPackage,
+                 "frame": ["x": 100, "y": 1100, "width": 880, "height": 120],
+                 "children": [[String: Any]]()],
+                ["role": "Button", "title": "Don't allow", "value": "Don't allow", "label": "",
+                 "identifier": "\(controllerPackage):id/permission_deny_button",
+                 "package": controllerPackage,
+                 "frame": ["x": 100, "y": 1250, "width": 880, "height": 120],
+                 "children": [[String: Any]]()],
+            ],
+        ]
+        let appWindow: [String: Any] = [
+            "role": "Window",
+            "title": "Application",
+            "label": "window: application",
+            "identifier": "",
+            "focused": false,
+            "package": "com.example.app",
+            "frame": ["x": 0, "y": 0, "width": 1080, "height": 2400],
+            "children": [appRoot(fieldValue: "", fieldFocused: false)],
+        ]
+        return [dialog, appWindow]
+    }
+
+    func testDetectPermission_allowButton_affirmativeCameraService() {
+        let dialog = AndroidRecorderDetection.detectPermissionDialog(
+            x: 540, y: 1160, tree: permissionTree()
+        )
+        XCTAssertNotNil(dialog)
+        XCTAssertEqual(dialog?.buttonLabel, "While using the app")
+        XCTAssertEqual(dialog?.affirmative, true)
+        XCTAssertEqual(dialog?.service, "camera")
+        XCTAssertEqual(dialog?.appPackage, "com.example.app")
+        XCTAssertEqual(dialog?.message, "Allow TestApp to take pictures and record video?")
+    }
+
+    func testDetectPermission_denyButton_notAffirmative() {
+        let dialog = AndroidRecorderDetection.detectPermissionDialog(
+            x: 540, y: 1310, tree: permissionTree()
+        )
+        XCTAssertEqual(dialog?.affirmative, false)
+        XCTAssertEqual(dialog?.buttonLabel, "Don't allow")
+    }
+
+    /// Diálogo en español: la detección no depende del idioma del botón
+    /// (package + keywords localizados).
+    func testDetectPermission_spanishDialog_sameResult() {
+        let dialog = AndroidRecorderDetection.detectPermissionDialog(
+            x: 540, y: 1160,
+            tree: permissionTree(
+                message: "¿Permitir que TestApp acceda a la ubicación de este dispositivo?",
+                allowLabel: "Mientras la app está en uso"
+            )
+        )
+        XCTAssertEqual(dialog?.affirmative, true)
+        XCTAssertEqual(dialog?.service, "location")
+    }
+
+    /// AOSP viejo usa com.android.packageinstaller.
+    func testDetectPermission_packageInstallerPackage_detected() {
+        let dialog = AndroidRecorderDetection.detectPermissionDialog(
+            x: 540, y: 1160,
+            tree: permissionTree(controllerPackage: "com.android.packageinstaller")
+        )
+        XCTAssertNotNil(dialog)
+        XCTAssertEqual(dialog?.affirmative, true)
+    }
+
+    /// Tap en una app normal (sin permission controller en el tree) → nil.
+    func testDetectPermission_normalApp_returnsNil() {
+        let tree = [appRoot(fieldValue: "")]
+        XCTAssertNil(AndroidRecorderDetection.detectPermissionDialog(x: 540, y: 1060, tree: tree))
+    }
+
+    func testIsAffirmativeLabel_dontAllowBeatsAllow() {
+        // "Don't allow" contiene "allow" — lo negativo se evalúa primero
+        XCTAssertFalse(AndroidRecorderDetection.isAffirmativeLabel("Don't allow"))
+        XCTAssertFalse(AndroidRecorderDetection.isAffirmativeLabel("Deny"))
+        XCTAssertFalse(AndroidRecorderDetection.isAffirmativeLabel("No permitir"))
+        XCTAssertTrue(AndroidRecorderDetection.isAffirmativeLabel("Allow"))
+        XCTAssertTrue(AndroidRecorderDetection.isAffirmativeLabel("Only this time"))
+        XCTAssertTrue(AndroidRecorderDetection.isAffirmativeLabel("Permitir"))
+    }
+
+    func testPermissionService_keywords() {
+        XCTAssertEqual(AndroidRecorderDetection.permissionService(
+            fromMessage: "Allow X to record audio?"), "microphone")
+        XCTAssertEqual(AndroidRecorderDetection.permissionService(
+            fromMessage: "Allow X to send you notifications?"), "notifications")
+        XCTAssertEqual(AndroidRecorderDetection.permissionService(
+            fromMessage: "Allow X to access your contacts?"), "contacts")
+        XCTAssertNil(AndroidRecorderDetection.permissionService(
+            fromMessage: "Allow X to do something exotic?"))
+    }
+
+    func testRequestingAppPackage_skipsSystemPackages() {
+        var tree = permissionTree()
+        // Inyectar una ventana de systemui antes de la app real
+        let sysWindow: [String: Any] = [
+            "role": "Window", "title": "System", "label": "window: system",
+            "identifier": "", "focused": false,
+            "package": "com.android.systemui",
+            "frame": ["x": 0, "y": 0, "width": 1080, "height": 80],
+            "children": [[String: Any]](),
+        ]
+        tree.insert(sysWindow, at: 1)
+        XCTAssertEqual(AndroidRecorderDetection.requestingAppPackage(in: tree), "com.example.app")
+    }
 }
