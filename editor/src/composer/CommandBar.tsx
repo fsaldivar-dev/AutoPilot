@@ -1,6 +1,6 @@
 import { nanoid } from "nanoid";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { suggest, tokenize } from "./autocomplete";
+import { applySuggestion, suggest, tokenize } from "./autocomplete";
 import { AutocompletePopover } from "./AutocompletePopover";
 import { matchCommandLine } from "./catalog";
 import { parsePredicate } from "./predicateText";
@@ -71,32 +71,14 @@ export function CommandBar({ platform }: Props) {
   // Devuelve el nuevo value para que el caller (Enter) pueda detectar el caso
   // "la sugerencia ya está aplicada" y ejecutar en vez de re-aceptar.
   function pickSuggestion(s: Suggestion): string {
-    // Replace current token with the insertText.
-    const prefix = value.slice(0, cursor);
-    const suffix = value.slice(cursor);
-    const tokenStart = Math.max(
-      prefix.lastIndexOf(" "),
-      prefix.lastIndexOf("\t"),
-      prefix.lastIndexOf("\n"),
-      prefix.lastIndexOf("["),
-      prefix.lastIndexOf("\""),
-      prefix.lastIndexOf("$") - 1
-    );
-    // For $var, we want to replace including the $ itself — so bump tokenStart
-    // back by 1 when the inserted text starts with $.
-    const leftKeep = s.insertText.startsWith("$")
-      ? Math.min(prefix.lastIndexOf("$"), prefix.length)
-      : tokenStart + 1;
-    const newValue =
-      value.slice(0, leftKeep) + s.insertText + suffix;
-    setValue(newValue);
-    const newCursor = leftKeep + s.insertText.length;
-    setCursor(newCursor);
+    const applied = applySuggestion(value, cursor, s.insertText);
+    setValue(applied.value);
+    setCursor(applied.cursor);
     setTimeout(() => {
       inputRef.current?.focus();
-      inputRef.current?.setSelectionRange(newCursor, newCursor);
+      inputRef.current?.setSelectionRange(applied.cursor, applied.cursor);
     }, 0);
-    return newValue;
+    return applied.value;
   }
 
   async function ensureSession(): Promise<string | null> {

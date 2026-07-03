@@ -88,6 +88,26 @@ describe("InlineCommandEditor validación del input (#182)", () => {
     expect((input as HTMLInputElement).value).toMatch(/^tap\b/);
   });
 
+  // #183 — comando multi-palabra: completar no debe duplicar el prefijo.
+  it("multi-palabra: Enter completa sin duplicar y el segundo Enter guarda", async () => {
+    const user = userEvent.setup();
+    const onSave = vi.fn();
+    render(
+      <InlineCommandEditor initial="" platform="ios" onSave={onSave} onCancel={vi.fn()} />
+    );
+    const input = screen.getByRole("textbox");
+    await user.type(input, "biometric enro");
+    await screen.findByTestId("autocomplete-popover");
+    await user.keyboard("{Enter}");
+
+    // Antes: «biometric biometric enroll» y Enter en loop sin guardar nunca.
+    expect((input as HTMLInputElement).value).toBe("biometric enroll");
+    expect(onSave).not.toHaveBeenCalled();
+
+    await user.keyboard("{Enter}");
+    expect(onSave).toHaveBeenCalledWith("biometric enroll");
+  });
+
   it("comando válido del catálogo se guarda", async () => {
     const user = userEvent.setup();
     const onSave = vi.fn();

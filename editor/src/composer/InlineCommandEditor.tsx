@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { suggest, tokenize } from "./autocomplete";
+import { applySuggestion, suggest, tokenize } from "./autocomplete";
 import { AutocompletePopover } from "./AutocompletePopover";
 import { matchCommandLine } from "./catalog";
 import { selectCurrentProject, useStore } from "../state/store";
@@ -52,28 +52,15 @@ export function InlineCommandEditor({ initial, platform, onSave, onCancel }: Pro
   // Devuelve el nuevo value para que el caller (Enter) detecte si la
   // sugerencia ya estaba aplicada (aceptar sería no-op → guardar).
   function pick(s: Suggestion): string {
-    const prefix = value.slice(0, cursor);
-    const suffix = value.slice(cursor);
-    const tokenStart = Math.max(
-      prefix.lastIndexOf(" "),
-      prefix.lastIndexOf("\t"),
-      prefix.lastIndexOf("["),
-      prefix.lastIndexOf("\""),
-      prefix.lastIndexOf("$") - 1
-    );
-    const leftKeep = s.insertText.startsWith("$")
-      ? Math.min(prefix.lastIndexOf("$"), prefix.length)
-      : tokenStart + 1;
-    const newValue = value.slice(0, leftKeep) + s.insertText + suffix;
-    setValue(newValue);
-    const newCursor = leftKeep + s.insertText.length;
-    setCursor(newCursor);
+    const applied = applySuggestion(value, cursor, s.insertText);
+    setValue(applied.value);
+    setCursor(applied.cursor);
     setNavigated(false);
     setTimeout(() => {
       inputRef.current?.focus();
-      inputRef.current?.setSelectionRange(newCursor, newCursor);
+      inputRef.current?.setSelectionRange(applied.cursor, applied.cursor);
     }, 0);
-    return newValue;
+    return applied.value;
   }
 
   // Guarda solo si la línea es un comando del catálogo o un keyword de

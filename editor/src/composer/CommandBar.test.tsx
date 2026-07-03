@@ -253,6 +253,32 @@ describe("CommandBar", () => {
       expect(useStore.getState().projects[0].flows[0].blocks).toHaveLength(0);
     });
 
+    // #183 — comando multi-palabra: completar no debe duplicar el prefijo.
+    it("Enter con comando multi-palabra completa sin duplicar; segundo Enter ejecuta", async () => {
+      mockedInvoke.mockImplementation(async (cmd: string) => {
+        if (cmd === "executor_spawn") return "sess_test";
+        if (cmd === "executor_send") return { ok: true, ms: 10 } satisfies Frame;
+        return null;
+      });
+      const user = userEvent.setup();
+      render(<CommandBar platform="ios" />);
+      const input = screen.getByTestId("command-bar-input");
+      await user.type(input, "biometric enro");
+      await screen.findByTestId("autocomplete-popover");
+      await user.keyboard("{Enter}");
+
+      // Antes: «biometric biometric enroll» y Enter en loop sin insertar nunca.
+      expect((input as HTMLInputElement).value).toBe("biometric enroll");
+      expect(useStore.getState().projects[0].flows[0].blocks).toHaveLength(0);
+
+      await user.keyboard("{Enter}");
+      await vi.waitFor(() => {
+        const blocks = useStore.getState().projects[0].flows[0].blocks;
+        expect(blocks).toHaveLength(1);
+        expect(blocks[0].command).toBe("biometric enroll");
+      });
+    });
+
     it("Escape cierra el popover sin borrar el texto", async () => {
       const user = userEvent.setup();
       render(<CommandBar platform="ios" />);
