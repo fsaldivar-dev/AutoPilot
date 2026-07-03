@@ -391,6 +391,60 @@ fail-closed mudo, y un contador que miente es peor que no tener contador.
 
 ---
 
+## Teclado virtual y dialogos de permisos en Android (#54, #53)
+
+Con las ventanas IME/overlay ya visibles en el tree (#130), el recorder Android
+pudo cerrar dos brechas que iOS ya tenia resueltas:
+
+**Teclado virtual (#54).** Antes, escribir "hello" en un campo generaba cinco
+`tapAt 540 1800` sobre coordenadas de teclas — fragil entre teclados y devices.
+Ahora, al hacer touchUp el recorder consulta si el punto cayo dentro del frame
+de la ventana `Window[IME]` del tree. Si es asi, el toque se absorbe y arranca
+una *sesion de tecleo*: se guarda el value del EditText enfocado (leido del
+tree previo al keypress) y todos los toques siguientes dentro del IME se
+acumulan sin emitir nada. Al primer gesto fuera del teclado (o al parar la
+grabacion), se lee el value final del campo y se emite el diff como UN solo
+comando: `type "hello"`. El diff absorbe backspaces y autocorrect gratis —
+solo importa el estado final del campo, no la secuencia de teclas:
+
+- sufijo nuevo → `type "<sufijo>"`
+- solo borrado → `eraseText N`
+- edicion mixta → `eraseText <viejo>` + `type "<nuevo>"`
+- campo password (value enmascarado `••••`) → comment de advertencia, porque
+  el tree no expone el texto real por seguridad
+
+Si el teclado expone la tecla Enter al tree (AOSP LatinIME lo hace, GBoard no
+siempre), el tap sobre ella cierra la sesion y emite `pressKey enter`. Si no,
+el toque se absorbe igual — fail-safe: el texto no se corrompe, solo se pierde
+el enter explicito.
+
+**Dialogos de permisos (#53).** Un tap sobre "Allow" en el dialogo del sistema
+se detecta porque el tree contiene una ventana cuyo package es el permission
+controller (`com.google.android.permissioncontroller`, `com.android.permissioncontroller`
+o el viejo `com.android.packageinstaller`). El hit-test dentro de ese subarbol
+resuelve el label real del boton; si es afirmativo ("Allow", "While using the
+app", "Only this time", "Permitir", "Mientras la app esta en uso"...) y el
+mensaje del dialogo permite mapear el servicio (camera, location, microphone,
+notifications, contacts, calendars, photos), el recorder emite:
+
+```
+# permiso: Allow TestApp to take pictures and record video?
+permission grant camera com.example.app
+```
+
+`permission grant` es idempotente y locale-agnostic — no depende del idioma
+del boton. El package de la app sale de las otras ventanas del tree (o del
+foreground detectado al arrancar). Si el boton es negativo ("Don't allow" se
+chequea ANTES que "allow", que lo contiene) o el servicio no es mapeable, el
+flujo normal resuelve el tap semantico contra el tree — que post-#130 SI ve el
+dialogo, asi que sale `tap "Deny"` y no `tapAt x y`.
+
+Toda la logica es pura (`AndroidRecorderDetection`) y esta testeada con trees
+mock — clasificacion IME, diff de values, deteccion de package y mapeo de
+servicios corren en CI sin emulador.
+
+---
+
 ## Comparativa con la industria
 
 | Aspecto | AutoPilot | Maestro Studio | Appium Inspector |
@@ -401,7 +455,8 @@ fail-closed mudo, y un contador que miente es peor que no tener contador.
 | waitFor automatico | Si (3 triggers + `[N]`) | Si (2s fijo) | No |
 | Scroll recording | No (iOS), parcial (Android) | Si (visual) | Si (session log) |
 | Role verification | Si (`[button]`) | No | No |
-| Keyboard recording | Si (iOS) | No | No |
+| Keyboard recording | Si (iOS + Android) | No | No |
+| Permission dialogs | Si (iOS + Android → `permission grant`) | No | No |
 | Replicabilidad (editado) | **100%** (50/50 iOS, 3/3 Android) | ~70-75% | ~40-55% |
 
 El 100% de AutoPilot requiere 1-2 ediciones manuales. El 70-75% de Maestro es sin edicion pero con `waitForAnimationToEnd` de 2s que agrega 40s+ a un script de 20 taps. Las replicabilidades de Maestro y Appium son estimaciones basadas en issues documentados — las de AutoPilot son mediciones reales.

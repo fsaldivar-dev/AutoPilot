@@ -174,6 +174,123 @@ public enum AndroidRecorderDetection {
         return best
     }
 
+    // MARK: - #53: diálogo de permisos del sistema
+
+    public struct PermissionDialog: Equatable {
+        /// Label real del botón tocado ("Allow", "While using the app", ...)
+        public let buttonLabel: String
+        /// true si es un botón que concede ("Allow"/"While using"/"Only this time")
+        public let affirmative: Bool
+        /// Servicio AutoPilot mapeado del texto del diálogo (camera, location, ...)
+        /// nil si el texto no permite deducirlo.
+        public let service: String?
+        /// Package de la app que pidió el permiso (deducido de las otras
+        /// ventanas del tree). nil si no es deducible.
+        public let appPackage: String?
+        /// Texto del mensaje del diálogo, para el comment del script.
+        public let message: String?
+    }
+
+    public static let permissionControllerPackages: Set<String> = [
+        "com.google.android.permissioncontroller",
+        "com.android.permissioncontroller",
+        "com.android.packageinstaller",
+    ]
+
+    /// Detecta si el toque cayó sobre un botón de un diálogo de permisos del
+    /// sistema. Devuelve nil si no hay diálogo de permisos en el tree o si el
+    /// punto no cayó sobre un elemento con label dentro de él.
+    public static func detectPermissionDialog(x: Int, y: Int, tree: [[String: Any]]) -> PermissionDialog? {
+        guard let dialogRoot = permissionDialogRoot(in: tree) else { return nil }
+
+        // Hit-test SOLO dentro del subárbol del diálogo
+        guard let label = deepestLabel(x: x, y: y, in: [dialogRoot]) else { return nil }
+
+        let message = dialogMessage(in: dialogRoot)
+        return PermissionDialog(
+            buttonLabel: label,
+            affirmative: isAffirmativeLabel(label),
+            service: message.flatMap { permissionService(fromMessage: $0) },
+            appPackage: requestingAppPackage(in: tree),
+            message: message
+        )
+    }
+
+    /// Subárbol top-level cuyo package es el permission controller.
+    /// Cubre ambos casos: el diálogo como ventana activa (root directo)
+    /// o como ventana secundaria (envuelto en nodo Window).
+    static func permissionDialogRoot(in tree: [[String: Any]]) -> [String: Any]? {
+        tree.first { permissionControllerPackages.contains(node: $0) }
+    }
+
+    /// Clasifica el label del botón. IMPORTANTE: lo negativo se chequea
+    /// primero — "Don't allow" contiene "allow".
+    public static func isAffirmativeLabel(_ label: String) -> Bool {
+        let lower = label.lowercased()
+        let negative = ["deny", "don't allow", "don`t allow", "dont allow", "not allow",
+                        "no permitir", "denegar", "rechazar", "cancel", "cancelar"]
+        if negative.contains(where: { lower.contains($0) }) { return false }
+        let affirmative = ["allow", "while using", "only this time", "permitir",
+                           "mientras la app", "mientras se usa", "solo esta vez",
+                           "sólo esta vez", "ok", "aceptar"]
+        return affirmative.contains(where: { lower.contains($0) })
+    }
+
+    /// Mapea el mensaje del diálogo al servicio de `permission grant`.
+    /// Solo devuelve servicios que AdbLegacyBridge.setPermission soporta:
+    /// camera, microphone, photos, contacts, calendars, location, notifications.
+    public static func permissionService(fromMessage message: String) -> String? {
+        let lower = message.lowercased()
+        let mapping: [(keywords: [String], service: String)] = [
+            (["camera", "cámara", "camara", "pictures", "fotos y videos", "take photos"], "camera"),
+            (["microphone", "micrófono", "microfono", "record audio", "grabar audio"], "microphone"),
+            (["location", "ubicación", "ubicacion"], "location"),
+            (["notification", "notificacion", "notificación"], "notifications"),
+            (["contact", "contacto"], "contacts"),
+            (["calendar", "calendario"], "calendars"),
+            (["photos", "media", "imágenes", "imagenes"], "photos"),
+        ]
+        for (keywords, service) in mapping {
+            if keywords.contains(where: { lower.contains($0) }) { return service }
+        }
+        return nil
+    }
+
+    /// Texto del mensaje del diálogo: primero por resource-id conocido del
+    /// permission controller, luego el texto más largo del subárbol.
+    static func dialogMessage(in dialogRoot: [String: Any]) -> String? {
+        if let byId = findText(in: dialogRoot, where: { node in
+            let id = (node["identifier"] as? String ?? "")
+            return id.contains("permission_message")
+        }) {
+            return byId
+        }
+        // Fallback: el TextView más largo del diálogo suele ser el mensaje
+        var longest: String?
+        walkNodes(dialogRoot) { node in
+            if let text = firstNonEmpty(node["title"] as? String, node["label"] as? String),
+               text.count > (longest?.count ?? 15) {
+                longest = text
+            }
+        }
+        return longest
+    }
+
+    /// Package de la app que pidió el permiso: la otra ventana del tree que
+    /// no es el permission controller ni una ventana de sistema (IME,
+    /// systemui, launcher).
+    static func requestingAppPackage(in tree: [[String: Any]]) -> String? {
+        for node in tree {
+            guard let pkg = node["package"] as? String, !pkg.isEmpty else { continue }
+            if permissionControllerPackages.contains(pkg) { continue }
+            if isIMEWindow(node) { continue }
+            if pkg.contains("systemui") || pkg.contains("launcher")
+                || pkg.contains("inputmethod") || pkg == "android" { continue }
+            return pkg
+        }
+        return nil
+    }
+
     // MARK: - Helpers compartidos
 
     static func frameRect(of node: [String: Any]) -> CGRect? {
@@ -192,4 +309,37 @@ public enum AndroidRecorderDetection {
         return nil
     }
 
+    private static func findText(in node: [String: Any], where predicate: ([String: Any]) -> Bool) -> String? {
+        var found: String?
+        walkNodes(node) { current in
+            if found == nil, predicate(current),
+               let text = firstNonEmpty(current["title"] as? String, current["label"] as? String) {
+                found = text
+            }
+        }
+        return found
+    }
+
+    private static func walkNodes(_ node: [String: Any], visit: ([String: Any]) -> Void) {
+        visit(node)
+        for child in (node["children"] as? [[String: Any]]) ?? [] {
+            walkNodes(child, visit: visit)
+        }
+    }
+}
+
+private extension Set where Element == String {
+    /// ¿El package de este nodo (directo o de su primer hijo, para nodos
+    /// Window) pertenece al set?
+    func contains(node: [String: Any]) -> Bool {
+        if let pkg = node["package"] as? String, contains(pkg) { return true }
+        // Nodo Window: el package viene del root pero por robustez se mira
+        // también el primer hijo
+        if let children = node["children"] as? [[String: Any]],
+           let first = children.first,
+           let pkg = first["package"] as? String, contains(pkg) {
+            return true
+        }
+        return false
+    }
 }

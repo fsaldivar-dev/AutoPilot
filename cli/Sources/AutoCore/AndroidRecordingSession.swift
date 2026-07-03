@@ -42,6 +42,10 @@ public final class AndroidRecordingSession {
     // el campo ya perdió el foco.
     private var keyboardValueLatest: String?
 
+    // #53: package de la app en foreground al arrancar — fallback para
+    // `permission grant <service> <package>` si el tree no lo revela.
+    private var foregroundPackage: String?
+
     public init(bridge: any DeviceBridge, outputPath: String) {
         self.bridge = bridge
         self.outputPath = outputPath
@@ -62,6 +66,7 @@ public final class AndroidRecordingSession {
 
         // 3. Auto-inject terminate + launch for the current foreground app
         if let bundleId = detectForegroundApp() {
+            foregroundPackage = bundleId
             generator.appendRaw("terminate \"\(bundleId)\"")
             generator.appendRaw("launch \"\(bundleId)\"")
             generator.appendRaw("")
@@ -290,6 +295,12 @@ public final class AndroidRecordingSession {
             }
             finalizeKeyboardCapture(treeAtGesture: tree)
 
+            // #53: ¿el tap cayó en un diálogo de permisos del sistema?
+            if let permissionTree = tree ?? cachedTree,
+               handlePermissionDialogTap(x: downPoint.x, y: downPoint.y, tree: permissionTree) {
+                return
+            }
+
             let action = Self.resolveTouchOrFallback(
                 x: downPoint.x, y: downPoint.y, tree: tree, command: "tap"
             )
@@ -358,6 +369,34 @@ public final class AndroidRecordingSession {
             generator.appendRaw(line)
             printRecorded(line)
         }
+    }
+
+    // MARK: - #53: Permission Dialog Detection
+
+    /// Si el tap cayó sobre el botón afirmativo de un diálogo de permisos y
+    /// el servicio + package son deducibles, emite el comando idempotente
+    /// `permission grant <service> <package>` (con comment del diálogo) y
+    /// devuelve true. En cualquier otro caso devuelve false y el flujo normal
+    /// resuelve el tap semántico contra el tree (que post-#130 SÍ ve el
+    /// diálogo, así que sale `tap "Deny"` y no `tapAt x y`).
+    private func handlePermissionDialogTap(x: Int, y: Int, tree: [[String: Any]]) -> Bool {
+        guard let dialog = AndroidRecorderDetection.detectPermissionDialog(x: x, y: y, tree: tree),
+              dialog.affirmative,
+              let service = dialog.service,
+              let package = dialog.appPackage ?? foregroundPackage else {
+            return false
+        }
+        // Emitir el tap buffereado previo antes del grant (orden del script)
+        flushPendingTap()
+        if let message = dialog.message {
+            let comment = "# permiso: \(message)"
+            generator.appendRaw(comment)
+            printRecorded(comment)
+        }
+        let line = "permission grant \(service) \(package)"
+        generator.appendRaw(line)
+        printRecorded(line)
+        return true
     }
 
     // MARK: - Gesture Classification (pure, testable)
