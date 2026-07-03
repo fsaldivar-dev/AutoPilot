@@ -33,6 +33,10 @@ public final class RecordingSession {
     // Cached state
     private var simulatorPID: pid_t = 0
 
+    // #161: la app ya corría en el simulador al arrancar la grabación.
+    // El preámbulo terminate+launch se emite comentado y stop() avisa.
+    private var midSessionRecording = false
+
     // #132: refresco periódico del window frame. El frame se capturaba una
     // sola vez en start() — si el usuario movía/redimensionaba la ventana del
     // Simulator a mitad de la grabación, todos los clicks posteriores caían
@@ -67,11 +71,17 @@ public final class RecordingSession {
         // 2. Verify AX access
         let _ = try bridge.findSimulatorContent()
 
-        // 3. Phase 4c: terminate + launch if bundle configured
+        // 3. Phase 4c: terminate + launch if bundle configured.
+        // #161: si la app YA corría (grabación mid-session), el preámbulo va
+        // COMENTADO — reiniciar la app en replay rompería los pasos grabados,
+        // que asumen la pantalla donde estaba el usuario.
         if let bundleId = AutoPilotConfig.get("bundle") {
-            generator.appendRaw("terminate \"\(bundleId)\"")
-            generator.appendRaw("launch \"\(bundleId)\"")
-            generator.appendRaw("")
+            midSessionRecording = Self.isAppRunningInSimulator(bundleId: bundleId)
+            generator.appendLaunchPreamble(bundleId: bundleId, midSession: midSessionRecording)
+            if midSessionRecording {
+                print("Nota: la app \(bundleId) ya estaba corriendo — grabación a mitad de sesión.")
+                print("      El preámbulo terminate/launch se agrega comentado.\n")
+            }
         }
 
         // 4. Attach stabilizer for UI change tracking
@@ -142,7 +152,41 @@ public final class RecordingSession {
         let count = generator.commandCount
         print("\n\(count) command(s) recorded → \(outputPath)")
 
+        // #161: aviso final para grabaciones mid-session
+        if midSessionRecording {
+            print("Aviso: grabación a mitad de sesión — el replay asume el estado de pantalla donde estabas.")
+            print("       Revisa el preámbulo comentado (terminate/launch) antes del replay.")
+        }
+
         return outputPath
+    }
+
+    // MARK: - #161: Mid-session detection
+
+    /// ¿La app ya corre en el simulador booteado? Consulta launchd del sim:
+    /// `simctl spawn booted launchctl list` lista un job
+    /// `UIKitApplication:<bundleId>[...]` por cada app viva. Ante cualquier
+    /// fallo (sin sim booteado, xcrun ausente) devolvemos false: el preámbulo
+    /// queda activo, exactamente el comportamiento pre-#161.
+    static func isAppRunningInSimulator(bundleId: String) -> Bool {
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
+        process.arguments = ["simctl", "spawn", "booted", "launchctl", "list"]
+        let pipe = Pipe()
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        do {
+            try process.run()
+        } catch {
+            return false
+        }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0,
+              let output = String(data: data, encoding: .utf8) else {
+            return false
+        }
+        return output.contains("UIKitApplication:\(bundleId)")
     }
 
     // MARK: - Event Handling

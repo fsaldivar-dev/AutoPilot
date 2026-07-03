@@ -46,6 +46,10 @@ public final class AndroidRecordingSession {
     // `permission grant <service> <package>` si el tree no lo revela.
     private var foregroundPackage: String?
 
+    // #161: la app ya corría al arrancar la grabación (pidof devolvió PID).
+    // El preámbulo terminate+launch se emite comentado y stop() avisa.
+    private var midSessionRecording = false
+
     public init(bridge: any DeviceBridge, outputPath: String) {
         self.bridge = bridge
         self.outputPath = outputPath
@@ -64,12 +68,18 @@ public final class AndroidRecordingSession {
         let calibration = try getTouchCalibration()
         parser = GetEventParser(calibration: calibration)
 
-        // 3. Auto-inject terminate + launch for the current foreground app
+        // 3. Auto-inject terminate + launch for the current foreground app.
+        // #161: si la app YA corría (grabación mid-session), el preámbulo va
+        // COMENTADO — reiniciar la app en replay rompería los pasos grabados,
+        // que asumen la pantalla donde estaba el usuario.
         if let bundleId = detectForegroundApp() {
             foregroundPackage = bundleId
-            generator.appendRaw("terminate \"\(bundleId)\"")
-            generator.appendRaw("launch \"\(bundleId)\"")
-            generator.appendRaw("")
+            midSessionRecording = isPackageRunning(bundleId)
+            generator.appendLaunchPreamble(bundleId: bundleId, midSession: midSessionRecording)
+            if midSessionRecording {
+                print("Nota: la app \(bundleId) ya estaba corriendo — grabación a mitad de sesión.")
+                print("      El preámbulo terminate/launch se agrega comentado.\n")
+            }
         }
 
         // 4. Pre-cache tree and start background refresh
@@ -122,6 +132,12 @@ public final class AndroidRecordingSession {
         // incluía la línea en blanco del header y mentía ("3 lines" / 2 comandos).
         let count = generator.commandCount
         print("\n\(count) command(s) recorded → \(outputPath)")
+
+        // #161: aviso final para grabaciones mid-session
+        if midSessionRecording {
+            print("Aviso: grabación a mitad de sesión — el replay asume el estado de pantalla donde estabas.")
+            print("       Revisa el preámbulo comentado (terminate/launch) antes del replay.")
+        }
 
         return outputPath
     }
@@ -605,6 +621,19 @@ public final class AndroidRecordingSession {
             )
         }
         return calibration
+    }
+
+    /// #161: ¿el proceso del package ya está vivo en el device?
+    /// `pidof` devuelve el PID si corre y sale con exit 1 (output vacío) si no.
+    /// Ante cualquier fallo (adb caído, device desconectado) devolvemos false:
+    /// el preámbulo queda activo, exactamente el comportamiento pre-#161.
+    private func isPackageRunning(_ package: String) -> Bool {
+        guard let adbPath = try? findAdb(),
+              let deviceArgs = try? getDeviceArgs(),
+              let output = try? runAdbCommand(adbPath, args: deviceArgs + ["shell", "pidof", package]) else {
+            return false
+        }
+        return !output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     /// Detect the current foreground Android app package.

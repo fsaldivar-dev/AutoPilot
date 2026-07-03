@@ -505,6 +505,57 @@ servicios corren en CI sin emulador.
 
 ---
 
+## Grabaciones a mitad de sesion: el preambulo que rompia el replay (#161)
+
+El recorder siempre agrego un preambulo `terminate` + `launch` al inicio del
+script — la receta para un replay determinista: matar la app, arrancarla
+limpia, reproducir. Pero el preambulo asume que TODO lo grabado empieza desde
+el estado inicial de la app, y eso solo es cierto si la grabacion arranco con
+la app cerrada.
+
+El caso que fallaba: navegas cinco pantallas adentro de la app, ahi arrancas
+`record`, grabas tres taps y guardas. El script generado dice
+`terminate` → `launch` → `tap "Confirmar"`... pero tras el launch la app esta
+en su pantalla inicial y "Confirmar" no existe → `FAIL: Timeout`. Y el
+recorder no advertia nada — el script se veia perfectamente sano.
+
+**El fix**: detectar si la app ya corria al arrancar la grabacion. En Android,
+`adb shell pidof <package>` antes de grabar (PID = ya corria); en iOS,
+`simctl spawn booted launchctl list` — launchd del simulador lista un job
+`UIKitApplication:<bundleId>` por cada app viva. Con eso el preambulo tiene
+dos modos:
+
+- **Grabacion desde cero** (la app no corria): preambulo activo, igual que
+  siempre — el replay reproduce exactamente lo grabado.
+- **Grabacion mid-session** (la app ya corria): preambulo COMENTADO con la
+  explicacion inline:
+
+```
+# Grabado a mitad de sesión — el replay asume el estado de pantalla donde estabas.
+# Descomenta para replay desde cero (la app arrancará en su estado inicial):
+# terminate "com.example.app"
+# launch "com.example.app"
+```
+
+El default (comentado) reproduce in-situ: si lanzas el replay desde la misma
+pantalla donde grabaste, funciona. Si quieres replay desde cero, descomentas
+el preambulo — pero entonces te toca a ti agregar la navegacion que lleva del
+estado inicial a esa pantalla. El recorder no puede inventarla: no la vio.
+
+Ademas el CLI avisa dos veces: al arrancar ("la app ya estaba corriendo —
+grabacion a mitad de sesion") y al guardar ("revisa el preambulo comentado
+antes del replay"). Si la deteccion falla (adb caido, sin sim booteado), se
+asume grabacion desde cero — el comportamiento historico. La logica de
+generacion vive en `ScriptGenerator.appendLaunchPreamble(bundleId:midSession:)`
+y esta testeada en CI sin device (`ScriptGeneratorPreambleTests`).
+
+**La leccion es la misma del #133**: un script que falla con `FAIL: Timeout` a
+los 10 segundos es mucho mas caro de diagnosticar que un comentario de dos
+lineas en el momento de la grabacion. El recorder sabe algo que el usuario no
+ve (el estado del proceso al arrancar) — callarselo era el bug.
+
+---
+
 ## Comparativa con la industria
 
 | Aspecto | AutoPilot | Maestro Studio | Appium Inspector |
