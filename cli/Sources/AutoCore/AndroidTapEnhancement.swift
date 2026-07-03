@@ -1,12 +1,25 @@
 import Foundation
 
-/// Tap enhancements Android-específicos: `$N`, `label[N]`, Compose clickable parent.
-/// Pasa todas las acciones de device por el `ActionRouter` (ARD-001).
+/// Tap enhancements Android-específicos: `$N`, `label[N]`, multi-tap por coma
+/// (`tap 1,2,3,4` — paridad con iOS via `TapTargets`, #145) y Compose
+/// clickable parent. Pasa todas las acciones de device por el `ActionRouter`
+/// (ARD-001).
 public enum AndroidTapEnhancement {
 
     public static func execute(args: [String], router: ActionRouter, start: CFAbsoluteTime) async throws {
-        let target = args.dropFirst().joined(separator: " ")
+        let raw = args.dropFirst().joined(separator: " ")
 
+        // Multi-tap: "a,b,c" — misma regla que iOS (#145): la coma solo separa
+        // si el label completo NO existe como elemento del árbol (match exacto
+        // sobre title/label/identifier/id, nunca sobre value). TapTargets solo
+        // consulta el árbol si el argumento contiene coma.
+        let targets = try await TapTargets.resolve(raw) { try await tree(router: router) }
+        for target in targets {
+            try await executeSingle(target: target, router: router, start: start)
+        }
+    }
+
+    private static func executeSingle(target: String, router: ActionRouter, start: CFAbsoluteTime) async throws {
         // $N index reference
         if let idx = TargetResolverShared.parseIndex(target) {
             let tree = try await tree(router: router)
