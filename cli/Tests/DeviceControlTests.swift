@@ -64,10 +64,20 @@ final class MockBridge: DeviceBridge {
     var treeNodes: [[String: Any]] = []
     /// Si se setea, `tree()` lanza este error (simula bridge caído)
     var treeError: Error?
+    /// Secuencia programada de árboles (#157, AutoWait): cada `tree()` consume
+    /// el siguiente; agotada la secuencia, repite el último. Tiene prioridad
+    /// sobre `treeNodes`.
+    var treeSequence: [[[String: Any]]] = []
+    private var treeSequenceIndex = 0
 
     func tree() throws -> [[String: Any]] {
         record("tree")
         if let error = treeError { throw error }
+        if !treeSequence.isEmpty {
+            let tree = treeSequence[min(treeSequenceIndex, treeSequence.count - 1)]
+            treeSequenceIndex += 1
+            return tree
+        }
         return treeNodes
     }
     func search(query: String) throws -> [[String: Any]] { [] }
