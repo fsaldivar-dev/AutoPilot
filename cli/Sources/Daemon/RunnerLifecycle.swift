@@ -1,4 +1,5 @@
 import Foundation
+import AutoCore
 
 // MARK: - RunnerLifecycle
 //
@@ -211,6 +212,11 @@ final class RunnerLifecycle {
             }
         }
         guard result == 0 else { return }
+
+        // #156: sin timeout, un runner zombie que acepta la conexion pero
+        // nunca responde el ack dejaba shutdownRunner() colgado — justo el
+        // path que se ejecuta al detectar un runner que no responde.
+        SocketTimeouts.applyReceiveTimeout(fd: fd, seconds: 2)
 
         let msg = "{\"method\":\"quit\"}\n"
         _ = msg.withCString { ptr in send(fd, ptr, strlen(ptr), 0) }
