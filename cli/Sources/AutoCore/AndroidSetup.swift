@@ -89,7 +89,9 @@ public enum AndroidSetup {
         throw BridgeError.adbFailed("Emulator did not reach booted state after 60s")
     }
 
-    private static func bootEmulator(avdName: String) throws {
+    /// Reutilizado por `AdbLegacyBridge.bootDevice` (#136) — por eso es
+    /// internal y no private.
+    static func bootEmulator(avdName: String) throws {
         // Validar nombre — emulator acepta [A-Za-z0-9_.-]
         guard avdName.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "_" || $0 == "-" || $0 == "." }) else {
             throw BridgeError.adbFailed("Invalid AVD name: \(avdName)")
@@ -97,15 +99,67 @@ public enum AndroidSetup {
 
         // Detached: `emulator` es long-running, lo lanzamos sin esperar.
         // Process.arguments array → cero shell interpretation.
-        let proc = Process()
-        proc.executableURL = URL(fileURLWithPath: "/usr/bin/env")
-        proc.arguments = ["emulator", "-avd", avdName, "-no-snapshot-load"]
+        let proc = emulatorProcess(arguments: ["-avd", avdName, "-no-snapshot-load"])
         proc.standardOutput = FileHandle.nullDevice
         proc.standardError = FileHandle.nullDevice
         proc.standardInput = FileHandle.nullDevice
         try proc.run()
         // No waitUntilExit — el proceso es long-running. El polling de
         // ensureDeviceConnected va a confirmar cuando bootee.
+    }
+
+    /// Lista los AVDs disponibles via `emulator -list-avds`.
+    /// Usado por `AdbLegacyBridge.bootDevice` para validar el nombre antes
+    /// de lanzar y evitar el falso exito de #136.
+    static func listAvds() throws -> [String] {
+        let proc = emulatorProcess(arguments: ["-list-avds"])
+        let pipe = Pipe()
+        proc.standardOutput = pipe
+        proc.standardError = FileHandle.nullDevice
+        do {
+            try proc.run()
+        } catch {
+            throw BridgeError.adbFailed("emulator binary not found — set ANDROID_HOME or add emulator to PATH")
+        }
+        proc.waitUntilExit()
+        let out = String(data: pipe.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
+        guard proc.terminationStatus == 0 else {
+            throw BridgeError.adbFailed("emulator -list-avds failed (exit \(proc.terminationStatus)) — set ANDROID_HOME or add emulator to PATH")
+        }
+        // El emulator a veces imprime lineas informativas (INFO | ...) —
+        // filtramos a nombres validos de AVD [A-Za-z0-9_.-]
+        return out.split(separator: "\n")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { line in
+                !line.isEmpty && line.allSatisfy { $0.isLetter || $0.isNumber || $0 == "_" || $0 == "-" || $0 == "." }
+            }
+    }
+
+    /// Construye un Process para el binario `emulator` del SDK.
+    /// Orden de resolucion: ANDROID_HOME, ANDROID_SDK_ROOT, ruta default de
+    /// Android Studio en macOS, PATH via /usr/bin/env (mismo patron que
+    /// `AdbLegacyBridge.adbPath`, #65).
+    private static func emulatorProcess(arguments: [String]) -> Process {
+        let proc = Process()
+
+        var candidates: [String] = []
+        if let home = ProcessInfo.processInfo.environment["ANDROID_HOME"] {
+            candidates.append("\(home)/emulator/emulator")
+        }
+        if let root = ProcessInfo.processInfo.environment["ANDROID_SDK_ROOT"] {
+            candidates.append("\(root)/emulator/emulator")
+        }
+        let home = FileManager.default.homeDirectoryForCurrentUser.path
+        candidates.append("\(home)/Library/Android/sdk/emulator/emulator")
+
+        if let path = candidates.first(where: { FileManager.default.isExecutableFile(atPath: $0) }) {
+            proc.executableURL = URL(fileURLWithPath: path)
+            proc.arguments = arguments
+        } else {
+            proc.executableURL = URL(fileURLWithPath: "/usr/bin/env")
+            proc.arguments = ["emulator"] + arguments
+        }
+        return proc
     }
 
     // MARK: - Step 4: Agent APK installed
