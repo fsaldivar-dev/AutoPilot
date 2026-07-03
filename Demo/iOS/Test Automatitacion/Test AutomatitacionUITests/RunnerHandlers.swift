@@ -41,15 +41,23 @@ final class RunnerHandlers {
             return activeApp
         }
 
-        // activeApp is stale (was terminated externally). Try to rebuild it
-        // from the bundle id we saw on the last launch.
+        // activeApp no está en foreground (terminada o backgrounded por fuera
+        // del runner). Reintentar por bundle id SOLO si esa app sí volvió al
+        // foreground — devolverla a ciegas servía jerarquías stale (#149).
         if let bid = activeBundleId {
             let a = XCUIApplication(bundleIdentifier: bid)
-            activeApp = a
-            return a
+            if a.state == .runningForeground {
+                activeApp = a
+                return a
+            }
         }
 
-        return activeApp
+        // Nada del runner está en foreground: servir Springboard, cuya
+        // jerarquía refleja lo que realmente está en pantalla (incluida la
+        // app en foreground). Además Springboard siempre corre, así que los
+        // snapshots nunca registran failures XCTest — el bug que mataba
+        // testServe tras ~9 queries contra una app muerta (#149).
+        return XCUIApplication(bundleIdentifier: "com.apple.springboard")
     }
 
     /// Backwards-compatible accessor for handlers that don't pass params.
