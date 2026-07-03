@@ -10,6 +10,7 @@ final class MockBackend: Backend, @unchecked Sendable {
 
     var shouldThrowElementNotFound = false
     var shouldThrowOtherError = false
+    var shouldThrowConnectionFailed = false
     var resultToReturn: ActionResult = .void
 
     init(capabilities: Set<ActionKind>) {
@@ -24,6 +25,9 @@ final class MockBackend: Backend, @unchecked Sendable {
         }
         if shouldThrowOtherError {
             throw BridgeError.simulatorNotRunning
+        }
+        if shouldThrowConnectionFailed {
+            throw BridgeError.connectionFailed("Cannot connect to observer (mock)")
         }
         return resultToReturn
     }
@@ -173,6 +177,133 @@ final class ActionRouterTests: XCTestCase {
 
         XCTAssertEqual(first.executeCallCount, 1)
         XCTAssertEqual(second.executeCallCount, 1)
+    }
+
+    // MARK: Degradación por fallo de conexión (#154)
+
+    /// El contrato central del fix: si el backend prioritario falla por
+    /// CONEXIÓN (observer muerto), el router degrada al siguiente backend
+    /// en vez de abortar el run.
+    func testDegradesToNextBackendOnConnectionFailure() async throws {
+        let registry = CapabilityRegistry()
+
+        let observer = MockBackend(capabilities: [.tap])
+        observer.shouldThrowConnectionFailed = true
+
+        let xcui = MockBackend(capabilities: [.tap])
+        xcui.resultToReturn = .void
+
+        await registry.register(observer)
+        await registry.register(xcui)
+        let router = ActionRouter(registry: registry)
+
+        let result = try await router.execute(.tap(target: "Login"))
+
+        XCTAssertEqual(observer.executeCallCount, 1)
+        XCTAssertEqual(xcui.executeCallCount, 1, "Debe degradar al siguiente backend, no abortar")
+        XCTAssertEqual(result, .void)
+    }
+
+    /// Si la degradación FUNCIONA, el backend muerto queda des-registrado
+    /// por el resto del proceso: la siguiente acción no vuelve a pagar el
+    /// intento de conexión fallido.
+    func testQuarantinesDeadBackendAfterSuccessfulDegradation() async throws {
+        let registry = CapabilityRegistry()
+
+        let observer = MockBackend(capabilities: [.tap])
+        observer.shouldThrowConnectionFailed = true
+
+        let xcui = MockBackend(capabilities: [.tap])
+
+        await registry.register(observer)
+        await registry.register(xcui)
+        let router = ActionRouter(registry: registry)
+
+        _ = try await router.execute(.tap(target: "Login"))
+        _ = try await router.execute(.tap(target: "Settings"))
+
+        XCTAssertEqual(observer.executeCallCount, 1, "El backend muerto no debe reintentar tras la cuarentena")
+        XCTAssertEqual(xcui.executeCallCount, 2)
+    }
+
+    /// Si NADIE responde, no hay cuarentena: el fallo pudo ser transitorio y
+    /// la siguiente acción debe reintentar desde el principio.
+    func testDoesNotQuarantineWhenAllBackendsFailConnection() async throws {
+        let registry = CapabilityRegistry()
+
+        let observer = MockBackend(capabilities: [.tap])
+        observer.shouldThrowConnectionFailed = true
+
+        let xcui = MockBackend(capabilities: [.tap])
+        xcui.shouldThrowConnectionFailed = true
+
+        await registry.register(observer)
+        await registry.register(xcui)
+        let router = ActionRouter(registry: registry)
+
+        do {
+            _ = try await router.execute(.tap(target: "Login"))
+            XCTFail("Expected error")
+        } catch let error as BridgeError {
+            guard case .connectionFailed = error else {
+                return XCTFail("Expected connectionFailed, got: \(error)")
+            }
+        }
+
+        do {
+            _ = try await router.execute(.tap(target: "Login"))
+            XCTFail("Expected error")
+        } catch { /* esperado */ }
+
+        XCTAssertEqual(observer.executeCallCount, 2, "Sin degradación exitosa no hay cuarentena — se reintenta")
+        XCTAssertEqual(xcui.executeCallCount, 2)
+    }
+
+    /// Sin fallback disponible, el error de conexión propaga (con el hint
+    /// accionable del bridge) — no se convierte en silencio.
+    func testConnectionFailurePropagatesWhenNoFallback() async throws {
+        let registry = CapabilityRegistry()
+        let observer = MockBackend(capabilities: [.tap])
+        observer.shouldThrowConnectionFailed = true
+        await registry.register(observer)
+        let router = ActionRouter(registry: registry)
+
+        do {
+            _ = try await router.execute(.tap(target: "Login"))
+            XCTFail("Expected error")
+        } catch let error as BridgeError {
+            guard case .connectionFailed = error else {
+                return XCTFail("Expected connectionFailed, got: \(error)")
+            }
+        }
+    }
+
+    /// connectionFailed + elementNotFound del fallback: el error final es el
+    /// del último backend (elementNotFound) y NO hay cuarentena (nadie "ganó").
+    func testConnectionFailureThenElementNotFoundDoesNotQuarantine() async throws {
+        let registry = CapabilityRegistry()
+
+        let observer = MockBackend(capabilities: [.tap])
+        observer.shouldThrowConnectionFailed = true
+
+        let xcui = MockBackend(capabilities: [.tap])
+        xcui.shouldThrowElementNotFound = true
+
+        await registry.register(observer)
+        await registry.register(xcui)
+        let router = ActionRouter(registry: registry)
+
+        do {
+            _ = try await router.execute(.tap(target: "Ghost"))
+            XCTFail("Expected error")
+        } catch let error as BridgeError {
+            guard case .elementNotFound = error else {
+                return XCTFail("Expected elementNotFound (último backend), got: \(error)")
+            }
+        }
+
+        _ = try? await router.execute(.tap(target: "Ghost"))
+        XCTAssertEqual(observer.executeCallCount, 2, "Sin éxito del fallback no hay cuarentena")
     }
 
     // MARK: Registry

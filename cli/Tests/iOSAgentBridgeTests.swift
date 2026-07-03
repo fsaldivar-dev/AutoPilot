@@ -17,11 +17,20 @@ final class iOSAgentBridgeTests: XCTestCase {
     func testTreeThrowsWhenNotConnected() {
         let bridge = iOSAgentBridge(host: "127.0.0.1", port: 19999)
         XCTAssertThrowsError(try bridge.tree()) { error in
-            guard case BridgeError.unknown = error else {
-                XCTFail("Expected BridgeError.unknown, got \(error)")
+            // #154: el fallo de conexión es tipado (connectionFailed) para que
+            // el ActionRouter degrade al siguiente backend en vez de abortar.
+            guard case BridgeError.connectionFailed = error else {
+                XCTFail("Expected BridgeError.connectionFailed, got \(error)")
                 return
             }
         }
+    }
+
+    // MARK: - observedBundleId (#154)
+
+    func testObservedBundleIdReturnsNilWhenNotConnected() {
+        let bridge = iOSAgentBridge(host: "127.0.0.1", port: 19999)
+        XCTAssertNil(bridge.observedBundleId(), "Sin socket no hay handshake — debe ser nil, no crash")
     }
 
     func testTapThrowsWhenNotConnected() {

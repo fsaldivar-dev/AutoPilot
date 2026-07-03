@@ -108,7 +108,7 @@ public final class AgentBridge: DeviceBridge {
                 try recoverAgent()
                 return try sendCommandInternal(method, params: params, allowRecover: false)
             }
-            throw BridgeError.adbFailed("Empty response from agent (agent may have crashed)")
+            throw BridgeError.connectionFailed("Empty response from agent (agent may have crashed)")
         }
 
         // Parse JSON
@@ -144,7 +144,9 @@ public final class AgentBridge: DeviceBridge {
 
         guard result == 0 else {
             close(sock)
-            throw BridgeError.adbFailed("Cannot connect to agent at \(host):\(port). Is the agent running?")
+            // connectionFailed (#154): permite que el ActionRouter degrade al
+            // siguiente backend cuando exista fallback, en vez de abortar.
+            throw BridgeError.connectionFailed("Cannot connect to agent at \(host):\(port). Is the agent running?")
         }
 
         // #156: sin SO_RCVTIMEO un agente colgado (proceso vivo que no responde)

@@ -16,6 +16,10 @@ public enum BridgeError: Error, CustomStringConvertible {
     case cameraImageNotFound(String)
     case adbNotFound
     case adbFailed(String)
+    /// El backend no pudo CONECTARSE a su proceso remoto (socket muerto,
+    /// agente caído, observer no cargado). Distinto de `elementNotFound`:
+    /// el ActionRouter degrada al siguiente backend en vez de abortar (#154).
+    case connectionFailed(String)
     case uiAutomationBusy
     case avdNotFound(String, [String])
     case eventTapFailed
@@ -46,6 +50,7 @@ public enum BridgeError: Error, CustomStringConvertible {
         case .cameraImageNotFound(let p): return "Image not found: '\(p)'"
         case .adbNotFound: return "ADB not found. Set ANDROID_HOME or add adb to PATH."
         case .adbFailed(let msg): return "ADB failed: \(msg)"
+        case .connectionFailed(let msg): return msg
         case .uiAutomationBusy: return """
             El agente AutoPilot retiene la conexion UiAutomation (Android solo permite \
             un cliente a la vez), por lo que 'uiautomator dump' devuelve vacio.

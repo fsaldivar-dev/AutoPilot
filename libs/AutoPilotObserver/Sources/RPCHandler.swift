@@ -10,7 +10,13 @@ final class RPCHandler {
 
         switch method {
         case "ping":
-            return ["result": "pong"]
+            // #154: handshake — además del pong, reportar el bundleId REAL del
+            // proceso. El puerto 7002 es fijo: si otra app lo retiene, el CLI
+            // compara este valor con el bundle lanzado y avisa en vez de
+            // reportar "with observer" engañosamente. Mismo patrón que el
+            // agente Android (ping devuelve "api" como sibling key).
+            return ["result": "pong",
+                    "bundleId": Bundle.main.bundleIdentifier ?? ""]
 
         case "tree":
             // Warm AX (framework load is one-time; the screenChanged post is
