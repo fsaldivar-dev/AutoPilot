@@ -673,6 +673,38 @@ public func executeSharedCommand(
             print("Unknown subcommand: '\(args[1])'")
         }
 
+    case "accounts":
+        // Subcommand-style como `keychain` (issue #86). En Android opera
+        // sobre el AccountManager del sistema (cuentas Google Sign-In que
+        // sobreviven al uninstall); en iOS es no-op documentado — las
+        // credenciales viven en el keychain y `keychain reset` ya las cubre.
+        guard args.count >= 2 else {
+            print("Usage: auto accounts <list|clear> [type]")
+            return true
+        }
+        switch args[1] {
+        case "list":
+            var accounts = try bridge.listAccounts()
+            if args.count >= 3 {
+                accounts = accounts.filter { $0.type == args[2] }
+            }
+            let ms = elapsedMs(start)
+            for account in accounts {
+                print("\(account.type)  \(account.name)")
+            }
+            print("\(accounts.count) account(s) (\(ms)ms)")
+        case "clear":
+            // Default `com.google` — el caso que motivó el feature
+            // (Google Sign-In sobrevive a uninstall + keychain reset).
+            let type = args.count >= 3 ? args[2] : "com.google"
+            try bridge.clearAccounts(type: type)
+            let ms = elapsedMs(start)
+            print("Accounts clear done for type '\(type)' (\(ms)ms)")
+        default:
+            print("Usage: auto accounts <list|clear> [type]")
+            print("Unknown subcommand: '\(args[1])'")
+        }
+
     // MARK: - Scroll Search
     // `scrollUntilVisible` is an alias of `scrollTo` (emitted by recorder).
 

@@ -85,7 +85,7 @@ const KEYWORDS = new Set([
   "doubleTap", "longPress", "tapAt", "drag", "exists", "install", "uninstall",
   "boot", "shutdown", "media", "paste", "openurl", "permission", "biometric",
   "faceid", "rotate", "setAppearance", "setLocation", "lockDevice", "unlockDevice",
-  "pushFile", "pullFile", "logs", "keychain", "startRecording", "stopRecording",
+  "pushFile", "pullFile", "logs", "keychain", "accounts", "startRecording", "stopRecording",
   "ping", "tree", "index", "list", "inspect", "record", "build", "config",
   "eraseText", "run", "if", "else", "repeat", "foreach", "try", "catch",
 ]);
