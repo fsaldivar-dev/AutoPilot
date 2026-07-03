@@ -343,6 +343,33 @@ extension SimulatorBridge {
 
     // MARK: - Scoped element search (role + within + label[N])
 
+    /// Resuelve el elemento de scope para `within`. Los contenedores iOS
+    /// (AXToolbar, AXTabBar, AXNavigationBar) rara vez tienen title/label/id,
+    /// así que además de los atributos estándar el scope puede referirse a un
+    /// ROL: `within "Toolbar"` matchea el primer elemento con rol AXToolbar (#126).
+    func findScopeElement(in root: AXUIElement, matching target: String) -> AXUIElement? {
+        if let byAttribute = findAXElement(in: root, matching: target, depth: 0, maxDepth: 20) {
+            return byAttribute
+        }
+        let normalized = target.lowercased().replacingOccurrences(of: " ", with: "")
+        let wantedRole = normalized.hasPrefix("ax") ? normalized : "ax" + normalized
+        return findFirstWithRole(in: root, roleLowered: wantedRole, depth: 0, maxDepth: 20)
+    }
+
+    private func findFirstWithRole(in element: AXUIElement, roleLowered: String, depth: Int, maxDepth: Int) -> AXUIElement? {
+        guard depth < maxDepth, let children = getChildren(of: element) else { return nil }
+        for child in children {
+            let role = ((getAttribute(child, kAXRoleAttribute) as? String) ?? "").lowercased()
+            if role == roleLowered { return child }
+        }
+        for child in children {
+            if let found = findFirstWithRole(in: child, roleLowered: roleLowered, depth: depth + 1, maxDepth: maxDepth) {
+                return found
+            }
+        }
+        return nil
+    }
+
     /// Find element with optional role filtering and scope.
     /// Fallback chain: role+scope → scope only → global → error
     public func findAXElementScoped(target: String, role: String? = nil, within: String? = nil) throws -> AXUIElement {
@@ -351,9 +378,13 @@ extension SimulatorBridge {
         // Resolve scope element
         var scopeElement: AXUIElement? = nil
         if let within {
-            scopeElement = findAXElement(in: root, matching: within, depth: 0, maxDepth: 20)
+            scopeElement = findScopeElement(in: root, matching: within)
             if scopeElement == nil {
                 fputs("[within] '\(within)' not found, searching globally\n", stderr)
+            } else if ProcessInfo.processInfo.environment["AUTO_DEBUG_SCOPE"] != nil {
+                let info = serializeElement(scopeElement!)
+                let kids = getChildren(of: scopeElement!)?.count ?? -1
+                fputs("[within-debug] scope=\(info["role"] ?? "?") title='\(info["title"] ?? "")' children=\(kids)\n", stderr)
             }
         }
 
