@@ -55,7 +55,8 @@ pub async fn inspect(platform: Option<String>) -> Result<Value, String> {
 
     let screenshot_fut = {
         let bin = bin.clone();
-        tokio::spawn(async move { take_screenshot_async(&bin).await })
+        let plat = plat.clone();
+        tokio::spawn(async move { take_screenshot_async(&bin, &plat).await })
     };
     let tree_fut = {
         let bin = bin.clone();
@@ -94,9 +95,22 @@ pub async fn inspect(platform: Option<String>) -> Result<Value, String> {
     }))
 }
 
-async fn take_screenshot_async(bin: &std::path::PathBuf) -> String {
+/// Path temporal ÚNICO por captura (#173): un nombre fijo compartido entre
+/// plataformas y llamadas concurrentes (mirror poller + recorder + inspect)
+/// permitía que un frame tardío de Android escribiera el PNG que luego leía
+/// la llamada de iOS — mirror cruzado. Con uuid por llamada nadie pisa a nadie.
+fn unique_tmp_png(tag: &str, platform: &str) -> std::path::PathBuf {
+    std::env::temp_dir().join(format!(
+        "autopilot-{}-{}-{}.png",
+        tag,
+        platform,
+        uuid::Uuid::new_v4()
+    ))
+}
+
+async fn take_screenshot_async(bin: &std::path::PathBuf, platform: &str) -> String {
     use base64::Engine;
-    let tmp = std::env::temp_dir().join("autopilot-inspect.png");
+    let tmp = unique_tmp_png("inspect", platform);
     let tmp_str = tmp.to_string_lossy().to_string();
     let _ = run_cli_async(bin, &["screenshot", &tmp_str]).await;
 
@@ -125,32 +139,37 @@ pub async fn screenshot_only(
     use base64::Engine;
 
     let plat = platform.as_deref().unwrap_or("ios").to_string();
-    let tmp = std::env::temp_dir().join("autopilot-mirror.png");
-    let tmp_str = tmp.to_string_lossy().to_string();
-    let _ = tokio::fs::remove_file(&tmp).await;
 
     // Path 1 (rápido): sidecar ya corriendo — mandar screenshot por stdin.
+    // El path es único por llamada (#173): con el nombre fijo compartido,
+    // dos capturas concurrentes (mirror + recorder, o iOS + Android) se
+    // borraban/pisaban el archivo entre sí — el mirror de iOS llegó a mostrar
+    // la pantalla de Android escrita por un frame tardío.
     if let Some(sid) = session_id.as_deref() {
-        let line = format!("screenshot {}", tmp_str);
-        match registry.send(sid, &line, Some(2_000)).await {
+        let tmp = unique_tmp_png("mirror", &plat);
+        let line = format!("screenshot {}", tmp.to_string_lossy());
+        match registry.send(sid, &line, Some(5_000)).await {
             Ok(frame) if frame.ok => {
-                if tmp.exists() {
-                    if let Ok(bytes) = tokio::fs::read(&tmp).await {
-                        let _ = tokio::fs::remove_file(&tmp).await;
-                        let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
-                        return Ok(format!("data:image/png;base64,{}", b64));
-                    }
+                if let Ok(bytes) = tokio::fs::read(&tmp).await {
+                    let _ = tokio::fs::remove_file(&tmp).await;
+                    let b64 = base64::engine::general_purpose::STANDARD.encode(&bytes);
+                    return Ok(format!("data:image/png;base64,{}", b64));
                 }
             }
             _ => {
-                // Sidecar no respondió OK — fallback a spawn fresco.
+                // Timeout o error del sidecar. Si responde tarde, el PNG se
+                // escribirá igual — limpieza diferida para no acumular en tmp.
+                tokio::spawn(async move {
+                    tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+                    let _ = tokio::fs::remove_file(&tmp).await;
+                });
             }
         }
     }
 
     // Path 2 (cold start): spawn proceso fresco.
     let bin = auto_binary(&plat);
-    let b64 = take_screenshot_async(&bin).await;
+    let b64 = take_screenshot_async(&bin, &plat).await;
     if b64.is_empty() {
         return Err("screenshot failed (empty)".into());
     }

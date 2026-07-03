@@ -10,12 +10,17 @@ import * as executor from "./executor";
 
 export interface RunnerCallbacks {
   onBlockStart: (blockId: string) => void;
+  // Puede devolver una Promise: el runner la ESPERA antes de mandar el
+  // siguiente comando. Así la captura del RunRecorder (#163/#172) entra a la
+  // cola FIFO del sidecar justo después de la respuesta del bloque N y antes
+  // del comando N+1 — el screenshot del replay refleja el estado real del
+  // paso, no el de un comando posterior.
   onBlockEnd: (
     blockId: string,
     ok: boolean,
     ms: number | undefined,
     err?: string
-  ) => void;
+  ) => void | Promise<void>;
   // true → un paso fallido aborta el flow. Default esperado: siempre true
   // (honestidad tipo script). El estado del run se marca "failed" via result.ok.
   shouldAbortOnError: () => boolean;
@@ -182,7 +187,7 @@ async function runCommandBlock(
     const stepErr = sessionDied
       ? (frame.err ?? "la sesión murió durante el paso (app relanzada) — resultado no confiable")
       : (frame.err ?? undefined);
-    cb.onBlockEnd(block.id, stepOk, frame.ms, stepErr);
+    await cb.onBlockEnd(block.id, stepOk, frame.ms, stepErr);
     // Refresh reactivo: si el comando probable mutó la UI, disparamos un
     // refresh del inspector después de un pequeño delay (para dejar que las
     // animaciones terminen). Fire-and-forget.
@@ -195,7 +200,7 @@ async function runCommandBlock(
     }
   } catch (e) {
     if (e instanceof AbortedError) throw e;
-    cb.onBlockEnd(block.id, false, undefined, (e as Error).message ?? String(e));
+    await cb.onBlockEnd(block.id, false, undefined, (e as Error).message ?? String(e));
     if (cb.shouldAbortOnError()) {
       state.errored = block.id;
       throw new AbortedError();
@@ -218,9 +223,9 @@ async function runLogicBlock(
       const branch = ok ? (block.slots?.[0] ?? []) : (block.slots?.[1] ?? []);
       try {
         await runBlocksSeq(branch, platform, envVars, state, cb);
-        cb.onBlockEnd(block.id, true, undefined);
+        await cb.onBlockEnd(block.id, true, undefined);
       } catch (e) {
-        cb.onBlockEnd(block.id, false, undefined, "branch failed");
+        await cb.onBlockEnd(block.id, false, undefined, "branch failed");
         throw e;
       }
       return;
@@ -259,9 +264,9 @@ async function runLogicBlock(
             console.warn("foreach no implementado aún; body skipped");
             break;
         }
-        cb.onBlockEnd(block.id, true, undefined);
+        await cb.onBlockEnd(block.id, true, undefined);
       } catch (e) {
-        cb.onBlockEnd(block.id, false, undefined, "body failed");
+        await cb.onBlockEnd(block.id, false, undefined, "body failed");
         throw e;
       }
       return;
@@ -275,15 +280,15 @@ async function runLogicBlock(
       try {
         // Temporariamente deshabilitamos abort-on-error para el body.
         await runBlocksSeqCatching(body, platform, envVars, state, cb);
-        cb.onBlockEnd(block.id, true, undefined);
+        await cb.onBlockEnd(block.id, true, undefined);
       } catch (e) {
         // El body falló → ejecutar catch, limpiar errored.
         state.errored = prevErrored;
         try {
           await runBlocksSeq(catch_, platform, envVars, state, cb);
-          cb.onBlockEnd(block.id, true, undefined, "recovered via catch");
+          await cb.onBlockEnd(block.id, true, undefined, "recovered via catch");
         } catch (e2) {
-          cb.onBlockEnd(block.id, false, undefined, "catch also failed");
+          await cb.onBlockEnd(block.id, false, undefined, "catch also failed");
           throw e2;
         }
       }
@@ -294,9 +299,9 @@ async function runLogicBlock(
       cb.onBlockStart(block.id);
       const ok = await evalPredicate(block.predicate, platform, envVars, state, cb);
       if (ok) {
-        cb.onBlockEnd(block.id, true, undefined);
+        await cb.onBlockEnd(block.id, true, undefined);
       } else {
-        cb.onBlockEnd(block.id, false, undefined, "assertion failed");
+        await cb.onBlockEnd(block.id, false, undefined, "assertion failed");
         if (cb.shouldAbortOnError()) {
           state.errored = block.id;
           throw new AbortedError();
