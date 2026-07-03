@@ -38,8 +38,25 @@ func run() throws {
         return
     }
 
-    try executeCommand(args)
+    // Uso interactivo (invocación directa desde la terminal): un comando
+    // desconocido SÍ imprime el help completo — pero con exit 1 (#152).
+    do {
+        try executeCommand(args)
+    } catch let err as UnknownCommandError {
+        print(err.description)
+        print()
+        iOSUsage.printUsage()
+        exit(1)
+    }
 }
+
+/// Comandos que resuelve este main (no están en el shared dispatcher).
+/// Alimenta la sugerencia Levenshtein del fallthrough (#152).
+let iosCommandCatalogExtras: [String] = [
+    "ping", "index", "launch", "camera", "inject", "build", "inspect",
+    "record", "stats", "daemon", "runner", "doctor", "setup", "help",
+    "run", "interactive",
+]
 
 func runScript(path: String) throws {
     let content = try String(contentsOfFile: path, encoding: .utf8)
@@ -450,8 +467,10 @@ func executeCommand(_ args: [String]) throws {
         // Delegate to shared (platform-agnostic) dispatcher
         let handled = try executeSharedCommand(args, bridge: bridge, deepBridge: xcuiBridge, router: router)
         if !handled {
-            print("Unknown command: \(cmd)")
-            iOSUsage.printUsage()
+            // Comando no reconocido → error tipado. En modo script el
+            // interpreter lo convierte en `FAIL at line N` + exit 1; en uso
+            // interactivo `run()` lo captura e imprime el help (#152).
+            throw CommandCatalog.unknownCommandError(cmd, extra: iosCommandCatalogExtras)
         }
     }
 }
