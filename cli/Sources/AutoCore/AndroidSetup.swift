@@ -152,19 +152,8 @@ public enum AndroidSetup {
 
     private static func findAgentApk() -> String? {
         // Proyecto gradle en agent/, módulo :app — ver agent/settings.gradle.kts
-        let apk = "\(findRepoRoot())/agent/app/build/outputs/apk/debug/app-debug.apk"
+        let apk = "\(RepoRoot.find())/agent/app/build/outputs/apk/debug/app-debug.apk"
         return FileManager.default.fileExists(atPath: apk) ? apk : nil
-    }
-
-    private static func findRepoRoot() -> String {
-        var dir = FileManager.default.currentDirectoryPath
-        while dir != "/" {
-            if FileManager.default.fileExists(atPath: "\(dir)/.git") {
-                return dir
-            }
-            dir = (dir as NSString).deletingLastPathComponent
-        }
-        return FileManager.default.currentDirectoryPath
     }
 
     // MARK: - Step 5: Forward + instrument

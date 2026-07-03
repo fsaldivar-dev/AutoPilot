@@ -515,18 +515,19 @@ public final class AgentBridge: DeviceBridge {
     private func findAgentBuildDir() throws -> String {
         // Look for pre-built files relative to the repo root
         // Convention: agent/camera-mock-native/build/ has .so, agent/camera-mock-kotlin/build/ has .dex
-        let cwd = FileManager.default.currentDirectoryPath
+        // Se resuelve contra la raiz del repo (no el cwd) para que funcione
+        // desde cualquier directorio de invocacion (issue #137).
+        let repoRoot = RepoRoot.find()
         let fm = FileManager.default
 
-        // Try relative to cwd (user is in repo root)
-        let nativeBuild = cwd + "/agent/camera-mock-native/build"
-        let kotlinBuild = cwd + "/agent/camera-mock-kotlin/build"
+        let nativeBuild = repoRoot + "/agent/camera-mock-native/build"
+        let kotlinBuild = repoRoot + "/agent/camera-mock-kotlin/build"
 
         // Check for .so in native build dir — use arm64 by default
         let soArm64 = nativeBuild + "/libcameramock-arm64.so"
         let soGeneric = nativeBuild + "/libcameramock.so"
         guard fm.fileExists(atPath: soArm64) || fm.fileExists(atPath: soGeneric) else {
-            throw BridgeError.adbFailed("Camera mock .so not found in \(nativeBuild). Run build.sh first.")
+            throw BridgeError.adbFailed("Camera mock .so not found in \(nativeBuild). Build it first: \(repoRoot)/agent/camera-mock-native/build.sh")
         }
 
         // For the .so, prefer arm64 variant
@@ -537,7 +538,7 @@ public final class AgentBridge: DeviceBridge {
         // Check .dex exists
         let dexPath = kotlinBuild + "/\(Self.agentDexName)"
         guard fm.fileExists(atPath: dexPath) else {
-            throw BridgeError.adbFailed("Camera mock .dex not found at \(dexPath). Run build.sh first.")
+            throw BridgeError.adbFailed("Camera mock .dex not found at \(dexPath). Build it first: \(repoRoot)/agent/camera-mock-kotlin/build.sh")
         }
 
         // Create a combined staging dir in /tmp
