@@ -36,9 +36,25 @@ class InputInjector(private val uiAutomation: UiAutomation) {
         tap(x, y)
     }
 
-    /** Swipe de (x1,y1) a (x2,y2) en durationMs milisegundos. */
-    fun swipe(x1: Int, y1: Int, x2: Int, y2: Int, durationMs: Long = 300) {
-        val steps = 20
+    /**
+     * Swipe de (x1,y1) a (x2,y2) en durationMs milisegundos.
+     *
+     * Pacing (#168): el coste real de un swipe no es solo el `durationMs` del gesto,
+     * sino el overhead de cada `injectInputEvent(event, true)` (sincrono: bloquea hasta
+     * que el evento se despacha). Con 20 MOVEs (22 injects sync + 20 sleeps) el swipe
+     * tardaba ~685ms — 1.8x mas lento que `adb input swipe` (~370ms).
+     *
+     * Optimizacion: menos pasos (10) y un `durationMs` default mas corto (150ms). El grueso
+     * del wall-clock eran los ~22 injects sync (~23ms/inject en emulador) mas 20 sleeps: bajar
+     * ambos casi mitad recupera la paridad con legacy. 10 MOVEs siguen siendo suficientes para
+     * que el VelocityTracker de la plataforma reconozca el gesto como swipe (velocidad
+     * consistente) sin degradarlo a tap ni dispararlo como fling incontrolado — Android mismo
+     * usa un paso cada ~5ms en `input swipe`, aqui muestreamos mas grueso pero uniforme.
+     * Los timestamps de los MotionEvent se calculan sobre `durationMs` (la velocidad que ve
+     * la app) — el gesto se mantiene determinista y reconocible aunque baje el tiempo real.
+     */
+    fun swipe(x1: Int, y1: Int, x2: Int, y2: Int, durationMs: Long = 150) {
+        val steps = 10
         val now = SystemClock.uptimeMillis()
         val stepDuration = durationMs / steps
 
@@ -51,7 +67,7 @@ class InputInjector(private val uiAutomation: UiAutomation) {
             val x = x1 + ((x2 - x1) * fraction).toInt()
             val y = y1 + ((y2 - y1) * fraction).toInt()
             val time = now + stepDuration * i
-            Thread.sleep(stepDuration)
+            if (stepDuration > 0) Thread.sleep(stepDuration)
             inject(MotionEvent.obtain(now, time, MotionEvent.ACTION_MOVE, x.toFloat(), y.toFloat(), 0))
         }
 
