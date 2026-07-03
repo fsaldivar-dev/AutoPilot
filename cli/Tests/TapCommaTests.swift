@@ -16,11 +16,14 @@ final class TapCommaTests: XCTestCase {
     }
 
     // MARK: - Dispatcher (executeSharedCommand)
+    //
+    // autoWait deshabilitado en todos: acá se valida la resolución de targets
+    // por coma; la estabilidad/verificación de AutoWait vive en AutoWaitTests.
 
     /// Label con coma que SÍ existe como elemento → un solo tap con el label completo.
     func testTapCommaLabelExistingElement() throws {
         bridge.treeNodes = [["label": "Nombre, iPhone", "role": "AXButton"]]
-        let handled = try executeSharedCommand(["tap", "Nombre, iPhone"], bridge: bridge)
+        let handled = try executeSharedCommand(["tap", "Nombre, iPhone"], bridge: bridge, autoWait: .disabled)
         XCTAssertTrue(handled)
         XCTAssertEqual(bridge.callCount("tap"), 1)
         XCTAssertEqual(bridge.lastCall()?.args, ["Nombre, iPhone"])
@@ -29,7 +32,7 @@ final class TapCommaTests: XCTestCase {
     /// Multi-tap clásico: sin match del label completo → un tap por fragmento (trimmed).
     func testTapCommaMultiTapWhenNoFullMatch() throws {
         bridge.treeNodes = [["label": "1"], ["label": "2"], ["label": "3"], ["label": "4"]]
-        let handled = try executeSharedCommand(["tap", "1,2,3,4"], bridge: bridge)
+        let handled = try executeSharedCommand(["tap", "1,2,3,4"], bridge: bridge, autoWait: .disabled)
         XCTAssertTrue(handled)
         let tapped = bridge.calls.filter { $0.method == "tap" }.map { $0.args[0] }
         XCTAssertEqual(tapped, ["1", "2", "3", "4"])
@@ -40,14 +43,14 @@ final class TapCommaTests: XCTestCase {
     /// seguido de tap 1,2,3,4 sobre el keypad).
     func testTapCommaValueMatchDoesNotSuppressMultiTap() throws {
         bridge.treeNodes = [["role": "AXTextField", "value": "1,2,3,4"]]
-        _ = try executeSharedCommand(["tap", "1,2,3,4"], bridge: bridge)
+        _ = try executeSharedCommand(["tap", "1,2,3,4"], bridge: bridge, autoWait: .disabled)
         let tapped = bridge.calls.filter { $0.method == "tap" }.map { $0.args[0] }
         XCTAssertEqual(tapped, ["1", "2", "3", "4"])
     }
 
     /// Target sin coma: ni siquiera consulta el árbol, tap directo.
     func testTapSimpleNoCommaSkipsTree() throws {
-        let handled = try executeSharedCommand(["tap", "Guardar"], bridge: bridge)
+        let handled = try executeSharedCommand(["tap", "Guardar"], bridge: bridge, autoWait: .disabled)
         XCTAssertTrue(handled)
         XCTAssertEqual(bridge.callCount("tree"), 0)
         XCTAssertEqual(bridge.lastCall()?.args, ["Guardar"])
@@ -57,13 +60,13 @@ final class TapCommaTests: XCTestCase {
     /// en silencio a multi-tap sobre fragmentos.
     func testTapCommaTreeErrorPropagates() throws {
         bridge.treeError = BridgeError.adbFailed("agent reconnecting")
-        XCTAssertThrowsError(try executeSharedCommand(["tap", "Nombre, iPhone"], bridge: bridge))
+        XCTAssertThrowsError(try executeSharedCommand(["tap", "Nombre, iPhone"], bridge: bridge, autoWait: .disabled))
         XCTAssertEqual(bridge.callCount("tap"), 0)
     }
 
     /// Fragmentos con espacios tras la coma quedan trimmed ("a, b" → "a","b").
     func testTapCommaFragmentsTrimmed() throws {
-        _ = try executeSharedCommand(["tap", "a, b"], bridge: bridge)
+        _ = try executeSharedCommand(["tap", "a, b"], bridge: bridge, autoWait: .disabled)
         let tapped = bridge.calls.filter { $0.method == "tap" }.map { $0.args[0] }
         XCTAssertEqual(tapped, ["a", "b"])
     }
@@ -91,7 +94,7 @@ final class TapCommaTests: XCTestCase {
     /// Labels con coma decimal ("1,5 km") se respetan si existen como elemento.
     func testDecimalCommaLabelExisting() throws {
         bridge.treeNodes = [["title": "1,5 km"]]
-        _ = try executeSharedCommand(["tap", "1,5 km"], bridge: bridge)
+        _ = try executeSharedCommand(["tap", "1,5 km"], bridge: bridge, autoWait: .disabled)
         XCTAssertEqual(bridge.callCount("tap"), 1)
         XCTAssertEqual(bridge.lastCall()?.args, ["1,5 km"])
     }

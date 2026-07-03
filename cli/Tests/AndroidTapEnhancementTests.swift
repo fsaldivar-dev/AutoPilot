@@ -33,7 +33,10 @@ final class AndroidTapEnhancementTests: XCTestCase {
         let registry = CapabilityRegistry()
         await registry.register(backend)
         let router = ActionRouter(registry: registry)
-        try await AndroidTapEnhancement.execute(args: args, router: router, start: CFAbsoluteTimeGetCurrent())
+        // autoWait deshabilitado: estos tests validan la resolución de targets,
+        // no la verificación post-tap (esa vive en AutoWaitTests, #157).
+        try await AndroidTapEnhancement.execute(
+            args: args, router: router, start: CFAbsoluteTimeGetCurrent(), autoWait: .disabled)
     }
 
     private var tappedTargets: [String] {

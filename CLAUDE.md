@@ -165,5 +165,6 @@ auto launch
 - Element index `$N` en Android: `auto-android index` funciona, `tap $N` auto-construye el indice
 
 ### General
+- Auto-wait (#157): `tap`/`type`/`scroll` esperan estabilidad del árbol (2 lecturas con el mismo hash) y `tap` verifica cambio post-acción — sin cambio → warning honesto en stderr (no error duro). `AUTO_NO_WAIT=1` lo desactiva (benchmarks); `AUTO_RETRY_TAP=1` activa el re-tap estilo Maestro (opt-in: duplica input en UIs con efecto invisible al árbol, p.ej. keypad PIN dibujado en Canvas). Overhead medido ~112ms p50 por tap en Android. Ver docs/qa/AUTO-WAIT.md
 - El editor necesita Rust toolchain instalado (`rustup`)
 - `record` no ve input sintetico (#132/#133, comportamiento esperado): en iOS el recorder captura CGEvents de hardware y `auto tap` usa AXPress/XCUITest (no genera CGEvents); en Android captura `getevent` del kernel y `auto-android tap`/`adb input tap` inyectan a nivel InputManager. Solo se graban interacciones reales — el CLI imprime este aviso al arrancar la grabacion. Ver docs/libro/13-el-recorder-semantico.md
