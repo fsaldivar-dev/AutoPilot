@@ -110,7 +110,15 @@ final class RunnerHandlers {
         case "labels", "statictexts":
                                  queries = [("StaticText", app.staticTexts)]
         case "textfields":       queries = [("TextField", app.textFields),
-                                            ("SecureTextField", app.secureTextFields)]
+                                            ("SecureTextField", app.secureTextFields),
+                                            // iOS search fields (UISearchTextField) son
+                                            // .searchField en XCUI, no .textField — sin esta
+                                            // query `list textfields` no ve search bars que el
+                                            // AX tree sí reporta como AXTextField (issue #134).
+                                            ("SearchField", app.searchFields),
+                                            // Paridad con el fast path del observer, que cuenta
+                                            // AXTextArea (UITextView) como textfield.
+                                            ("TextView", app.textViews)]
         case "cells":            queries = [("Cell", app.cells)]
         case "switches":         queries = [("Switch", app.switches)]
         case "links":            queries = [("Link", app.links)]
@@ -124,6 +132,7 @@ final class RunnerHandlers {
                 ("Button", app.buttons),
                 ("TextField", app.textFields),
                 ("SecureTextField", app.secureTextFields),
+                ("SearchField", app.searchFields),
                 ("Cell", app.cells),
                 ("Switch", app.switches),
                 ("Link", app.links),
@@ -456,6 +465,7 @@ final class RunnerHandlers {
                 app.staticTexts,
                 app.textFields,
                 app.secureTextFields,
+                app.searchFields,
                 app.switches,
                 app.cells,
                 app.links
@@ -509,6 +519,8 @@ final class RunnerHandlers {
         case "button":      return .button
         case "textfield":   return .textField
         case "securetextfield": return .secureTextField
+        case "searchfield": return .searchField
+        case "textview", "textarea": return .textView
         case "statictext":  return .staticText
         case "image":       return .image
         case "cell":        return .cell
