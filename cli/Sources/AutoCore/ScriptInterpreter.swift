@@ -47,7 +47,21 @@ public actor ScriptInterpreter {
     private func execute(_ stmt: ScriptStatement) async throws {
         switch stmt {
         case .action(let tokens, let line):
-            try await executeAction(tokens: tokens, line: line)
+            // #154: este es el único punto donde el statement conoce su línea.
+            // Errores ajenos al interpreter (bridge/router — p.ej. "Cannot
+            // connect to observer") se envuelven acá para que el run nunca
+            // falle sin número de línea.
+            do {
+                try await executeAction(tokens: tokens, line: line)
+            } catch let e as InterpreterError {
+                throw e
+            } catch let e as UnknownCommandError {
+                // #152: propaga tipado — los callers hacen match del comando y
+                // la sugerencia; el CLI ya imprime su FAIL con línea.
+                throw e
+            } catch {
+                throw InterpreterError.commandFailed(line: line, message: "\(error)")
+            }
 
         case .ifBlock(let cond, let then, let else_):
             let ok = try await evaluate(cond, line: 0)
@@ -65,7 +79,17 @@ public actor ScriptInterpreter {
             }
 
         case .assertStatement(let cond, let line):
-            let ok = try await evaluate(cond, line: line)
+            // #154: un bridge que explota evaluando el predicado (socket caído)
+            // también debe reportar la línea del assert — no solo el FAIL
+            // "semántico" de la aserción.
+            let ok: Bool
+            do {
+                ok = try await evaluate(cond, line: line)
+            } catch let e as InterpreterError {
+                throw e
+            } catch {
+                throw InterpreterError.commandFailed(line: line, message: "\(error)")
+            }
             guard ok else { throw InterpreterError.assertionFailed(line: line) }
         }
     }
