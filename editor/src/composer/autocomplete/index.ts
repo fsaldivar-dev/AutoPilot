@@ -44,3 +44,4 @@ export function suggest(inp: SuggestInput & { predicateMode?: boolean }): Sugges
 
 export { tokenize } from "./tokenize";
 export { rankSuggestions } from "./rank";
+export { applySuggestion } from "./apply";
