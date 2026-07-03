@@ -32,6 +32,7 @@ export function ComponentBlock({
         cursor: "pointer",
       }}
     >
+      <span className="drag-handle" title="Arrastrar para reordenar" aria-hidden>⋮⋮</span>
       <span className="kind-badge" style={{ color: "var(--accent)" }}>
         🧩 component
       </span>
