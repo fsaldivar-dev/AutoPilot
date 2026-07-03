@@ -66,6 +66,9 @@ pub fn run() {
             commands::db_delete_env_var,
             commands::db_save_run,
             commands::db_list_runs,
+            commands::db_delete_run,
+            commands::db_save_screenshot,
+            commands::db_get_screenshot,
             // utility
             commands::bundle_cli_path,
         ])

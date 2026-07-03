@@ -319,6 +319,51 @@ pub async fn db_list_runs(
     with_db(&db, move |db| db.list_runs(&flow_id, limit.unwrap_or(20))).await
 }
 
+#[tauri::command]
+pub async fn db_delete_run(id: String, db: State<'_, Arc<Db>>) -> Result<(), String> {
+    with_db(&db, move |db| db.delete_run(&id)).await
+}
+
+/// Guarda el screenshot de un paso. `data_url` es un data-URI
+/// (`data:image/png;base64,...`) tal como lo entrega `screenshot_only`; se
+/// decodifica a bytes PNG y se guarda como BLOB ligado al run.
+#[tauri::command]
+pub async fn db_save_screenshot(
+    id: String,
+    run_id: String,
+    captured_at: i64,
+    data_url: String,
+    db: State<'_, Arc<Db>>,
+) -> Result<(), String> {
+    use base64::Engine;
+    let b64 = data_url
+        .split_once(",")
+        .map(|(_, rest)| rest)
+        .unwrap_or(&data_url);
+    let bytes = base64::engine::general_purpose::STANDARD
+        .decode(b64)
+        .map_err(|e| format!("decode screenshot: {}", e))?;
+    with_db(&db, move |db| {
+        db.save_screenshot(&id, &run_id, captured_at, &bytes)
+    })
+    .await
+}
+
+/// Devuelve el screenshot de un paso como data-URI listo para `<img src>`, o
+/// null si no existe.
+#[tauri::command]
+pub async fn db_get_screenshot(
+    id: String,
+    db: State<'_, Arc<Db>>,
+) -> Result<Option<String>, String> {
+    use base64::Engine;
+    let bytes = with_db(&db, move |db| db.get_screenshot(&id)).await?;
+    Ok(bytes.map(|b| {
+        let b64 = base64::engine::general_purpose::STANDARD.encode(&b);
+        format!("data:image/png;base64,{}", b64)
+    }))
+}
+
 // ---- Utility commands ----
 
 #[tauri::command]
