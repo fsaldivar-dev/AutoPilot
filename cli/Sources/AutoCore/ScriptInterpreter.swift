@@ -201,10 +201,27 @@ public actor ScriptInterpreter {
         // Dos estrategias:
         //   1. Si hay `onUnknownCommand` (integración CLI real), delegar TODO
         //      allí para preservar stabilizer, logs y dispatcher completo.
-        //   2. Si no hay handler (tests unitarios con MockBackend), mapear a
-        //      Actions conocidas y ejecutar vía el router directamente.
+        //      `tap` incluido: los CLIs resuelven multi-tap por coma en sus
+        //      enhancements (iOSTapEnhancement / AndroidTapEnhancement), que
+        //      ya consumen `TapTargets` (#144/#145).
+        //   2. Si no hay handler (modo router directo: tests, embebido),
+        //      mapear a Actions conocidas y ejecutar vía el router.
         if let onUnknownCommand {
             try await onUnknownCommand(tokens, line)
+            return
+        }
+
+        // `tap` en modo router directo pasa por la MISMA resolución multi-tap
+        // que los CLIs (#145): la coma solo separa si el label completo no
+        // existe como elemento del árbol rápido.
+        if cmd == "tap", tokens.count >= 2 {
+            let targets = try await TapTargets.resolve(tokens[1]) {
+                guard case .elements(let tree) = try await router.execute(.tree) else { return [] }
+                return tree
+            }
+            for target in targets {
+                _ = try await router.execute(.tap(target: target))
+            }
             return
         }
 
@@ -220,10 +237,8 @@ public actor ScriptInterpreter {
     private func actionFromTokens(_ tokens: [String]) -> Action? {
         let cmd = tokens[0]
         switch cmd {
-        case "tap":
-            guard tokens.count >= 2 else { return nil }
-            return .tap(target: tokens[1])
-
+        // Nota: `tap` NO se mapea acá — `executeAction` lo intercepta antes
+        // para pasar por `TapTargets.resolve` (multi-tap por coma, #145).
         case "doubleTap":
             guard tokens.count >= 2 else { return nil }
             return .doubleTap(target: tokens[1])
