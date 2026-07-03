@@ -13,12 +13,13 @@ final class RPCHandler {
             return ["result": "pong"]
 
         case "tree":
-            // Step 1: warm AX subsystem on main thread
+            // Warm AX (framework load is one-time; the screenChanged post is
+            // cheap) in its own main-thread hop, then serialize in a second hop
+            // so the main runloop can process the AX notification in between.
+            // The old fixed usleep(100ms) was removed: if the UI is mid-
+            // transition, waiting is the CLIENT's responsibility (waitFor),
+            // not a per-read tax.
             DispatchQueue.main.sync { warmupAccessibility() }
-            // Step 2: yield to main thread so SwiftUI can process the AX
-            // notification and build _UIHostingView.accessibilityElements
-            usleep(100_000)
-            // Step 3: serialize the tree
             var tree: [[String: Any]] = []
             DispatchQueue.main.sync { tree = ViewSerializer.serialize() }
             return ["result": tree]
@@ -43,9 +44,11 @@ final class RPCHandler {
             }
 
         case "exists":
+            // No fixed sleep (see "tree") — exists is the primitive that the
+            // client polls (waitFor / waitUntilGone), so it must return fast;
+            // retrying is the client's job.
             let target = params?["target"] as? String ?? ""
             DispatchQueue.main.sync { warmupAccessibility() }
-            usleep(100_000)
             var found = false
             DispatchQueue.main.sync {
                 found = ViewSerializer.findView(matching: target) != nil
@@ -106,13 +109,10 @@ final class RPCHandler {
             }
 
         case "swipe":
+            // performSwipe no lanza — sin do/catch (el catch era inalcanzable).
             let direction = params?["direction"] as? String ?? "up"
-            do {
-                try performSwipe(direction: direction)
-                return ["result": true]
-            } catch {
-                return ["error": error.localizedDescription]
-            }
+            performSwipe(direction: direction)
+            return ["result": true]
 
         case "tapAt":
             let x = (params?["x"] as? Double) ?? (params?["x"] as? Int).map(Double.init) ?? 0
@@ -127,8 +127,8 @@ final class RPCHandler {
 
         case "hideKeyboard":
             DispatchQueue.main.sync {
-                UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder),
-                                                 to: nil, from: nil, for: nil)
+                _ = UIApplication.shared.sendAction(#selector(UIResponder.resignFirstResponder),
+                                                    to: nil, from: nil, for: nil)
             }
             return ["result": true]
 
@@ -140,45 +140,96 @@ final class RPCHandler {
     // MARK: - Actions
 
     private func performTap(target: String) throws {
-        // Step 1: warm AX subsystem
-        DispatchQueue.main.sync { warmupAccessibility() }
-        // Step 2: yield so SwiftUI builds its AX tree
-        usleep(100_000)
-
-        // Try UIView first (UIKit apps)
-        var view: UIView?
-        DispatchQueue.main.sync { view = ViewSerializer.findView(matching: target) }
-        if let v = view {
-            DispatchQueue.main.sync {
+        let resolved = try resolveTarget(target)
+        DispatchQueue.main.sync {
+            switch resolved {
+            case .view(let v):
                 if let ctrl = v as? UIControl {
                     ctrl.sendActions(for: .touchUpInside)
                 } else {
                     _ = v.accessibilityActivate()
                 }
-            }
-            return
-        }
-
-        // Try any AX node (SwiftUI AccessibilityNode, UIAccessibilityElement).
-        // SwiftUI elements are on _UIHostingView.accessibilityElements.
-        var axNode: AnyObject?
-        DispatchQueue.main.sync { axNode = ViewSerializer.findAXElement(matching: target) }
-        if let node = axNode {
-            DispatchQueue.main.sync {
+            case .axNode(let node):
                 _ = node.accessibilityActivate?()
+            case .barButton(let item):
+                // UIBarButtonItem invokes its action by sending the selector to the target.
+                if let action = item.action, let t = item.target {
+                    _ = t.perform(action, with: item)
+                }
             }
-            return
         }
+    }
 
-        // Try UIBarButtonItem (UINavigationBar / UIToolbar items are NOT UIViews).
-        var bbi: UIBarButtonItem?
-        DispatchQueue.main.sync { bbi = ViewSerializer.findBarButtonItem(matching: target) }
-        guard let item = bbi else { throw ObserverError.elementNotFound(target) }
-        DispatchQueue.main.sync {
-            // UIBarButtonItem invokes its action by sending the selector to the target.
-            if let action = item.action, let t = item.target {
-                _ = t.perform(action, with: item)
+    // MARK: - Target resolution
+
+    private enum ResolvedTarget {
+        case view(UIView)
+        case axNode(AnyObject)
+        case barButton(UIBarButtonItem)
+    }
+
+    /// Resolves a tap target with the same priority as before (UIView →
+    /// SwiftUI/UIAccessibilityElement AX node → UIBarButtonItem).
+    ///
+    /// Matching, in order (parity with the classic TargetResolver path):
+    ///   1. exact (label / identifier / text / title)
+    ///   2. case-insensitive prefix
+    ///   3. case-insensitive contains
+    /// A unique fuzzy candidate is tapped; multiple candidates throw an
+    /// ambiguity error listing the matches so the caller can disambiguate.
+    ///
+    /// Latency: the old code always slept 100 ms before searching. Now the
+    /// happy path (element already published) costs ~0 ms; only when nothing
+    /// matches do we yield the main runloop in 5 ms steps for up to ~100 ms —
+    /// SwiftUI publishes accessibilityElements one runloop turn after the
+    /// screenChanged warmup post, so mid-transition taps still land. Longer
+    /// settles remain the CLIENT's responsibility (waitFor).
+    private func resolveTarget(_ target: String) throws -> ResolvedTarget {
+        let deadline = Date().addingTimeInterval(0.1)
+        while true {
+            DispatchQueue.main.sync { warmupAccessibility() }
+
+            var exact: ResolvedTarget?
+            DispatchQueue.main.sync {
+                if let v = ViewSerializer.findView(matching: target) {
+                    exact = .view(v)
+                } else if let n = ViewSerializer.findAXElement(matching: target) {
+                    exact = .axNode(n)
+                } else if let b = ViewSerializer.findBarButtonItem(matching: target) {
+                    exact = .barButton(b)
+                }
             }
+            if let match = exact { return match }
+
+            // Fuzzy fallback: prefix first, then contains (case-insensitive).
+            var fuzzy: [(object: ViewSerializer.Candidate, label: String)] = []
+            DispatchQueue.main.sync {
+                let query = target.lowercased()
+                fuzzy = ViewSerializer.collectCandidates { $0.lowercased().hasPrefix(query) }
+                if fuzzy.isEmpty {
+                    fuzzy = ViewSerializer.collectCandidates { $0.lowercased().contains(query) }
+                }
+            }
+            // Collapse candidates that matched with the SAME text (a UIButton
+            // and its internal titleLabel, a row container and its text node):
+            // first wins, same semantics as the exact path. Ambiguity is only
+            // reported when DIFFERENT labels match.
+            var seenLabels = Set<String>()
+            fuzzy = fuzzy.filter { seenLabels.insert($0.label).inserted }
+            if fuzzy.count == 1 {
+                switch fuzzy[0].object {
+                case .view(let v):      return .view(v)
+                case .axElement(let n): return .axNode(n)
+                case .barButton(let b): return .barButton(b)
+                }
+            }
+            if fuzzy.count > 1 {
+                // Ambiguity is a stable state — fail fast, listing matches.
+                throw ObserverError.ambiguousTarget(target, fuzzy.map { $0.label })
+            }
+
+            guard Date() < deadline else { throw ObserverError.elementNotFound(target) }
+            usleep(5_000) // let the main runloop publish the AX tree, retry
         }
     }
 
@@ -346,25 +397,47 @@ private extension UIView {
 
 // MARK: - AX warmup
 
-/// Re-load the private AX frameworks before every tree/tap. SwiftUI rebuilds its
-/// AX tree on each screen transition and keeps it dormant until an AX client
-/// triggers it. Bundle.load() is idempotent (does nothing if already loaded)
-/// but its side-effect — the framework's +load and init hooks — wakes the
-/// SwiftUI hosting view's accessibilityElements. Empirical finding from the
-/// ARD-002 device spike.
+/// Private AX frameworks whose +load / init hooks wake the SwiftUI hosting
+/// view's accessibilityElements. Empirical finding from the ARD-002 device
+/// spike. Paths are hardcoded — see `axFrameworksLoaded` for the explicit
+/// degradation when an OS version moves/renames them.
 private let axFrameworkPaths = [
     "/System/Library/AccessibilityBundles/UIKit.axbundle",
     "/System/Library/PrivateFrameworks/AccessibilityUtilities.framework",
     "/System/Library/PrivateFrameworks/AXRuntime.framework"
 ]
 
-/// Must be called on the main thread. Caller is responsible for yielding the
-/// main thread after (e.g. `usleep` from a background queue) so SwiftUI can
-/// process the screen-changed notification and populate its AX tree.
-func warmupAccessibility() {
+/// One-time AX framework load (lazy globals use swift_once — thread-safe,
+/// executed exactly once). Bundle.load() was always idempotent, but calling it
+/// per-RPC still paid Bundle(path:) + load() checks on the hot path; now taps
+/// pay only the screenChanged post.
+///
+/// Degradation is explicit, not silent: if a path doesn't exist on this OS
+/// (private frameworks move between iOS versions) or fails to load, we log it
+/// via NSLog so `simctl spawn log` shows why the SwiftUI AX tree stays dormant.
+private let axFrameworksLoaded: Bool = {
+    var allLoaded = true
     for path in axFrameworkPaths {
-        if let bundle = Bundle(path: path) { _ = bundle.load() }
+        guard FileManager.default.fileExists(atPath: path) else {
+            NSLog("[AutoPilotObserver] AX framework NOT FOUND at %@ — SwiftUI accessibility tree may stay dormant on this OS version", path)
+            allLoaded = false
+            continue
+        }
+        guard let bundle = Bundle(path: path), bundle.load() else {
+            NSLog("[AutoPilotObserver] failed to load AX framework at %@", path)
+            allLoaded = false
+            continue
+        }
     }
+    return allLoaded
+}()
+
+/// Must be called on the main thread. The framework load happens once (see
+/// `axFrameworksLoaded`); the screenChanged post stays per-call because
+/// SwiftUI rebuilds its AX tree on each screen transition and keeps it
+/// dormant until an AX client nudges it.
+func warmupAccessibility() {
+    _ = axFrameworksLoaded
     UIAccessibility.post(notification: .screenChanged, argument: nil)
 }
 
@@ -372,10 +445,14 @@ func warmupAccessibility() {
 
 enum ObserverError: Error, LocalizedError {
     case elementNotFound(String)
+    case ambiguousTarget(String, [String])
 
     var errorDescription: String? {
         switch self {
-        case .elementNotFound(let t): return "element not found: \(t)"
+        case .elementNotFound(let t):
+            return "element not found: \(t)"
+        case .ambiguousTarget(let t, let matches):
+            return "ambiguous target '\(t)' matches \(matches.count) elements: \(matches.joined(separator: " | "))"
         }
     }
 }
