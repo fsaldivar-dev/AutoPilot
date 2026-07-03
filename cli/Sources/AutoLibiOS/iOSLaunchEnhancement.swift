@@ -149,7 +149,33 @@ public enum iOSLaunchEnhancement {
         if let real = agent.observedBundleId(), real != expected {
             return .hijacked(by: real)
         }
+        // #169: el observer responde el socket ANTES de que SwiftUI publique su
+        // árbol de accesibilidad — el primer tree/list/exists tras launch salía
+        // vacío (race de warm-up). Esperar (acotado ~1.2s) a que el árbol tenga
+        // contenido real hace que la app quede consultable cuando launch retorna.
+        settleObserverTree(agent: agent, deadlineMs: 1200)
         return .live
+    }
+
+    /// Poll del árbol del observer hasta que exponga algún elemento con label
+    /// (no solo AXWindow/AXGroup contenedores) o venza el deadline. Best-effort.
+    private static func settleObserverTree(agent: iOSAgentBridge, deadlineMs: Int) {
+        let steps = max(1, deadlineMs / 100)
+        for _ in 0..<steps {
+            if let tree = try? agent.tree(), treeHasLabeledContent(tree) { return }
+            usleep(100_000)
+        }
+    }
+
+    private static func treeHasLabeledContent(_ nodes: [[String: Any]]) -> Bool {
+        for node in nodes {
+            let label = (node["label"] as? String) ?? ""
+            let title = (node["title"] as? String) ?? ""
+            if !label.isEmpty || !title.isEmpty { return true }
+            if let children = node["children"] as? [[String: Any]],
+               treeHasLabeledContent(children) { return true }
+        }
+        return false
     }
 
     private static func printUsage() {
