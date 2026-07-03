@@ -17,7 +17,10 @@ public enum iOSDoctor {
 
         print("\nBooted Simulator:")
         do {
-            let deviceId = try bridge.getBootedDeviceId()
+            // Consultar simctl (fuente autoritativa), no el bridge de UI: el
+            // observer/HybridBridge lanza "not supported" para device-mgmt, lo
+            // que daba el falso "No booted simulator" con un sim booteado (#154).
+            let deviceId = try simulatorBridge.getBootedDeviceId()
             print("  ✓ \(deviceId)")
         } catch {
             print("  ✗ No booted simulator — run: xcrun simctl boot <device>")
