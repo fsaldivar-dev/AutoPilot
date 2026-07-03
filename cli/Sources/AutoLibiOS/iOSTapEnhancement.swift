@@ -29,7 +29,20 @@ public enum iOSTapEnhancement {
     }
 
     /// Ejecuta el tap con sintaxis enhanced. Retorna el tiempo total en ms.
-    public static func execute(args: [String], deps: Dependencies, start: CFAbsoluteTime) async throws {
+    ///
+    /// #157: el path default (router → observer/XCUI) corre bajo `AutoWait`:
+    /// pre-acción espera estabilidad del árbol y post-tap verifica cambio de
+    /// hash con un re-tap de cortesía. Los paths AX macOS ($N, label[N],
+    /// role/within) quedan fuera — son el motor legacy opt-in (AUTO_FORCE_AX)
+    /// y tapean por referencia AXUIElement directa, que no sufre la carrera
+    /// de "frame intermedio". El backoff adaptativo de AutoWait cubre el caso
+    /// XCUI puro (tree caro → se desactiva solo tras medir una lectura).
+    public static func execute(
+        args: [String],
+        deps: Dependencies,
+        start: CFAbsoluteTime,
+        autoWait: AutoWait.Config = .current
+    ) async throws {
 
         // Role o within → delega a findAXElementScoped
         if let parsed = parseCommand(args), (parsed.role != nil || parsed.within != nil) {
@@ -49,11 +62,16 @@ public enum iOSTapEnhancement {
         // "Nombre, iPhone"). Match exacto sobre el árbol AX rápido (#124).
         let targets = try TapTargets.resolve(args[1]) { try deps.simulatorBridge.tree() }
         for target in targets {
-            try await executeSingle(target: target, deps: deps, start: start)
+            try await executeSingle(target: target, deps: deps, start: start, autoWait: autoWait)
         }
     }
 
-    private static func executeSingle(target: String, deps: Dependencies, start: CFAbsoluteTime) async throws {
+    private static func executeSingle(
+        target: String,
+        deps: Dependencies,
+        start: CFAbsoluteTime,
+        autoWait: AutoWait.Config = .current
+    ) async throws {
         // $N → resolve por índice
         if target.hasPrefix("$"), let n = Int(target.dropFirst()) {
             if deps.elementIndex.count == 0 {
@@ -90,7 +108,22 @@ public enum iOSTapEnhancement {
         }
 
         // Default: delega al router (→ AXBackend primero, escala a XCUIBackend)
-        _ = try await deps.router.execute(.tap(target: target))
+        // #157: pre-estabilidad + verificación post-tap via el árbol del router
+        // (mismo motor que ejecutará el tap). No mezclamos con el árbol AX de
+        // TapTargets: hashes de fuentes distintas no son comparables.
+        let fetchTree: () async throws -> [[String: Any]] = {
+            guard case .elements(let tree) = try await deps.router.execute(.tree) else { return [] }
+            return tree
+        }
+        let doTap: () async throws -> Void = {
+            _ = try await deps.router.execute(.tap(target: target))
+        }
+        let snapshot = await AutoWait.stabilize(config: autoWait, fetch: fetchTree)
+        try await doTap()
+        if let snapshot {
+            _ = await AutoWait.verifyTapEffect(target: target, preHash: snapshot.hash,
+                                               config: autoWait, fetch: fetchTree, retap: doTap)
+        }
         print("Tapped '\(target)' (\(elapsedMs(start))ms)")
     }
 

@@ -12,7 +12,8 @@ public func executeSharedCommand(
     _ args: [String],
     bridge: any DeviceBridge,
     deepBridge: (any DeviceBridge)? = nil,
-    router: ActionRouter? = nil
+    router: ActionRouter? = nil,
+    autoWait: AutoWait.Config = .current
 ) throws -> Bool {
     guard let rawCmd = args.first else { return false }
 
@@ -156,9 +157,30 @@ public func executeSharedCommand(
         // Labels estándar pueden contener comas ("Nombre, iPhone" en celdas iOS).
         // TapTargets decide con match exacto sobre el árbol rápido: si el label
         // completo existe → un solo tap; si no → multi-tap por fragmentos (#124).
-        let targets = try TapTargets.resolve(args[1]) { try bridge.tree() }
+        // El árbol que TapTargets fetchea (solo si hay coma) se reusa como
+        // primera muestra del loop de estabilidad de AutoWait (#157) — cero
+        // fetches duplicados.
+        var seedTree: [[String: Any]]? = nil
+        let targets = try TapTargets.resolve(args[1]) {
+            let tree = try bridge.tree()
+            seedTree = tree
+            return tree
+        }
         for target in targets {
-            try runAction(.tap(target: target), router: router, fallback: { try bridge.tap(target: target) })
+            // #157: pre-acción — espera a que el árbol se estabilice (2 lecturas
+            // con el mismo hash). Devuelve el pre-hash para la verificación.
+            let doTap = { try runAction(.tap(target: target), router: router,
+                                        fallback: { try bridge.tap(target: target) }) }
+            let snapshot = AutoWait.stabilize(initialTree: seedTree, config: autoWait) { try bridge.tree() }
+            seedTree = nil // solo el primer target hereda el árbol de TapTargets
+            try doTap()
+            // #157: post-tap — retryTapIfNoChange. Sin cambio de hash → un
+            // re-tap → sin cambio → warning honesto en stderr (no error duro:
+            // hay taps legítimos sin efecto visual, ver AutoWait.swift).
+            if let snapshot {
+                AutoWait.verifyTapEffect(target: target, preHash: snapshot.hash, config: autoWait,
+                                         fetch: { try bridge.tree() }, retap: doTap)
+            }
             print("Tapped '\(target)' (\(elapsedMs(start))ms)")
         }
 
@@ -212,6 +234,10 @@ public func executeSharedCommand(
             return true
         }
 
+        // #157: pre-acción — no tipear sobre una UI en transición (el campo
+        // puede estar moviéndose mientras aparece el teclado o una animación).
+        AutoWait.stabilize(config: autoWait) { try bridge.tree() }
+
         if let n = nthInputIndex {
             // type[N] "text" — find Nth text input in tree, tap its center, then type.
             // Filters by role (AXTextField/AXSecureTextField/EditText) so it never
@@ -247,6 +273,9 @@ public func executeSharedCommand(
             print("Usage: auto scroll <identifier|title|label> <up|down|left|right>")
             return true
         }
+        // #157: pre-acción — scrollear un contenedor que aún está animando
+        // produce offsets impredecibles; esperamos estabilidad primero.
+        AutoWait.stabilize(config: autoWait) { try bridge.tree() }
         try runAction(.scroll(target: args[1], direction: args[2]), router: router,
                       fallback: { try bridge.scroll(target: args[1], direction: args[2]) })
         let ms = elapsedMs(start)
