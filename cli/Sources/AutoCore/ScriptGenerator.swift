@@ -67,6 +67,29 @@ public final class ScriptGenerator {
         lines.append(line)
     }
 
+    /// Preámbulo `terminate` + `launch` del recorder (#161).
+    ///
+    /// - `midSession: false` (la app NO corría al arrancar la grabación):
+    ///   preámbulo activo — el replay reproduce exactamente lo grabado,
+    ///   desde el estado inicial de la app.
+    /// - `midSession: true` (la app YA corría): preámbulo COMENTADO con
+    ///   explicación. Reiniciar la app llevaría al estado inicial, pero los
+    ///   pasos grabados asumen la pantalla donde estaba el usuario →
+    ///   `FAIL: Timeout` en replay. El usuario decide: replay in-situ
+    ///   (default) o descomentar para replay desde cero.
+    public func appendLaunchPreamble(bundleId: String, midSession: Bool) {
+        if midSession {
+            appendRaw("# Grabado a mitad de sesión — el replay asume el estado de pantalla donde estabas.")
+            appendRaw("# Descomenta para replay desde cero (la app arrancará en su estado inicial):")
+            appendRaw("# terminate \"\(bundleId)\"")
+            appendRaw("# launch \"\(bundleId)\"")
+        } else {
+            appendRaw("terminate \"\(bundleId)\"")
+            appendRaw("launch \"\(bundleId)\"")
+        }
+        appendRaw("")
+    }
+
     /// Render the complete script with header.
     public func render() -> String {
         let dateFormatter = DateFormatter()
