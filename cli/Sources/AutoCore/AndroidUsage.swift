@@ -25,6 +25,9 @@ public enum AndroidUsage {
           scroll <text|desc|id> <direction> Scroll element
           swipe <up|down|left|right>        Swipe
           exists <text|desc|id>             Check if element exists
+          assertOCR <text> [--region x,y,w,h]  Assert text visible on screen via OCR
+                                            (Vision.framework corre en el Mac sobre el
+                                            screenshot; region en pixeles, origen arriba-izq)
           list                              List devices
           install <path/to/app.apk>        Install APK
           elementAt <x> <y>                 Element at coordinate

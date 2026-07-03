@@ -288,6 +288,40 @@ public func executeSharedCommand(
         let ms = elapsedMs(start)
         print(match ? "YES (\(ms)ms)" : "NO (\(ms)ms)")
 
+    case "assertOCR":
+        // #55 — verificación visual de texto via Vision.framework.
+        // screenshot → OCR (accurate, es+en) → contains case-insensitive.
+        // Vision corre en el Mac sobre el PNG del bridge, por eso el mismo
+        // flujo sirve para iOS (simctl) y Android (agente/adb). Complementa
+        // exists/hasText para texto que solo existe en píxeles (canvas,
+        // webviews, imágenes).
+        guard args.count >= 2, args[1] != "--region" else {
+            print("Usage: auto assertOCR <text> [--region x,y,w,h]")
+            print("       Asserts text is visible on screen via OCR (Vision.framework).")
+            print("       --region crops the screenshot before OCR (pixels, top-left origin).")
+            return true
+        }
+        let expectedText = args[1]
+        var region: OCRAssert.Region? = nil
+        if let idx = args.firstIndex(of: "--region") {
+            guard idx + 1 < args.count else {
+                print("Usage: auto assertOCR <text> [--region x,y,w,h]")
+                return true
+            }
+            region = try OCRAssert.Region.parse(args[idx + 1])
+        }
+        let tmpPath = NSTemporaryDirectory() + "autopilot-ocr-\(UUID().uuidString).png"
+        try bridge.screenshot(path: tmpPath)
+        defer { try? FileManager.default.removeItem(atPath: tmpPath) }
+        let recognized = try OCRAssert.recognizeText(imagePath: tmpPath, region: region)
+        let ms = elapsedMs(start)
+        if let match = OCRAssert.findMatch(for: expectedText, in: recognized) {
+            print("FOUND '\(expectedText)' (confidence \(String(format: "%.2f", match.confidence)), \(ms)ms)")
+        } else {
+            throw BridgeError.ocrTextNotFound(expected: expectedText,
+                                              recognized: recognized.map(\.string))
+        }
+
     case "platform":
         // Platform runtime. iOS CLI siempre emite "ios"; Android CLI override
         // este comando en su propio dispatcher si hace falta.
