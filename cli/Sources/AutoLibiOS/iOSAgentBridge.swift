@@ -69,7 +69,9 @@ public final class iOSAgentBridge: DeviceBridge {
         }
 
         guard !responseData.isEmpty else {
-            throw BridgeError.unknown("Empty response from observer (app may have crashed or restarted)")
+            // connectionFailed (no unknown): el socket murió a media corrida —
+            // el ActionRouter degrada al XCUIBackend en vez de abortar (#154).
+            throw BridgeError.connectionFailed("Empty response from observer (app may have crashed or restarted)")
         }
 
         let json = try JSONSerialization.jsonObject(with: responseData)
@@ -107,7 +109,10 @@ public final class iOSAgentBridge: DeviceBridge {
         }
         guard result == 0 else {
             close(sock)
-            throw BridgeError.unknown("Cannot connect to observer at \(host):\(port). Is the app running with libAutoPilotObserver linked?")
+            // Post-#164 el observer se INYECTA por defecto en `auto launch` —
+            // el remedio ya no es recompilar. Mensaje neutro que cubre ambos
+            // orígenes (inyección en simulator, build linkeado en device).
+            throw BridgeError.connectionFailed("Cannot connect to observer at \(host):\(port). Relanza la app con `auto launch <bundle>` (la inyección del observer es default en simulator; en device físico va linkeado en el build)")
         }
         return sock
     }
@@ -130,6 +135,43 @@ public final class iOSAgentBridge: DeviceBridge {
         var buf = [UInt8](repeating: 0, count: 256)
         let bytesRead = recv(sock, &buf, buf.count, 0)
         return bytesRead > 0
+    }
+
+    /// Handshake #154: pide `ping` y devuelve el `bundleId` REAL del proceso
+    /// que tiene el socket 7002 (el observer lo lee de `Bundle.main`). El
+    /// puerto es fijo, así que otra app lanzada antes puede retenerlo — sin
+    /// este check el CLI reporta "with observer" aunque el observer corra en
+    /// OTRA app. Devuelve `nil` si el socket no responde o si el dylib es
+    /// anterior al handshake (no reporta bundleId).
+    public func observedBundleId() -> String? {
+        guard let sock = try? createSocket() else { return nil }
+        defer { close(sock) }
+
+        var tv = timeval(tv_sec: 1, tv_usec: 0)
+        setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
+
+        let ping = "{\"method\":\"ping\"}\n"
+        guard let data = ping.data(using: .utf8) else { return nil }
+        let sent = data.withUnsafeBytes { ptr in send(sock, ptr.baseAddress!, data.count, 0) }
+        if sent <= 0 { return nil }
+
+        var response = Data()
+        var buf = [UInt8](repeating: 0, count: 4096)
+        while true {
+            let n = recv(sock, &buf, buf.count, 0)
+            if n <= 0 { break }
+            if let nl = buf[0..<n].firstIndex(of: 0x0A) {
+                response.append(contentsOf: buf[0..<nl])
+                break
+            }
+            response.append(contentsOf: buf[0..<n])
+        }
+
+        guard !response.isEmpty,
+              let json = try? JSONSerialization.jsonObject(with: response) as? [String: Any],
+              let bundle = json["bundleId"] as? String, !bundle.isEmpty
+        else { return nil }
+        return bundle
     }
 
     /// Probe con reintentos hasta `deadlineMs` — el observer tarda unos ms en

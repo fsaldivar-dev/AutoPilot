@@ -50,15 +50,34 @@ public enum iOSDoctor {
 
         // ARD-002 Phase 5 (#116): reportar qué backend está activo
         print("\nBackend activo:")
-        let observerLive = iOSAgentBridge().probeSocket()
-        if observerLive {
-            print("  ✓ Observer in-process (socket 7002) — iOSAgentBackend prioritario")
+        let observerProbe = iOSAgentBridge()
+        if observerProbe.probeSocket() {
+            // #154: el puerto 7002 es fijo — el handshake ping devuelve el
+            // bundleId REAL del proceso que tiene el socket. Sin esto el
+            // doctor reportaba "observer disponible" aunque el socket lo
+            // tuviera OTRA app (p.ej. tras probar con apps de sistema).
+            let observed = observerProbe.observedBundleId()
+            if let observed {
+                print("  ✓ Observer in-process (socket 7002, app: \(observed)) — iOSAgentBackend prioritario")
+            } else {
+                print("  ✓ Observer in-process (socket 7002) — iOSAgentBackend prioritario")
+            }
+            if let expected = AutoPilotConfig.readAll()["bundle"],
+               let observed, observed != expected {
+                print("  ⚠ El socket 7002 responde desde '\(observed)', NO desde la app configurada ('\(expected)')")
+                print("    Remedio: auto launch \(expected)   (la inyección del observer es default)")
+            }
             if ProcessInfo.processInfo.environment["AUTO_FORCE_AX"] == "1" {
                 print("  ⚠ AUTO_FORCE_AX=1 — AXBackend forzado además del observer (debug)")
             }
         } else {
+            // Post-#164 el remedio es RELANZAR (la inyección es default), no
+            // recompilar. Mensaje neutro: no distinguimos observer-por-build
+            // vs por-inyección sin `nm` del binario (caro) — el relaunch cubre
+            // ambos casos en simulator; en device el observer viene del build.
             print("  ○ Observer no disponible — motor: XCUI runner (deep, sin robo de foco)")
-            print("    (el observer se inyecta con `auto launch <bundle>`; apps de sistema no lo aceptan)")
+            print("    Remedio: relanza la app con `auto launch <bundle>` — inyecta el observer por defecto")
+            print("    (apps de sistema no aceptan la inyección; en device físico el observer va linkeado en el build)")
         }
         let daemonStatus = Process()
         daemonStatus.executableURL = URL(fileURLWithPath: "/bin/ls")

@@ -76,7 +76,14 @@ public enum iOSLaunchEnhancement {
             do {
                 try simulatorBridge.injectCameraAndObserverAndLaunch(
                     bundleId: bundleId, imagePath: path, extraEnv: envVars)
-                print("Launched \(bundleId) with camera + observer → \(path) (\(elapsedMs(start))ms)")
+                switch checkObserver(expected: bundleId) {
+                case .live:
+                    print("Launched \(bundleId) with camera + observer → \(path) (\(elapsedMs(start))ms)")
+                case .hijacked(let other):
+                    print("Launched \(bundleId) with camera mock → \(path) — ⚠ observer NO cargó en esta app: el socket 7002 responde desde '\(other)'; motor: XCUI runner (\(elapsedMs(start))ms)")
+                case .dead:
+                    print("Launched \(bundleId) with camera mock → \(path) — observer no cargó (¿app de sistema?); motor: XCUI runner (\(elapsedMs(start))ms)")
+                }
             } catch {
                 // ARD #164: la inyección del observer nunca debe bloquear el
                 // launch — degradar a camera-only con aviso (queda XCUI runner)
@@ -94,11 +101,14 @@ public enum iOSLaunchEnhancement {
                 try simulatorBridge.injectObserverAndLaunch(
                     bundleId: bundleId, extraEnv: envVars)
                 // La inyección puede "succeed" pero el dylib no cargar (apps de
-                // sistema rechazan DYLD_INSERT). Probar el socket para ser honesto.
-                let observerUp = iOSAgentBridge().probeSocketWithRetry(deadlineMs: 1500)
-                if observerUp {
+                // sistema rechazan DYLD_INSERT). Probar el socket para ser honesto,
+                // Y verificar vía handshake QUÉ app tiene el puerto 7002 (#154).
+                switch checkObserver(expected: bundleId) {
+                case .live:
                     print("Launched \(bundleId) with observer (\(elapsedMs(start))ms)")
-                } else {
+                case .hijacked(let other):
+                    print("Launched \(bundleId) — ⚠ observer NO cargó en esta app: el socket 7002 responde desde '\(other)'; motor: XCUI runner (\(elapsedMs(start))ms)")
+                case .dead:
                     print("Launched \(bundleId) — observer no cargó (¿app de sistema?); motor: XCUI runner (\(elapsedMs(start))ms)")
                 }
             } catch {
@@ -116,6 +126,30 @@ public enum iOSLaunchEnhancement {
                 print("Launched \(bundleId) with \(envVars.count) env var(s) (\(ms)ms)")
             }
         }
+    }
+
+    // MARK: - Observer post-launch check (#154)
+
+    /// Resultado del probe post-launch: además de "¿responde el socket?",
+    /// verifica QUÉ app lo tiene (el puerto 7002 es fijo).
+    private enum ObserverProbeResult {
+        /// El observer responde y corre en la app esperada (o es un dylib
+        /// pre-handshake que no reporta bundleId — beneficio de la duda).
+        case live
+        /// El socket responde pero desde OTRA app — el observer NO cargó en
+        /// la app lanzada; reportar "with observer" sería engañoso.
+        case hijacked(by: String)
+        /// Nadie responde en 7002.
+        case dead
+    }
+
+    private static func checkObserver(expected: String) -> ObserverProbeResult {
+        let agent = iOSAgentBridge()
+        guard agent.probeSocketWithRetry(deadlineMs: 1500) else { return .dead }
+        if let real = agent.observedBundleId(), real != expected {
+            return .hijacked(by: real)
+        }
+        return .live
     }
 
     private static func printUsage() {

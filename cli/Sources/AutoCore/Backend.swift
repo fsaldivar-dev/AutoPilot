@@ -263,5 +263,11 @@ public enum ActionResult {
 /// No implementa lo que no sabe hacer — simplemente no lo declara.
 public protocol Backend: AnyObject, Sendable {
     var capabilities: Set<ActionKind> { get }
+    /// Nombre legible para diagnósticos (warnings de degradación del router).
+    var name: String { get }
     func execute(_ action: Action) async throws -> ActionResult
+}
+
+public extension Backend {
+    var name: String { String(describing: type(of: self)) }
 }

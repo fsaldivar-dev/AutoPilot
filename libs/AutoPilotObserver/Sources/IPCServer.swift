@@ -15,6 +15,13 @@ public func autopilotObserverStart() {
     } else {
         port = defaultPort
     }
+    // #154: `auto launch` pasa el bundle esperado — si este proceso no es esa
+    // app (env heredado, puerto compartido), dejar rastro en el log del sim.
+    // La validación dura la hace el CLI vía el handshake ping (bundleId).
+    if let expected = ProcessInfo.processInfo.environment["AUTOPILOT_OBSERVER_BUNDLE"],
+       let actual = Bundle.main.bundleIdentifier, expected != actual {
+        NSLog("[AutoPilotObserver] AUTOPILOT_OBSERVER_BUNDLE=%@ pero el proceso es %@ — el CLI esperaba otra app", expected, actual)
+    }
     IPCServer.shared.start(port: port)
 }
 
