@@ -89,7 +89,7 @@ final class MockBridge: DeviceBridge {
     func typeText(_ text: String) throws {}
     func scroll(target: String, direction: String) throws {}
     func swipe(direction: String) throws {}
-    func tapAtCoordinate(x: Double, y: Double) throws {}
+    func tapAtCoordinate(x: Double, y: Double) throws { record("tapAtCoordinate", "\(x)", "\(y)") }
     func launchApp(bundleId: String, envVars: [String: String]) throws {}
     func terminateApp(bundleId: String) throws {}
     func listDevices() throws -> [[String: Any]] { [] }
