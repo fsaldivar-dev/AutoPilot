@@ -85,14 +85,15 @@ export function RunFlowButton({ platform }: Props) {
       saveScreenshot: db.saveScreenshot,
       saveRun: db.saveRun,
     });
-    // Encadena las capturas para que ocurran en orden sin bloquear las
-    // decisiones de control-flow del runner (onBlockEnd es síncrono).
-    let recordChain: Promise<void> = Promise.resolve();
-
     const result = await runFlow(sess, runtime, flow, project.env, {
       onBlockStart: (id) => {
         updateBlock(flow.id, id, { meta: { status: "running", ranAt: Date.now() } });
       },
+      // El runner ESPERA esta promise antes de mandar el siguiente comando
+      // (#172): así el `screenshot` del recorder entra a la cola FIFO del
+      // sidecar justo después de la respuesta del paso — antes se encolaba
+      // en paralelo con el comando N+1 y la captura expiraba/llegaba
+      // huérfana (tabla screenshots vacía).
       onBlockEnd: (id, ok, ms, err) => {
         updateBlock(flow.id, id, {
           meta: {
@@ -102,10 +103,7 @@ export function RunFlowButton({ platform }: Props) {
             ranAt: Date.now(),
           },
         });
-        const capture = isCapturableBlock(flow, id);
-        recordChain = recordChain.then(() =>
-          recorder.recordStep(id, ok, ms, err, capture)
-        );
+        return recorder.recordStep(id, ok, ms, err, isCapturableBlock(flow, id));
       },
       // #170: un paso fallido DEBE abortar el flow (honestidad tipo script).
       // Antes `() => aborting` dejaba continuar tras un fallo → el run
@@ -117,8 +115,8 @@ export function RunFlowButton({ platform }: Props) {
       onUIMutation: () => bumpRefreshTick(),
     });
 
-    // Espera a que terminen las capturas pendientes antes de persistir.
-    await recordChain;
+    // runFlow ya esperó cada recordStep (onBlockEnd awaited) — solo queda
+    // persistir el record final.
     const status: RunStatus = aborting
       ? "cancelled"
       : result.ok
