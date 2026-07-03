@@ -32,8 +32,14 @@ public final class EventRecorder {
     fileprivate var eventTap: CFMachPort?
     private let lock = NSLock()
 
-    /// Window frame for coordinate-based filtering (more reliable than PID filtering)
-    public var windowFrame: CGRect = .zero
+    /// Window frame for coordinate-based filtering (more reliable than PID filtering).
+    /// Protegido por `lock`: lo escribe el timer de refresh de RecordingSession
+    /// (#132) y lo lee el thread del event tap.
+    public var windowFrame: CGRect {
+        get { lock.lock(); defer { lock.unlock() }; return _windowFrame }
+        set { lock.lock(); defer { lock.unlock() }; _windowFrame = newValue }
+    }
+    private var _windowFrame: CGRect = .zero
 
     public init(simulatorPID: pid_t) {
         self.simulatorPID = simulatorPID
@@ -120,12 +126,27 @@ public final class EventRecorder {
         return pointDelta / 10.0
     }
 
+    /// Decide si un mouse event debe capturarse según el frame de la ventana.
+    ///
+    /// **#132 (fail-open)**: la versión anterior exigía `windowFrame != .zero`
+    /// Y contains — si `getSimulatorWindowFrame()` devolvía nil al arrancar
+    /// (carrera de AX, ventana ocluida), el frame quedaba en `.zero` y el
+    /// recorder descartaba TODOS los clicks humanos en silencio → "0 líneas
+    /// grabadas" sin ningún error. Ahora, frame desconocido = capturar todo
+    /// (mejor grabar de más que perder interacciones sin avisar).
+    ///
+    /// Función pura para poder testearla sin CGEvent real.
+    public static func shouldCaptureMouseEvent(at location: CGPoint, windowFrame: CGRect) -> Bool {
+        if windowFrame == .zero { return true }
+        return windowFrame.contains(location)
+    }
+
     fileprivate func handleEvent(_ proxy: CGEventTapProxy, _ type: CGEventType, _ event: CGEvent) {
         let location = event.location
 
         // Filter mouse events by Simulator window bounds (more reliable than PID)
         if type == .leftMouseDown || type == .leftMouseUp || type == .scrollWheel {
-            guard windowFrame != .zero && windowFrame.contains(location) else { return }
+            guard Self.shouldCaptureMouseEvent(at: location, windowFrame: windowFrame) else { return }
         }
         let timestamp = CFAbsoluteTimeGetCurrent()
         let flags = event.flags

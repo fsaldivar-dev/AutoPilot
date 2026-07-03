@@ -12,6 +12,11 @@ public final class AndroidRecordingSession {
     // getevent process
     private var getEventProcess: Process?
     private var parser: GetEventParser?
+    // #133: señalado por el reader thread al llegar a EOF, DESPUÉS de drenar
+    // el buffer completo (incluida la línea parcial final). `stop()` espera
+    // esta señal antes de flushear — sin ella, los últimos eventos del pipe
+    // podían encolarse en resolveQueue después del flush y perderse.
+    private let readerDrained = DispatchSemaphore(value: 0)
 
     // Gesture state machine
     private var touchDownPoint: (x: Int, y: Int)?
@@ -60,17 +65,33 @@ public final class AndroidRecordingSession {
         try startGetEvent()
 
         print("Recording... Interact with the device. Press Ctrl+C to stop.\n")
+        // #133: getevent lee del kernel — el input sintético (auto-android tap,
+        // adb shell input tap, UiAutomation) se inyecta a nivel InputManager y
+        // NUNCA pasa por /dev/input, así que el recorder no lo ve por diseño.
+        print("Nota: solo se graban toques reales en el device/emulador.")
+        print("      Los taps del propio CLI (`auto-android tap`) no se graban — usa toques reales.\n")
     }
 
     public func stop() throws -> String {
         // Stop getevent and cache timer
+        let hadProcess = getEventProcess != nil
         getEventProcess?.interrupt()
         getEventProcess?.waitUntilExit()
         getEventProcess = nil
         treeCacheTimer?.cancel()
         treeCacheTimer = nil
 
-        // Flush pending
+        // #133: esperar a que el reader thread termine de drenar el pipe.
+        // waitUntilExit() solo garantiza que adb murió — los bytes ya escritos
+        // al pipe pueden seguir sin procesar. Sin esta espera, el último tap
+        // podía encolarse en resolveQueue DESPUÉS del flush (o después de
+        // escribir el archivo) y desaparecer en silencio.
+        if hadProcess {
+            _ = readerDrained.wait(timeout: .now() + 2.0)
+        }
+
+        // Flush pending — corre después de todos los handleTouchEvent encolados
+        // por el reader (resolveQueue es serial).
         resolveQueue.sync {
             flushPendingTap()
         }
@@ -79,8 +100,10 @@ public final class AndroidRecordingSession {
         let script = generator.render()
         try script.write(toFile: outputPath, atomically: true, encoding: .utf8)
 
-        let count = generator.lineCount
-        print("\n\(count) line(s) recorded → \(outputPath)")
+        // #133: reportar comandos ejecutables, no líneas del buffer — lineCount
+        // incluía la línea en blanco del header y mentía ("3 lines" / 2 comandos).
+        let count = generator.commandCount
+        print("\n\(count) command(s) recorded → \(outputPath)")
 
         return outputPath
     }
@@ -106,18 +129,8 @@ public final class AndroidRecordingSession {
 
         DispatchQueue.global(qos: .userInitiated).async {
             var buffer = ""
-            while true {
-                let data = fileHandle.availableData
-                if data.isEmpty { break } // EOF
-
-                guard let chunk = String(data: data, encoding: .utf8) else { continue }
-                buffer += chunk
-
-                // Process complete lines
-                while let newline = buffer.firstIndex(of: "\n") {
-                    let line = String(buffer[buffer.startIndex..<newline])
-                    buffer = String(buffer[buffer.index(after: newline)...])
-
+            func process(_ lines: [String]) {
+                for line in lines {
                     if let event = parserRef.parseLine(line) {
                         sessionRef.resolveQueue.async {
                             sessionRef.handleTouchEvent(event)
@@ -125,6 +138,21 @@ public final class AndroidRecordingSession {
                     }
                 }
             }
+            while true {
+                let data = fileHandle.availableData
+                if data.isEmpty { break } // EOF
+
+                guard let chunk = String(data: data, encoding: .utf8) else { continue }
+                buffer += chunk
+                process(Self.extractLines(from: &buffer))
+            }
+            // #133: EOF — drenar la línea parcial final (getevent muere por
+            // SIGINT a mitad de línea y el `\n` de cierre nunca llega).
+            process(Self.extractLines(from: &buffer, flush: true))
+            // Señalar a stop() que TODOS los eventos ya están encolados
+            // en resolveQueue (el async de arriba corre antes que el
+            // resolveQueue.sync del flush porque la cola es serial).
+            sessionRef.readerDrained.signal()
         }
 
         try process.run()
@@ -179,8 +207,14 @@ public final class AndroidRecordingSession {
     }
 
     private func handleTouchUp(timestamp: Double) {
-        guard let downPoint = touchDownPoint,
-              let tree = touchDownTree else { return }
+        // #133: el tree NO es requisito para procesar el gesto. Antes el guard
+        // exigía `touchDownTree != nil` y descartaba el touch completo en
+        // silencio si el cache estaba vacío (p.ej. bridge.tree() falló al
+        // arrancar y el refresh de 1s aún no corría) — incluso swipes, que ni
+        // usan el tree. Ahora: swipe siempre se emite; tap/longPress sin tree
+        // caen a `tapAt x y` en vez de perderse.
+        guard let downPoint = touchDownPoint else { return }
+        let tree = touchDownTree
 
         let upPoint = lastMovePoint ?? downPoint
         let duration = timestamp - touchDownTimestamp
@@ -194,22 +228,69 @@ public final class AndroidRecordingSession {
         lastMovePoint = nil
 
         // Classify gesture
-        if distance > 50 {
-            // Swipe gesture
+        switch Self.classifyGesture(distance: distance, duration: duration) {
+        case .swipe:
             handleSwipe(from: downPoint, to: upPoint)
-        } else if duration > 0.5 {
-            // Long press
-            let action = AndroidSemanticResolver.resolveTouch(
+        case .longPress:
+            let action = Self.resolveTouchOrFallback(
                 x: downPoint.x, y: downPoint.y, tree: tree, command: "longPress"
             )
             emitAction(action, timestamp: timestamp)
-        } else {
-            // Tap — check for double tap
-            let action = AndroidSemanticResolver.resolveTouch(
+        case .tap:
+            let action = Self.resolveTouchOrFallback(
                 x: downPoint.x, y: downPoint.y, tree: tree, command: "tap"
             )
             handlePotentialDoubleTap(action: action, timestamp: timestamp)
         }
+    }
+
+    // MARK: - Gesture Classification (pure, testable)
+
+    public enum GestureKind: Equatable {
+        case tap
+        case longPress
+        case swipe
+    }
+
+    /// Clasifica un gesto por distancia recorrida (px) y duración (s).
+    /// Función pura para poder testearla sin getevent real.
+    public static func classifyGesture(distance: Double, duration: Double) -> GestureKind {
+        if distance > 50 { return .swipe }
+        if duration > 0.5 { return .longPress }
+        return .tap
+    }
+
+    /// Resuelve un touch contra el tree, o cae a `tapAt x y` si no hay tree.
+    /// #133: perder la línea entera era peor que grabar coordenadas crudas.
+    public static func resolveTouchOrFallback(
+        x: Int, y: Int, tree: [[String: Any]]?, command: String
+    ) -> ResolvedAction {
+        if let tree {
+            return AndroidSemanticResolver.resolveTouch(x: x, y: y, tree: tree, command: command)
+        }
+        return ResolvedAction(
+            command: "tapAt",
+            selector: "\(x) \(y)",
+            role: nil, within: nil, occurrence: nil,
+            identifier: nil, fragile: true,
+            coordinate: CGPoint(x: CGFloat(x), y: CGFloat(y))
+        )
+    }
+
+    /// Extrae las líneas completas de `buffer`, dejando la línea parcial final
+    /// dentro del buffer. Con `flush: true` (EOF) devuelve también el residuo.
+    /// Estática y pura para testearla sin pipe real (#133).
+    public static func extractLines(from buffer: inout String, flush: Bool = false) -> [String] {
+        var lines: [String] = []
+        while let newline = buffer.firstIndex(of: "\n") {
+            lines.append(String(buffer[buffer.startIndex..<newline]))
+            buffer = String(buffer[buffer.index(after: newline)...])
+        }
+        if flush && !buffer.isEmpty {
+            lines.append(buffer)
+            buffer = ""
+        }
+        return lines
     }
 
     // MARK: - Gesture Helpers
