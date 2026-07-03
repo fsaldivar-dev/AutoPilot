@@ -81,6 +81,72 @@ public func executeSharedCommand(
             print("\n(\(ms)ms)")
         }
 
+    case "layout":
+        // #107 — wireframe ASCII de la pantalla. Cross-platform: reusa .tree
+        // via router (ARD-001) y escala los frames a un grid de caracteres.
+        // Variantes: `layout deep` (iOS XCUI), `layout buttons` (filtro por
+        // tipo, mismos nombres que `list`), `--compact`, `--region <label>`.
+        var options = AsciiLayout.Options()
+        var useDeep = false
+        var i = 1
+        while i < args.count {
+            let arg = args[i]
+            switch arg {
+            case "deep":
+                useDeep = true
+            case "--compact":
+                options.compact = true
+            case "--region":
+                guard i + 1 < args.count else {
+                    print("Usage: auto layout [tipo] [deep] [--compact] [--region <label>]")
+                    return true
+                }
+                i += 1
+                options.region = args[i]
+            default:
+                if AsciiLayout.allowedTypeFilters.contains(arg.lowercased()) {
+                    options.typeFilter = arg.lowercased()
+                } else {
+                    print("layout: argumento desconocido '\(arg)'")
+                    print("Usage: auto layout [tipo] [deep] [--compact] [--region <label>]")
+                    print("       tipo: \(AsciiLayout.allowedTypeFilters.sorted().joined(separator: " | "))")
+                    return true
+                }
+            }
+            i += 1
+        }
+
+        let layoutTree: [[String: Any]]
+        if useDeep {
+            guard let deep = deepBridge else {
+                print("layout deep: no deep bridge available on this platform (iOS only)")
+                return true
+            }
+            layoutTree = try deep.tree()
+        } else {
+            layoutTree = try runActionReturning(
+                .tree,
+                router: router,
+                fallback: { try bridge.tree() },
+                extract: { if case .elements(let es) = $0 { return es } else { return nil } }
+            )
+        }
+
+        // Viewport real del device; si el bridge no lo resuelve, bounding box
+        // de los frames raíz del tree (suficiente para escalar proporcional).
+        let screen: CGRect
+        if let vp = try? bridge.viewport(), vp.width > 0, vp.height > 0 {
+            screen = vp
+        } else if let box = AsciiLayout.boundingBox(of: layoutTree) {
+            screen = box
+        } else {
+            print("layout: no pude resolver viewport ni frames en el tree")
+            return true
+        }
+
+        print(AsciiLayout.render(tree: layoutTree, viewport: screen, options: options))
+        print("\n(\(elapsedMs(start))ms\(useDeep ? " — deep" : ""))")
+
     case "tap":
         guard args.count >= 2 else {
             print("Usage: auto tap <label>")

@@ -14,6 +14,8 @@ public enum AndroidUsage {
           ping                              Check ADB connection
           tree                              Print accessibility tree
           tree -s "query"                   Search elements
+          layout [tipo]                     Wireframe ASCII del layout de pantalla (#107)
+                                            flags: --compact (solo labeled), --region <label> (zoom)
           index [query]                     List indexed elements ($N syntax)
           inspect <query>                   Deep element inspection
           launch <package> [--inject img]    Launch app (--inject for camera mock)
