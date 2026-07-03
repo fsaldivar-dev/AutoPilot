@@ -1,4 +1,5 @@
 import Foundation
+import CoreGraphics
 import AutoCore
 
 // MARK: - MediaEngine
@@ -26,16 +27,95 @@ extension SimulatorBridge {
 
     // MARK: - Screenshot
 
+    /// Captura de pantalla del device (#155).
+    ///
+    /// Primario: `xcrun simctl io <udid> screenshot` — lee el FRAMEBUFFER del
+    /// device a resolución nativa, independiente de dónde esté (o si es
+    /// visible) la ventana del Simulator en el Mac.
+    ///
+    /// Fallback: `screencapture -l <windowID>` de la ventana del Simulator,
+    /// solo si simctl falla (con aviso en stderr). Esta captura depende de la
+    /// ventana del Mac y puede salir recortada si está tapada o fuera de
+    /// pantalla — por eso es último recurso y nunca el path por defecto.
     public func screenshot(path: String) throws {
+        // Sin device booteado no hay nada que capturar: propagar el error
+        // claro de getBootedDeviceId en vez de caer a la ventana del Mac.
         let deviceId = try getBootedDeviceId()
+        do {
+            try screenshotViaSimctl(deviceId: deviceId, path: path)
+        } catch {
+            let reason: String
+            if case BridgeError.simctlFailed(let msg) = error {
+                reason = msg
+            } else {
+                reason = String(describing: error)
+            }
+            FileHandle.standardError.write(Data(
+                ("warning: `simctl io screenshot` failed (\(reason)) — " +
+                 "falling back to `screencapture` of the Simulator window; " +
+                 "the image may be cropped if the window is occluded or off-screen\n").utf8))
+            try screenshotViaWindowCapture(path: path)
+        }
+    }
+
+    /// Framebuffer del device via `simctl io`. Resolución NATIVA del device
+    /// (p.ej. 1179x2556 en un iPhone 15), no la de la ventana del Simulator.
+    private func screenshotViaSimctl(deviceId: String, path: String) throws {
         let process = Process()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
         process.arguments = ["simctl", "io", deviceId, "screenshot", path]
+        let stderrPipe = Pipe()
+        process.standardError = stderrPipe
         try process.run()
         process.waitUntilExit()
         guard process.terminationStatus == 0 else {
+            let data = stderrPipe.fileHandleForReading.readDataToEndOfFile()
+            let msg = String(data: data, encoding: .utf8)?
+                .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            throw BridgeError.simctlFailed(
+                "simctl io screenshot exited \(process.terminationStatus)"
+                    + (msg.isEmpty ? "" : ": \(msg)"))
+        }
+    }
+
+    /// Último recurso: captura la ventana del Simulator con `screencapture`.
+    /// `-l <windowID>` captura esa ventana específica sin mover nada ni robar
+    /// foco; `-x` sin sonido; `-o` sin sombra.
+    private func screenshotViaWindowCapture(path: String) throws {
+        guard let windowID = Self.simulatorWindowID() else {
             throw BridgeError.screenshotFailed
         }
+        let process = Process()
+        process.executableURL = URL(fileURLWithPath: "/usr/sbin/screencapture")
+        process.arguments = ["-x", "-o", "-l", String(windowID), path]
+        try process.run()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0,
+              FileManager.default.fileExists(atPath: path) else {
+            throw BridgeError.screenshotFailed
+        }
+    }
+
+    /// Window ID de la ventana principal (layer 0, la más grande) de
+    /// Simulator.app, o nil si no hay ventana en pantalla.
+    private static func simulatorWindowID() -> CGWindowID? {
+        let options: CGWindowListOption = [.optionOnScreenOnly, .excludeDesktopElements]
+        guard let list = CGWindowListCopyWindowInfo(options, kCGNullWindowID)
+                as? [[String: Any]] else { return nil }
+
+        func area(_ window: [String: Any]) -> CGFloat {
+            guard let dict = window[kCGWindowBounds as String] as? NSDictionary,
+                  let rect = CGRect(dictionaryRepresentation: dict) else { return 0 }
+            return rect.width * rect.height
+        }
+
+        return list
+            .filter {
+                ($0[kCGWindowOwnerName as String] as? String) == "Simulator"
+                    && ($0[kCGWindowLayer as String] as? Int) == 0
+            }
+            .max { area($0) < area($1) }
+            .flatMap { ($0[kCGWindowNumber as String] as? NSNumber)?.uint32Value }
     }
 
     // MARK: - Add Media (simctl addmedia)
