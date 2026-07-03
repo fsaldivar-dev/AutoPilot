@@ -47,7 +47,13 @@ export function LogicSlot({ parentId, slotIndex, label, blocks, onChildSelect }:
   }
 
   return (
-    <div className="logic-slot" data-slot={label} data-testid={`slot-${parentId}-${slotIndex}`}>
+    <div
+      className="logic-slot"
+      data-slot={label}
+      data-testid={`slot-${parentId}-${slotIndex}`}
+      data-drop-parent={parentId}
+      data-drop-slot={slotIndex}
+    >
       {blocks.length === 0 && !adding && (
         <div className="slot-placeholder">slot vacío — click + para agregar</div>
       )}

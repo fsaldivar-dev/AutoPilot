@@ -18,6 +18,7 @@ export function AssertBlock({ block }: Props) {
       data-block-id={block.id}
     >
       <div className="logic-header">
+        <span className="drag-handle" title="Arrastrar para reordenar" aria-hidden>⋮⋮</span>
         <span className="logic-keyword assert-keyword">assert</span>
         <PredicateEditor
           value={block.predicate}

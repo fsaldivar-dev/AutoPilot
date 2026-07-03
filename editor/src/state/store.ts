@@ -16,9 +16,11 @@ import type {
 } from "../domain/types";
 import {
   insertIntoSlot,
+  moveBlockTo,
   moveWithinSlot,
   removeFromSlot,
   updateBlockById,
+  type DropTarget,
 } from "./blockTree";
 
 interface ProjectSlice {
@@ -54,6 +56,8 @@ interface ComposerSlice {
   moveChildBlock: (
     flowId: string, parentId: string, slot: number, blockId: string, toIndex: number
   ) => void;
+  // Drag & drop (#178): mueve un bloque a cualquier contenedor (raíz o slot).
+  moveBlockToTarget: (flowId: string, blockId: string, dest: DropTarget) => void;
   updatePredicate: (flowId: string, blockId: string, predicate: Predicate) => void;
   updateRepeat: (flowId: string, blockId: string, repeat: RepeatMode) => void;
 }
@@ -278,6 +282,19 @@ export const useStore = create<Store>((set) => ({
             ? { ...f, blocks: moveWithinSlot(f.blocks, parentId, slot, blockId, toIndex), updatedAt: Date.now() }
             : f
         ),
+      })),
+    })),
+
+  moveBlockToTarget: (flowId, blockId, dest) =>
+    set((s) => ({
+      projects: s.projects.map((p) => ({
+        ...p,
+        flows: p.flows.map((f) => {
+          if (f.id !== flowId) return f;
+          const blocks = moveBlockTo(f.blocks, blockId, dest);
+          if (blocks === f.blocks) return f; // no-op — preserva identidad
+          return { ...f, blocks, updatedAt: Date.now() };
+        }),
       })),
     })),
 

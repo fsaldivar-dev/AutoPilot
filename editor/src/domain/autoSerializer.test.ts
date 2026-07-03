@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import type { Block, Flow } from "./types";
 import { serializeFlow, parseAuto } from "./autoSerializer";
+import { moveBlockTo } from "../state/blockTree";
 
 function makeFlow(blocks: Block[]): Flow {
   return { id: "f1", projectId: "p1", name: "t", blocks, updatedAt: 0 };
@@ -200,6 +201,26 @@ describe("autoSerializer", () => {
         expect(serializeFlow(flow)).toBe(s);
       });
     }
+
+    // #178: el orden mutado por drag & drop se refleja en el código y sobrevive
+    // el round-trip serialize→parse→serialize.
+    it("round-trips después de un reorden con moveBlockTo", () => {
+      const src = `ping\nif exists "Ad"\n  tap "Close"\nend\ntap "Login"`;
+      const { blocks, errors } = parseAuto(src);
+      expect(errors).toEqual([]);
+
+      // Arrastrar `tap "Login"` al slot then del if (después de tap "Close").
+      const ifId = blocks[1].id;
+      const loginId = blocks[2].id;
+      const moved = moveBlockTo(blocks, loginId, { parentId: ifId, slot: 0, index: 1 });
+
+      const out = serializeFlow(makeFlow(moved));
+      expect(out).toBe(`ping\nif exists "Ad"\n  tap "Close"\n  tap "Login"\nend`);
+
+      const reparsed = parseAuto(out);
+      expect(reparsed.errors).toEqual([]);
+      expect(serializeFlow(makeFlow(reparsed.blocks))).toBe(out);
+    });
   });
 
   // #175 — el caso reportado en vivo: `if platform == "ios"` quedaba como
