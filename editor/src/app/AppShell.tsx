@@ -1,6 +1,9 @@
-import { useEffect, useState } from "react";
+import { Suspense, lazy, useEffect, useState } from "react";
 import { BlockCanvas } from "../composer/BlockCanvas";
-import { CodeView } from "../composer/CodeView";
+
+// Lazy: CodeView arrastra el chunk de Monaco (~MBs) — solo se paga al abrir
+// la vista Código, no en el arranque del composer.
+const CodeView = lazy(() => import("../composer/CodeView"));
 import { ComponentLibrary } from "../library/ComponentLibrary";
 import { DevicePreview } from "../inspector/DevicePreview";
 import { FlowList } from "../projects/FlowList";
@@ -51,7 +54,21 @@ export function AppShell() {
         <EnvChips />
       </aside>
       <main className="panel-main">
-        {viewMode === "code" ? <CodeView /> : <BlockCanvas platform={platform} />}
+        {viewMode === "code" ? (
+          <Suspense
+            fallback={
+              <div className="canvas">
+                <div className="empty-state">
+                  <div>Cargando editor…</div>
+                </div>
+              </div>
+            }
+          >
+            <CodeView />
+          </Suspense>
+        ) : (
+          <BlockCanvas platform={platform} />
+        )}
       </main>
       <aside className="panel-right">
         <DevicePreview platform={platform} />
