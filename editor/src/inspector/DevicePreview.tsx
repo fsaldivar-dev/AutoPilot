@@ -24,6 +24,7 @@ export function DevicePreview({ platform }: Props) {
   const refreshTick = useStore((s) => s.refreshTick);
   const [screenshot, setScreenshot] = useState<string>("");
   const [loading, setLoading] = useState(false);
+  const [elementsOpen, setElementsOpen] = useState(true);
   const runningRef = useRef(running);
   const inFlightRef = useRef(false);
   useEffect(() => { runningRef.current = running; }, [running]);
@@ -98,7 +99,7 @@ export function DevicePreview({ platform }: Props) {
   }, [running, refreshScreenshotOnly]);
 
   return (
-    <div data-testid="device-preview">
+    <div className="device-panel" data-testid="device-preview">
       <div className="section-title" style={{ display: "flex", justifyContent: "space-between" }}>
         <span>Device · {platform}</span>
         <button className="btn btn-icon" onClick={() => void refresh()} title="Refresh">
@@ -123,16 +124,27 @@ export function DevicePreview({ platform }: Props) {
         </div>
       </div>
       {elements.length > 0 && (
-        <div style={{ marginTop: 12 }}>
-          <div className="section-title">{elements.length} elementos</div>
-          <div style={{ fontSize: 11, color: "var(--text-dim)", fontFamily: "JetBrains Mono, monospace" }}>
-            {elements.slice(0, 8).map((e) => (
-              <div key={e.index} style={{ padding: "2px 0" }}>
-                ${e.index} {e.role} · "{e.label}"
-              </div>
-            ))}
-            {elements.length > 8 && <div>…y {elements.length - 8} mas</div>}
+        <div className="element-section">
+          <div className="section-title">
+            <span>{elements.length} elementos</span>
+            <button
+              className="btn btn-icon"
+              data-testid="toggle-elements"
+              title={elementsOpen ? "Colapsar lista" : "Expandir lista"}
+              onClick={() => setElementsOpen((o) => !o)}
+            >
+              {elementsOpen ? "−" : "+"}
+            </button>
           </div>
+          {elementsOpen && (
+            <div className="element-list" data-testid="element-list">
+              {elements.map((e) => (
+                <div key={e.index} className="element-row" title={`$${e.index} ${e.role} · "${e.label}" ${e.frame}`}>
+                  ${e.index} {e.role} · "{e.label}"
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       )}
     </div>
