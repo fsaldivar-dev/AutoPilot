@@ -17,10 +17,18 @@ public final class RecordingSession {
     private var keystrokeFlushWork: DispatchWorkItem?
     private var lastFocusedElement: AXUIElement?
 
-    // Phase 4d: Long press / double tap detection
-    private var pendingMouseDown: (event: RawEvent, root: AXUIElement)?
+    // Phase 4d: Double tap detection
     private var pendingTap: (action: ResolvedAction, timestamp: CFAbsoluteTime)?
     private var pendingTapWork: DispatchWorkItem?
+
+    // #91: gesto activo down→dragged*→up. Acumula la trayectoria completa
+    // para que GestureClassifier decida tap/longPress/swipe/drag al soltar.
+    private struct ActiveGesture {
+        let downEvent: RawEvent
+        let root: AXUIElement?     // tree PRE-click (intento 3 del capítulo 13)
+        var points: [GesturePoint]
+    }
+    private var activeGesture: ActiveGesture?
 
     // Cached state
     private var simulatorPID: pid_t = 0
@@ -152,6 +160,11 @@ public final class RecordingSession {
                 self?.handleMouseDown(event, root: root)
             }
 
+        case .mouseDragged:
+            resolveQueue.async { [weak self] in
+                self?.handleMouseDragged(event)
+            }
+
         case .mouseUp:
             resolveQueue.async { [weak self] in
                 self?.handleMouseUp(event)
@@ -212,23 +225,86 @@ public final class RecordingSession {
         return root
     }
 
-    // MARK: - Mouse Events (Phase 3 + Phase 4d edge cases)
+    // MARK: - Mouse Events (Phase 3 + Phase 4d edge cases + #91 gestures)
 
+    /// #91: el mouseDown ya no emite nada — solo abre el gesto y guarda el
+    /// tree PRE-click. La decisión (tap/longPress/swipe/drag) se toma en el
+    /// mouseUp con la trayectoria completa. Antes, un drag del usuario se
+    /// grababa como `tap` en el punto de origen porque la resolución ocurría
+    /// aquí, ciega a los mouseDragged.
     private func handleMouseDown(_ event: RawEvent, root: AXUIElement?) {
         // Flush any pending keystroke buffer on click
         flushKeystrokeBuffer()
 
-        guard let root else { return }
-
-        // Store for potential long press detection via mouseUp
-        pendingMouseDown = (event: event, root: root)
-
-        let action = SemanticResolver.resolveClick(
-            at: event.location, root: root, command: "tap"
+        // root nil ya no descarta el gesto (#132 fail-open): swipes no
+        // necesitan tree y tap/drag caen a coordenadas.
+        activeGesture = ActiveGesture(
+            downEvent: event,
+            root: root,
+            points: [GesturePoint(location: event.location, timestamp: event.timestamp)]
         )
-        // Phase 4d: Double tap detection
+    }
+
+    private func handleMouseDragged(_ event: RawEvent) {
+        // Sin gesto activo (click iniciado fuera de la ventana o antes de
+        // arrancar la grabación) los dragged se ignoran.
+        activeGesture?.points.append(
+            GesturePoint(location: event.location, timestamp: event.timestamp)
+        )
+    }
+
+    private func handleMouseUp(_ event: RawEvent) {
+        guard var gesture = activeGesture else { return }
+        activeGesture = nil
+        gesture.points.append(
+            GesturePoint(location: event.location, timestamp: event.timestamp)
+        )
+
+        guard let classified = GestureClassifier.classify(points: gesture.points) else { return }
+
+        // Un gesto no-tap cierra la ventana de double-tap: flush del tap
+        // pendiente ANTES de emitir la línea nueva para preservar el orden
+        // en el script (el tap ocurrió primero).
+        if case .tap = classified {} else {
+            flushPendingTap()
+        }
+
+        switch classified {
+        case .tap:
+            emitTap(gesture)
+        case .longPress(let duration):
+            emitLongPress(gesture, duration: duration)
+        case .swipe(let direction):
+            emitSwipe(direction, gesture: gesture)
+        case .drag(let from, let to):
+            emitDrag(from: from, to: to, root: gesture.root)
+        }
+    }
+
+    // MARK: - #91: Emission per gesture kind
+
+    /// Resuelve un punto contra el tree; sin tree cae a `tapAt x y` (fragil
+    /// pero presente — mismo criterio que el fix #133 en Android).
+    private func resolveOrFallback(at point: CGPoint, root: AXUIElement?, command: String) -> ResolvedAction {
+        if let root {
+            return SemanticResolver.resolveClick(at: point, root: root, command: command)
+        }
+        return ResolvedAction(
+            command: "tapAt",
+            selector: "\(Int(point.x)) \(Int(point.y))",
+            role: nil, within: nil, occurrence: nil,
+            identifier: nil, fragile: true, coordinate: point
+        )
+    }
+
+    private func emitTap(_ gesture: ActiveGesture) {
+        let action = resolveOrFallback(
+            at: gesture.downEvent.location, root: gesture.root, command: "tap"
+        )
+
+        // Phase 4d: Double tap detection (comparado por timestamp del down)
         if let pending = pendingTap,
-           event.timestamp - pending.timestamp < 0.3,
+           gesture.downEvent.timestamp - pending.timestamp < 0.3,
            pending.action.selector == action.selector {
             // Cancel the pending single tap
             pendingTapWork?.cancel()
@@ -250,7 +326,7 @@ public final class RecordingSession {
         }
 
         // Buffer this tap for 300ms to check for double tap
-        pendingTap = (action: action, timestamp: event.timestamp)
+        pendingTap = (action: action, timestamp: gesture.downEvent.timestamp)
         let work = DispatchWorkItem { [weak self] in
             self?.flushPendingTap()
         }
@@ -258,24 +334,74 @@ public final class RecordingSession {
         resolveQueue.asyncAfter(deadline: .now() + 0.3, execute: work)
     }
 
-    private func handleMouseUp(_ event: RawEvent) {
-        guard let mouseDown = pendingMouseDown else { return }
-        pendingMouseDown = nil
+    private func emitLongPress(_ gesture: ActiveGesture, duration: CFAbsoluteTime) {
+        let resolved = resolveOrFallback(
+            at: gesture.downEvent.location, root: gesture.root, command: "longPress"
+        )
+        // El dispatcher usa 1.0s por default — solo emitimos la duración
+        // explícita cuando el hold real fue mayor (`longPress "X" 1.5`).
+        let secs = (duration * 10).rounded() / 10
+        let suffix = (resolved.command == "longPress" && secs > 1.0 && resolved.within == nil)
+            ? String(format: "%.1f", secs) : nil
+        let action = ResolvedAction(
+            command: resolved.command,
+            selector: resolved.selector,
+            role: resolved.role, within: resolved.within,
+            occurrence: resolved.occurrence,
+            identifier: resolved.identifier,
+            fragile: resolved.fragile,
+            coordinate: resolved.coordinate,
+            argsSuffix: suffix
+        )
+        emitAction(action)
+    }
 
-        let duration = event.timestamp - mouseDown.event.timestamp
-
-        // Phase 4d: Long press detection (> 0.5s hold)
-        if duration > 0.5 {
-            // Cancel the pending tap and re-emit as longPress
-            pendingTapWork?.cancel()
-            pendingTap = nil
-            pendingTapWork = nil
-
-            let action = SemanticResolver.resolveClick(
-                at: mouseDown.event.location, root: mouseDown.root, command: "longPress"
-            )
-            emitAction(action)
+    /// Swipe rápido y axial: si el punto de origen resuelve a un contenedor
+    /// scrolleable/etiquetado emitimos `scroll "<elem>" <dir>`, si no
+    /// `swipe <dir>` genérico. Igual que el flush del scrollWheel (#50).
+    private func emitSwipe(_ direction: SwipeDirection, gesture: ActiveGesture) {
+        let line: String
+        if let root = gesture.root,
+           let selector = hitTestForScroll(at: gesture.downEvent.location, root: root) {
+            line = "scroll \"\(selector)\" \(direction.rawValue)"
+        } else {
+            line = "swipe \(direction.rawValue)"
         }
+        generator.appendRaw(line)
+        printRecorded(line)
+        appendPostScrollWait()
+    }
+
+    /// Drag deliberado: resolver AMBOS extremos por hit-test contra el tree
+    /// PRE-gesto (el elemento origen todavía está en su lugar y el destino
+    /// es lo que había bajo el punto de drop). Si alguno no resuelve
+    /// semánticamente, ambos extremos caen a coordenadas — el comando `drag`
+    /// exige los dos extremos del mismo tipo (`drag "A" "B"` o
+    /// `drag x1,y1 x2,y2`).
+    private func emitDrag(from: CGPoint, to: CGPoint, root: AXUIElement?) {
+        let fromAction = resolveOrFallback(at: from, root: root, command: "drag")
+        let toAction = resolveOrFallback(at: to, root: root, command: "drag")
+
+        let line: String
+        if fromAction.command == "drag" && toAction.command == "drag"
+            && fromAction.selector != toAction.selector {
+            line = "drag \"\(fromAction.selector)\" \"\(toAction.selector)\""
+            if fromAction.fragile || toAction.fragile {
+                let warning = "# no accessibilityIdentifier — selector may be fragile"
+                generator.appendRaw(warning)
+                printRecorded(warning)
+            }
+        } else {
+            // Extremos sin selector estable (o ambos resuelven al mismo
+            // elemento, p.ej. un slider que viaja con el puntero) →
+            // coordenadas crudas.
+            let warning = "# drag por coordenadas — puede romper si cambia el layout"
+            generator.appendRaw(warning)
+            printRecorded(warning)
+            line = "drag \(Int(from.x)),\(Int(from.y)) \(Int(to.x)),\(Int(to.y))"
+        }
+        generator.appendRaw(line)
+        printRecorded(line)
     }
 
     private func flushPendingTap() {

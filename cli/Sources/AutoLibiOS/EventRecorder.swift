@@ -5,6 +5,7 @@ import ApplicationServices
 
 public enum RawEventKind {
     case mouseDown
+    case mouseDragged              // #91: trayectoria entre down y up
     case mouseUp
     case keyDown(UInt16)           // virtual key code
     case scrollWheel(deltaY: Double)
@@ -78,6 +79,7 @@ public final class EventRecorder {
     private func runEventLoop() {
         let eventMask: CGEventMask =
             (1 << CGEventType.leftMouseDown.rawValue) |
+            (1 << CGEventType.leftMouseDragged.rawValue) |
             (1 << CGEventType.leftMouseUp.rawValue) |
             (1 << CGEventType.keyDown.rawValue) |
             (1 << CGEventType.scrollWheel.rawValue)
@@ -144,8 +146,14 @@ public final class EventRecorder {
     fileprivate func handleEvent(_ proxy: CGEventTapProxy, _ type: CGEventType, _ event: CGEvent) {
         let location = event.location
 
-        // Filter mouse events by Simulator window bounds (more reliable than PID)
-        if type == .leftMouseDown || type == .leftMouseUp || type == .scrollWheel {
+        // Filter mouse events by Simulator window bounds (more reliable than PID).
+        // #91: solo se filtra el INICIO del gesto (mouseDown) y el scroll.
+        // mouseDragged/mouseUp pasan siempre: un drag que arranca dentro de la
+        // ventana puede salirse de ella a mitad de trayectoria, y si filtráramos
+        // por frame perderíamos el mouseUp y el gesto quedaría abierto.
+        // RecordingSession ignora dragged/up sin un mouseDown activo, así que
+        // clicks completos fuera de la ventana no generan líneas.
+        if type == .leftMouseDown || type == .scrollWheel {
             guard Self.shouldCaptureMouseEvent(at: location, windowFrame: windowFrame) else { return }
         }
         let timestamp = CFAbsoluteTimeGetCurrent()
@@ -155,6 +163,8 @@ public final class EventRecorder {
         switch type {
         case .leftMouseDown:
             kind = .mouseDown
+        case .leftMouseDragged:
+            kind = .mouseDragged
         case .leftMouseUp:
             kind = .mouseUp
         case .keyDown:
