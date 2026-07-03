@@ -107,7 +107,12 @@ export function RunFlowButton({ platform }: Props) {
           recorder.recordStep(id, ok, ms, err, capture)
         );
       },
-      shouldAbortOnError: () => aborting,
+      // #170: un paso fallido DEBE abortar el flow (honestidad tipo script).
+      // Antes `() => aborting` dejaba continuar tras un fallo → el run
+      // terminaba "passed" con pasos rotos.
+      shouldAbortOnError: () => true,
+      // El Stop del usuario aborta en cualquier punto, no solo tras un fallo.
+      shouldStop: () => aborting,
       onSessionChange: (newSid) => setSession(newSid, runtime),
       onUIMutation: () => bumpRefreshTick(),
     });
