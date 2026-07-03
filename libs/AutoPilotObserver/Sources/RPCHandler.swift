@@ -284,12 +284,62 @@ final class RPCHandler {
     private func performSwipe(direction: String) {
         let dir = axScrollDirection(direction)
         DispatchQueue.main.sync {
+            // Paging directo sobre UIScrollView (#153): `accessibilityScroll`
+            // es un no-op en UIScrollView plano (UIKit no lo implementa; el
+            // scroll AX real lo hace VoiceOver via setContentOffset). Ese
+            // no-op silencioso era el "scrollTo sin scrollear" del QA.
+            // setContentOffset con clamp es determinista y reporta si de
+            // verdad hubo a dónde moverse.
+            if let sv = findScrollView(forGesture: direction), pageScroll(sv, gesture: direction) {
+                return
+            }
             if let sv = findAnyScrollView() {
                 _ = sv.accessibilityScroll(dir)
             } else if let window = firstWindow() {
                 _ = window.accessibilityScroll(dir)
             }
         }
+    }
+
+    /// Swipe con semántica de GESTO: "up" = dedo hacia arriba = el contenido
+    /// de abajo entra en pantalla (offset.y crece). Pagina el 80% del alto
+    /// visible, clampeado al contentSize. Devuelve false si no había a dónde
+    /// scrollear en esa dirección (fin del contenido).
+    private func pageScroll(_ sv: UIScrollView, gesture: String) -> Bool {
+        var offset = sv.contentOffset
+        let pageY = sv.bounds.height * 0.8
+        let pageX = sv.bounds.width * 0.8
+        let minY = -sv.adjustedContentInset.top
+        let maxY = max(minY, sv.contentSize.height + sv.adjustedContentInset.bottom - sv.bounds.height)
+        let minX = -sv.adjustedContentInset.left
+        let maxX = max(minX, sv.contentSize.width + sv.adjustedContentInset.right - sv.bounds.width)
+        switch gesture.lowercased() {
+        case "up":    offset.y = min(offset.y + pageY, maxY)
+        case "down":  offset.y = max(offset.y - pageY, minY)
+        case "left":  offset.x = min(offset.x + pageX, maxX)
+        case "right": offset.x = max(offset.x - pageX, minX)
+        default:      return false
+        }
+        guard offset != sv.contentOffset else { return false }
+        sv.setContentOffset(offset, animated: true)
+        return true
+    }
+
+    /// Primer UIScrollView que PUEDE scrollear en el eje del gesto. El
+    /// `findAnyScrollView` genérico puede devolver un carrusel horizontal
+    /// (chips, fotos) cuando el gesto es vertical — y el swipe se perdería.
+    private func findScrollView(forGesture gesture: String) -> UIScrollView? {
+        let vertical = gesture.lowercased() == "up" || gesture.lowercased() == "down"
+        for window in allWindows() {
+            let found = firstDescendant(window, matching: {
+                guard let s = $0 as? UIScrollView else { return false }
+                return vertical
+                    ? s.contentSize.height > s.bounds.height + 1
+                    : s.contentSize.width > s.bounds.width + 1
+            })
+            if let sv = found as? UIScrollView { return sv }
+        }
+        return nil
     }
 
     private func performTapAt(x: Double, y: Double) {
