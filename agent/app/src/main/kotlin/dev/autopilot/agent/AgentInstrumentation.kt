@@ -1,5 +1,6 @@
 package dev.autopilot.agent
 
+import android.accessibilityservice.AccessibilityServiceInfo
 import android.app.Instrumentation
 import android.app.UiAutomation
 import android.os.Bundle
@@ -29,6 +30,17 @@ class AgentInstrumentation : Instrumentation() {
     override fun onStart() {
         val uiAutomation: UiAutomation = uiAutomation
         Log.i(TAG, "UiAutomation acquired")
+
+        // Sin FLAG_RETRIEVE_INTERACTIVE_WINDOWS, uiAutomation.windows devuelve
+        // una lista vacía y las ventanas IME/overlay son invisibles (issue #130).
+        try {
+            val info = uiAutomation.serviceInfo ?: AccessibilityServiceInfo()
+            info.flags = info.flags or AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
+            uiAutomation.serviceInfo = info
+            Log.i(TAG, "FLAG_RETRIEVE_INTERACTIVE_WINDOWS enabled")
+        } catch (e: Exception) {
+            Log.w(TAG, "Could not enable interactive windows: ${e.message}")
+        }
 
         val server = SocketServer(uiAutomation, targetContext)
         try {
