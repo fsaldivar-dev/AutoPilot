@@ -149,4 +149,43 @@ describe("predicateText", () => {
       });
     }
   });
+
+  // #175 — los operadores de comparación no se quotean y el valor tras un
+  // operador conserva sus comillas. Antes: `platform == "ios"` → tras un
+  // round-trip quedaba `platform "==" ios` (las comillas migraban al operador).
+  describe("operadores de comparación (#175)", () => {
+    it("no quotea el operador ==", () => {
+      const p: Predicate = { kind: "call", name: "platform", args: ["==", "ios"] };
+      expect(predicateToText(p)).toBe('platform == "ios"');
+    });
+
+    it("valor numérico tras operador queda sin comillas", () => {
+      const p: Predicate = { kind: "call", name: "count", args: [">", "3"] };
+      expect(predicateToText(p)).toBe("count > 3");
+    });
+
+    it("$var tras operador queda sin comillas", () => {
+      const p: Predicate = { kind: "call", name: "platform", args: ["==", "$target"] };
+      expect(predicateToText(p)).toBe("platform == $target");
+    });
+
+    const stableTexts = [
+      'platform == "ios"',
+      'platform != "android"',
+      "count >= 2",
+      'exists "Login" and platform == "ios"',
+    ];
+
+    for (const text of stableTexts) {
+      it(`round-trip estable 3x: ${text}`, async () => {
+        const { tokenizeLine } = await import("../domain/autoTokenize");
+        let current = text;
+        for (let i = 0; i < 3; i++) {
+          const parsed = parsePredicate(tokenizeLine(current), 1);
+          current = predicateToText(parsed);
+          expect(current).toBe(text);
+        }
+      });
+    }
+  });
 });
