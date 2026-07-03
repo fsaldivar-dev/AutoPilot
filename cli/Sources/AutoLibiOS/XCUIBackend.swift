@@ -15,12 +15,18 @@ import AutoCore
 /// Esto reemplaza el `HybridBridge` (que se elimina en Fase 4).
 public enum XCUIBackend {
 
+    // `.screenshot` NO está acá a propósito (#155): la captura del runner
+    // (`XCUIApplication.screenshot()`) depende de la ventana del Simulator en
+    // el Mac — si está tapada o parcialmente fuera de pantalla la imagen sale
+    // recortada, y la resolución es la de la ventana, no la del device. El
+    // router enruta screenshot a `MediaBackend` (framebuffer via
+    // `simctl io <udid> screenshot`), que es independiente de la ventana.
     public static let capabilities: Set<ActionKind> = [
         .tap, .doubleTap, .longPress, .clear,
         .scroll, .swipe,
         .tree, .search,
         .launchApp, .terminateApp,
-        .typeText, .screenshot, .viewport,
+        .typeText, .viewport,
         .exists, .isVisible, .hasText
     ]
 

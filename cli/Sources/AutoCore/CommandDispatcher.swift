@@ -262,7 +262,10 @@ public func executeSharedCommand(
 
     case "screenshot":
         let filename = args.count >= 2 ? args[1] : "screenshot.png"
-        try bridge.screenshot(path: filename)
+        // #155: vía router → en iOS captura el framebuffer del device
+        // (MediaBackend/simctl), nunca la ventana del Mac (runner XCUI).
+        try runAction(.screenshot(path: filename), router: router,
+                      fallback: { try bridge.screenshot(path: filename) })
         let ms = elapsedMs(start)
         let fileSize = (try? FileManager.default.attributesOfItem(atPath: filename)[.size] as? Int) ?? 0
         print("Saved: \(filename) (\(fileSize / 1024)KB, \(ms)ms)")
@@ -292,15 +295,19 @@ public func executeSharedCommand(
             guard createBaseline else {
                 throw BridgeError.baselineNotFound(baselinePath)
             }
-            try bridge.screenshot(path: baselinePath)
+            try runAction(.screenshot(path: baselinePath), router: router,
+                          fallback: { try bridge.screenshot(path: baselinePath) })
             print("Baseline created: \(baselinePath) (\(elapsedMs(start))ms)")
             return true
         }
 
         let currentPath = FileManager.default.temporaryDirectory
             .appendingPathComponent("autopilot-assertscreen-\(UUID().uuidString).png").path
+        // defer ANTES de capturar (#155): el PNG temporal se borra también
+        // cuando el assert falla (mismatch lanza, pero el defer ya corre).
         defer { try? FileManager.default.removeItem(atPath: currentPath) }
-        try bridge.screenshot(path: currentPath)
+        try runAction(.screenshot(path: currentPath), router: router,
+                      fallback: { try bridge.screenshot(path: currentPath) })
         let result = try ScreenAssert.assertMatch(
             currentPath: currentPath,
             baselinePath: baselinePath,
@@ -377,8 +384,12 @@ public func executeSharedCommand(
             region = try OCRAssert.Region.parse(args[idx + 1])
         }
         let tmpPath = NSTemporaryDirectory() + "autopilot-ocr-\(UUID().uuidString).png"
-        try bridge.screenshot(path: tmpPath)
+        // defer ANTES de capturar (#155): el PNG temporal se borra también si
+        // la captura o el OCR fallan (ocrTextNotFound lanza más abajo).
         defer { try? FileManager.default.removeItem(atPath: tmpPath) }
+        // #155: vía router → framebuffer del device, no la ventana del Mac.
+        try runAction(.screenshot(path: tmpPath), router: router,
+                      fallback: { try bridge.screenshot(path: tmpPath) })
         let recognized = try OCRAssert.recognizeText(imagePath: tmpPath, region: region)
         let ms = elapsedMs(start)
         if let match = OCRAssert.findMatch(for: expectedText, in: recognized) {
