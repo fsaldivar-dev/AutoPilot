@@ -420,22 +420,24 @@ final class RPCHandler {
         return UIApplication.shared.windows
     }
 
+    /// PRECONDICIÓN: debe llamarse YA en la main queue. Sus callers (typeText,
+    /// performPressKey) se ejecutan dentro de `DispatchQueue.main.sync` desde
+    /// `handle()`; abrir aquí OTRO `main.sync` producía un deadlock del hilo
+    /// consigo mismo → EXC_BREAKPOINT que mataba la app en cada `type` (#165).
     private func findFirstResponder() -> UIResponder? {
-        var responder: UIResponder?
-        DispatchQueue.main.sync {
-            let windows: [UIWindow]
-            if #available(iOS 13, *) {
-                windows = UIApplication.shared.connectedScenes
-                    .compactMap { $0 as? UIWindowScene }
-                    .flatMap { $0.windows }
-            } else {
-                windows = UIApplication.shared.windows
-            }
-            for window in windows {
-                if let r = window.firstResponder { responder = r; break }
-            }
+        dispatchPrecondition(condition: .onQueue(.main))
+        let windows: [UIWindow]
+        if #available(iOS 13, *) {
+            windows = UIApplication.shared.connectedScenes
+                .compactMap { $0 as? UIWindowScene }
+                .flatMap { $0.windows }
+        } else {
+            windows = UIApplication.shared.windows
         }
-        return responder
+        for window in windows {
+            if let r = window.firstResponder { return r }
+        }
+        return nil
     }
 }
 
