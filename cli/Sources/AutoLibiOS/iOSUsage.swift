@@ -31,6 +31,9 @@ public enum iOSUsage {
           drag <from> <to> [secs]            Drag between elements (default 0.5s)
           drag x1,y1 x2,y2 [secs]           Drag between coordinates
           exists <id|title|label>           Check if element exists
+          assertOCR <text> [--region x,y,w,h]  Assert text visible on screen via OCR
+                                            (Vision.framework — sirve para canvas/webviews/
+                                            imagenes sin AX; region en pixeles, origen arriba-izq)
           list                              List simulators
           boot <name|udid>                  Boot simulator
           shutdown <name|udid>              Shutdown simulator
