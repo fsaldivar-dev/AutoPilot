@@ -14,6 +14,8 @@ public enum AndroidUsage {
           ping                              Check ADB connection
           tree                              Print accessibility tree
           tree -s "query"                   Search elements
+          layout [tipo]                     Wireframe ASCII del layout de pantalla (#107)
+                                            flags: --compact (solo labeled), --region <label> (zoom)
           index [query]                     List indexed elements ($N syntax)
           inspect <query>                   Deep element inspection
           launch <package> [--inject img]    Launch app (--inject for camera mock)
@@ -49,6 +51,13 @@ public enum AndroidUsage {
           copyTextFrom <element>             Read text content from element
           clearState <package>               Clear app data (pm clear)
           uninstall <package>                Uninstall app
+          accounts list [type]               List system AccountManager accounts (dumpsys account)
+          accounts clear [type]              Remove accounts of a type (default com.google) by
+                                            clearing their authenticator package via pm clear.
+                                            WARNING: nuclear for that provider — for com.google
+                                            it wipes ALL Google accounts + GMS state (~30s
+                                            re-init). Needed because AccountManager accounts
+                                            survive uninstall (Google Sign-In login flows)
           waitUntilGone <label> [timeout]     Wait for element to disappear
           scrollTo <element> [direction]     Scroll until element is visible in viewport
           scrollUntilVisible <element> [dir] Alias of scrollTo (semantic name, emitted by recorder)

@@ -15,6 +15,8 @@ public enum iOSUsage {
           tree -s "query"                   Search elements
           tree deep                         Deep tree via XCUI runner (slow, sees NavBar SwiftUI)
           tree full                         Fast + deep tree side by side
+          layout [tipo] [deep]              Wireframe ASCII del layout de pantalla (#107)
+                                            flags: --compact (solo labeled), --region <label> (zoom)
           list <type>                       Fast typed UI listing via XCUI runner (~1s vs 13s tree deep)
                                             type: all | buttons | labels | textfields | cells |
                                                   switches | links | images | navbars
