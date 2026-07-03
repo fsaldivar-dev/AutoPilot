@@ -5,6 +5,7 @@ public enum BridgeError: Error, CustomStringConvertible {
     case noWindow
     case accessibilityNotTrusted
     case elementNotFound(String)
+    case elementOccluded(String)
     case noFrame(String)
     case noBootedDevice
     case invalidDirection(String)
@@ -67,6 +68,7 @@ public enum BridgeError: Error, CustomStringConvertible {
         case .elementNotFound(let t):
             return "Element not found: '\(t)'\n"
                 + "Tip: explora la pantalla con `\(Self.binaryName) layout` o `\(Self.binaryName) tree -s \"<texto>\"`"
+        case .elementOccluded(let msg): return msg
         case .noFrame(let t): return "Element '\(t)' has no frame"
         case .noBootedDevice: return "No booted simulator. Run: xcrun simctl boot <device>"
         case .invalidDirection(let d): return "Invalid direction: \(d). Use up/down/left/right"

@@ -222,11 +222,24 @@ public extension DeviceBridge {
         print("Accounts clear: no-op on this platform (no system AccountManager; on iOS use `keychain reset`)")
     }
 
-    /// Scroll until the element is VISIBLE in the viewport (≥50% covered).
-    /// The AX/UI trees include offscreen elements, so just finding a match in
-    /// the tree isn't enough — we validate viewport intersection before
-    /// reporting success. `HybridBridge` overrides this to escalate to the
-    /// deep bridge on `elementNotFound`.
+    /// Scroll until the element is VISIBLE in the USABLE viewport (≥50%
+    /// covered). The AX/UI trees include offscreen elements, so just finding
+    /// a match in the tree isn't enough — we validate viewport intersection
+    /// before reporting success. `HybridBridge` overrides this to escalate to
+    /// the deep bridge on `elementNotFound`.
+    ///
+    /// Usable viewport (issue #153): raw screen-bounds intersection lied —
+    /// an element at y=829 on an 874pt screen is 100% inside the screen but
+    /// UNDER the tab bar, so the follow-up tap missed. We now clip the
+    /// viewport to its central safe band (`ViewportUtil.usableViewport`) and
+    /// subtract tab/nav bars detected in the tree. A match that is on screen
+    /// but outside the usable zone counts as OCCLUDED: we keep scrolling, and
+    /// if it never clears the fold we throw the typed `elementOccluded`
+    /// error instead of reporting green.
+    ///
+    /// Bar chrome exception: elements that live INSIDE a bar (tab buttons,
+    /// nav-bar items) are fixed chrome — always on screen and tappable — so
+    /// they count as visible immediately.
     ///
     /// Multi-match semantics: if the target label matches multiple elements,
     /// any visible match satisfies the search (the user cares that *some*
@@ -239,27 +252,48 @@ public extension DeviceBridge {
     func scrollTo(target: String, direction: String, maxAttempts: Int) throws {
         let screen = try viewport()
         let hasExplicitIndex = TargetResolverShared.parse(target).index != nil
+        var lastOccludedFrame: CGRect?
         for _ in 0..<maxAttempts {
             let currentTree = try tree()
             let matches = explicitMatches(in: currentTree, target: target, explicitIndex: hasExplicitIndex)
+            let bars = ViewportUtil.occludingBars(in: currentTree, screen: screen)
+            let usable = ViewportUtil.usableViewport(screen, occlusions: bars)
 
             var sawMatchWithoutFrame = false
+            lastOccludedFrame = nil
             for match in matches {
                 guard let frame = ViewportUtil.rect(from: match["frame"] as? [String: Any]) else {
                     sawMatchWithoutFrame = true
                     continue
                 }
-                let vp = ViewportUtil.resolveViewport(for: match, in: currentTree, screenBounds: screen)
-                if ViewportUtil.isVisible(frame: frame, inViewport: vp) {
+                // Chrome de barra (tab / nav item): fijo en pantalla, no se
+                // scrollea ni puede quedar "below the fold".
+                if ViewportUtil.isBarDescendant(frame: frame, in: currentTree) {
                     return
+                }
+                let vp = ViewportUtil.resolveViewport(for: match, in: currentTree, screenBounds: screen)
+                let effective = vp.intersection(usable)
+                if ViewportUtil.isVisible(frame: frame, inViewport: effective) {
+                    return
+                }
+                // Visible por el criterio crudo pero fuera de la zona útil →
+                // ocluido por tab bar / nav bar (el caso exacto del bug #153).
+                if ViewportUtil.isVisible(frame: frame, inViewport: vp) {
+                    lastOccludedFrame = frame
                 }
             }
             if sawMatchWithoutFrame && matches.allSatisfy({ ViewportUtil.rect(from: $0["frame"] as? [String: Any]) == nil }) {
                 return
             }
 
-            try swipe(direction: direction)
+            try swipe(direction: ViewportUtil.swipeGesture(forSearchDirection: direction))
             usleep(500_000)
+        }
+        if let f = lastOccludedFrame {
+            throw BridgeError.elementOccluded(
+                "Element '\(target)' remains occluded/below the fold after \(maxAttempts) attempts: " +
+                "frame (x:\(Int(f.minX)), y:\(Int(f.minY)), \(Int(f.width))x\(Int(f.height))) is on screen " +
+                "but outside the usable viewport (tab bar / nav bar zone)")
         }
         throw BridgeError.elementNotFound("Could not scroll to visible: '\(target)' after \(maxAttempts) attempts")
     }

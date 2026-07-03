@@ -52,6 +52,156 @@ public enum ViewportUtil {
         return coverage >= minCoverage
     }
 
+    // MARK: - Useful viewport (issue #153)
+
+    /// Fracción vertical del viewport considerada "útil" (banda central).
+    /// 0.9 = descarta el 5% superior y el 5% inferior, donde nav bars y tab
+    /// bars ocluyen contenido scrolleable (en iOS el tab bar estándar mide
+    /// ~83pt de 874 ≈ 9.5% inferior).
+    public static let defaultSafeFraction: CGFloat = 0.9
+
+    /// Viewport ÚTIL: la franja del viewport donde un elemento es realmente
+    /// visible y tappable. Recorta la banda superior/inferior (franja de
+    /// seguridad `safeFraction`) y, además, cualquier barra ocluyente
+    /// detectada en el tree (`occlusions`, ver `occludingBars`): una barra
+    /// en la mitad inferior sube el límite inferior a su `minY`; una barra
+    /// en la mitad superior baja el límite superior a su `maxY`.
+    ///
+    /// Resuelve la mentira-en-verde #3 (issue #153): un elemento con frame
+    /// y=829 en pantalla de 874pt está 100% dentro de los screen bounds pero
+    /// DEBAJO del tab bar — el criterio de intersección cruda lo daba por
+    /// visible y el tap posterior se perdía.
+    public static func usableViewport(_ viewport: CGRect,
+                                      safeFraction: CGFloat = defaultSafeFraction,
+                                      occlusions: [CGRect] = []) -> CGRect {
+        let inset = viewport.height * (1 - safeFraction) / 2
+        var minY = viewport.minY + inset
+        var maxY = viewport.maxY - inset
+        for bar in occlusions where bar.intersects(viewport) {
+            if bar.midY >= viewport.midY {
+                maxY = min(maxY, bar.minY)   // barra inferior (tab bar)
+            } else {
+                minY = max(minY, bar.maxY)   // barra superior (nav bar)
+            }
+        }
+        return CGRect(x: viewport.minX, y: minY,
+                      width: viewport.width, height: max(0, maxY - minY))
+    }
+
+    /// Función pura frame+viewport → Bool (issue #153): true si el frame del
+    /// elemento queda dentro del viewport ÚTIL cubriendo ≥ `minCoverage` de
+    /// su área. Es `isVisible` pero contra `usableViewport` en vez del
+    /// viewport crudo.
+    public static func isInUsableViewport(frame: CGRect,
+                                          viewport: CGRect,
+                                          occlusions: [CGRect] = [],
+                                          safeFraction: CGFloat = defaultSafeFraction,
+                                          minCoverage: CGFloat = 0.5) -> Bool {
+        let usable = usableViewport(viewport,
+                                    safeFraction: safeFraction,
+                                    occlusions: occlusions)
+        return isVisible(frame: frame, inViewport: usable, minCoverage: minCoverage)
+    }
+
+    /// Detecta barras del sistema (tab bar / nav bar / toolbar) en el tree.
+    /// Barato: el tree ya está en memoria cuando `scrollTo` lo consulta.
+    /// Filtro geométrico: una "barra" cruza al menos media pantalla de ancho
+    /// y no supera el 25% del alto (descarta paneles/sheets grandes).
+    ///
+    /// Roles cubiertos por serializador:
+    /// - Observer iOS (ViewSerializer): `AXTabGroup` (UITabBar)
+    /// - XCUI runner (RunnerSerialization): `TabBar`, `NavigationBar`, `Toolbar`
+    /// - AX macOS: `AXTabBar`, `AXNavigationBar`, `AXToolbar`
+    /// - Android: `...BottomNavigationView`, `...Toolbar`, `ActionBar`
+    public static func occludingBars(in tree: [[String: Any]],
+                                     screen: CGRect) -> [CGRect] {
+        var bars: [CGRect] = []
+        collectBars(in: tree, screen: screen, bars: &bars)
+        return bars
+    }
+
+    private static func collectBars(in elements: [[String: Any]],
+                                    screen: CGRect,
+                                    bars: inout [CGRect]) {
+        for el in elements {
+            let role = (el["role"] as? String ?? "").lowercased()
+            if isBarRole(role),
+               let r = rect(from: el["frame"] as? [String: Any]),
+               r.width >= screen.width * 0.5,
+               r.height <= screen.height * 0.25 {
+                bars.append(r)
+            }
+            if let children = el["children"] as? [[String: Any]] {
+                collectBars(in: children, screen: screen, bars: &bars)
+            }
+        }
+    }
+
+    private static func isBarRole(_ role: String) -> Bool {
+        return role.contains("tabbar") ||
+               role.contains("tabgroup") ||
+               role.contains("navigationbar") ||
+               role.contains("toolbar") ||
+               role.contains("actionbar") ||
+               role.contains("bottomnavigation")
+    }
+
+    /// true si el elemento con `frame` vive DENTRO de una barra del tree
+    /// (tab de un tab bar, botón de nav bar). Esos elementos son chrome fijo:
+    /// siempre en pantalla y tappables aunque geométricamente caigan fuera
+    /// del viewport útil — `scrollTo` no debe intentar scrollearlos ni
+    /// declararlos ocluidos.
+    public static func isBarDescendant(frame targetFrame: CGRect,
+                                       in tree: [[String: Any]]) -> Bool {
+        var result = false
+        _ = findBarDescendant(in: tree, targetFrame: targetFrame,
+                              underBar: false, result: &result)
+        return result
+    }
+
+    @discardableResult
+    private static func findBarDescendant(in elements: [[String: Any]],
+                                          targetFrame: CGRect,
+                                          underBar: Bool,
+                                          result: inout Bool) -> Bool {
+        for el in elements {
+            let role = (el["role"] as? String ?? "").lowercased()
+            let nowUnderBar = underBar || isBarRole(role)
+            if let elRect = rect(from: el["frame"] as? [String: Any]),
+               framesApproxEqual(elRect, targetFrame) {
+                result = nowUnderBar
+                return true
+            }
+            if let children = el["children"] as? [[String: Any]] {
+                if findBarDescendant(in: children, targetFrame: targetFrame,
+                                     underBar: nowUnderBar, result: &result) {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    // MARK: - Search direction → gesture (issue #153)
+
+    /// `scrollTo X down` significa "el elemento está más ABAJO en el
+    /// documento" (default, y lo que emite el recorder). El gesto que revela
+    /// contenido de abajo es un swipe con el dedo hacia ARRIBA — y todos los
+    /// backends (agente Android, adb legacy, XCUI runner, observer iOS)
+    /// implementan `swipe` con semántica de GESTO. Sin esta inversión,
+    /// `scrollTo X` swipeaba hacia el tope del documento y jamás alcanzaba
+    /// un elemento below-the-fold (parte del bug #153: en el QA los swipes
+    /// nunca acercaron el elemento al viewport).
+    public static func swipeGesture(forSearchDirection direction: String) -> String {
+        switch direction.lowercased() {
+        case "down":  return "up"
+        case "up":    return "down"
+        case "left":  return "right"
+        case "right": return "left"
+        default:      return "up"
+        }
+    }
+
     // MARK: - Viewport resolution (hybrid)
 
     /// Dado un tree serializado, busca el ancestro scrolleable del elemento
