@@ -563,7 +563,17 @@ public func executeSharedCommand(
         print("Installed \(args[1]) (\(ms)ms)")
 
     case "list":
-        let devices = try bridge.listDevices()
+        // #167: el `bridge` default post-#164 es el observer/XCUI, que no porta
+        // `listDevices` (device-mgmt no es su trabajo). Ruteamos por el router →
+        // SimCtlBackend, que sí declara `.listDevices` y usa simctl (igual que
+        // `doctor` hace con `getBootedDeviceId` en #154). El fallback a
+        // `bridge.listDevices()` cubre plataformas sin router (Android legacy).
+        let devices = try runActionReturning(
+            .listDevices,
+            router: router,
+            fallback: { try bridge.listDevices() },
+            extract: { if case .deviceList(let ds) = $0 { return ds } else { return nil } }
+        )
         let ms = elapsedMs(start)
         let booted = devices.filter { $0["state"] as? String == "Booted" }
         let shutdown = devices.filter { $0["state"] as? String == "Shutdown" }
