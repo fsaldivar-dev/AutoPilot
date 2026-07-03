@@ -55,8 +55,15 @@ public enum iOSSetup {
         proc.arguments = ["-a", "Simulator"]
         try? proc.run()
         proc.waitUntilExit()
-        usleep(2_000_000)
-        print("✓ Simulator.app opened")
+        // #159: señal de listo = pgrep -x Simulator (el proceso existe).
+        // Antes: 2s fijos. `open` ya espera a LaunchServices, así que el
+        // primer poll suele acertar (~0-200ms). El boot del device tiene su
+        // propio poll en ensureDeviceBooted — aquí solo importa el proceso.
+        if poll(deadline: 10, condition: isSimulatorAppRunning) {
+            print("✓ Simulator.app opened")
+        } else {
+            print("⚠ Simulator.app did not appear after 10s — continuing")
+        }
     }
 
     private static func isSimulatorAppRunning() -> Bool {
@@ -215,7 +222,11 @@ public enum iOSSetup {
         stopProc.standardError = FileHandle.nullDevice
         try? stopProc.run()
         stopProc.waitUntilExit()
-        usleep(500_000)
+        // #159: `autopilotd stop` ya es síncrono — espera el exit del daemon
+        // (hasta 5s) y borra pid/socket antes de terminar (Daemon/main.swift:
+        // stopDaemon). Señal de "parado" = pid file ausente o proceso muerto.
+        // Antes: 0.5s fijos incondicionales; ahora el primer poll acierta.
+        _ = poll(deadline: 2) { daemonIsStopped(udid: udid) }
 
         print("→ Starting daemon...")
         let startProc = Process()
@@ -232,8 +243,18 @@ public enum iOSSetup {
         startProc.standardOutput = FileHandle.nullDevice
         startProc.standardError = FileHandle.nullDevice
         try startProc.run()
-        usleep(2_000_000)
-        print("✓ Daemon running (pid=\(startProc.processIdentifier))")
+        // #159: señal de listo = el socket Unix del daemon acepta conexión
+        // (mismo socket que usará XCUIBridge). El daemon binda el socket casi
+        // inmediato tras arrancar; happy path ~100ms. Antes: 2s fijos.
+        // Si el daemon murió al arrancar, cortamos el poll de una vez.
+        let ready = poll(deadline: 5) {
+            daemonSocketReady(udid: udid) || !startProc.isRunning
+        }
+        if ready && daemonSocketReady(udid: udid) {
+            print("✓ Daemon running (pid=\(startProc.processIdentifier))")
+        } else {
+            print("⚠ Daemon socket not ready after 5s — warmup may fail (try `autopilotd status --udid \(udid)`)")
+        }
     }
 
     // MARK: - Step 6: Warmup [via router]
@@ -247,6 +268,66 @@ public enum iOSSetup {
         // → router escala a XCUIBackend → XCUIBackend conecta al runner → boot
         _ = try? await router.execute(.search(query: "__autopilot_warmup_probe__"))
         print("✓ XCUI runner ready")
+    }
+
+    // MARK: - Polling condicionado (#159)
+
+    /// Ejecuta `condition` cada 100ms hasta que devuelva true o venza el
+    /// deadline (segundos). Sustituye los sleeps fijos del setup: en el
+    /// happy path la señal llega en el primer o segundo poll.
+    @discardableResult
+    private static func poll(deadline seconds: Double, condition: () -> Bool) -> Bool {
+        let deadline = Date().addingTimeInterval(seconds)
+        while Date() < deadline {
+            if condition() { return true }
+            usleep(100_000)
+        }
+        return condition()
+    }
+
+    /// Paths del daemon — misma convención que Daemon/main.swift (DaemonPaths)
+    /// y XCUIBridge: /tmp/autopilot-<udid saneado>.{pid,sock}.
+    private static func sanitizedUDID(_ udid: String) -> String {
+        String(udid.filter { $0.isLetter || $0.isNumber || $0 == "-" }.prefix(40))
+    }
+
+    /// true si no hay daemon vivo para este udid (pid file ausente,
+    /// ilegible, o proceso muerto — kill(pid, 0) falla).
+    private static func daemonIsStopped(udid: String) -> Bool {
+        let pidPath = "/tmp/autopilot-\(sanitizedUDID(udid)).pid"
+        guard let str = try? String(contentsOfFile: pidPath, encoding: .utf8)
+                .trimmingCharacters(in: .whitespacesAndNewlines),
+              let pid = Int32(str) else { return true }
+        return kill(pid, 0) != 0
+    }
+
+    /// true si el socket Unix del daemon acepta una conexión (connect + close).
+    /// Es la misma señal que usará XCUIBridge en el warmup — si esto pasa,
+    /// el daemon está listo de verdad, no "probablemente listo tras 2s".
+    private static func daemonSocketReady(udid: String) -> Bool {
+        let path = "/tmp/autopilot-\(sanitizedUDID(udid)).sock"
+        let maxPathLen = 104 // sockaddr_un.sun_path en macOS
+        guard path.utf8.count < maxPathLen else { return false }
+        guard FileManager.default.fileExists(atPath: path) else { return false }
+
+        let fd = socket(AF_UNIX, SOCK_STREAM, 0)
+        guard fd >= 0 else { return false }
+        defer { close(fd) }
+
+        var addr = sockaddr_un()
+        addr.sun_family = sa_family_t(AF_UNIX)
+        path.withCString { src in
+            withUnsafeMutablePointer(to: &addr.sun_path.0) { dst in
+                _ = strncpy(dst, src, maxPathLen - 1)
+                dst.advanced(by: maxPathLen - 1).pointee = 0
+            }
+        }
+        let result = withUnsafePointer(to: &addr) { ptr -> Int32 in
+            ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sa in
+                connect(fd, sa, socklen_t(MemoryLayout<sockaddr_un>.size))
+            }
+        }
+        return result == 0
     }
 
     // MARK: - Util
