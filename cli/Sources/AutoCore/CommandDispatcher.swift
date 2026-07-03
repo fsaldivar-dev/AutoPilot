@@ -201,6 +201,47 @@ public func executeSharedCommand(
         let fileSize = (try? FileManager.default.attributesOfItem(atPath: filename)[.size] as? Int) ?? 0
         print("Saved: \(filename) (\(fileSize / 1024)KB, \(ms)ms)")
 
+    case "assertScreen":
+        // Diff visual por perceptual hash (#56): screenshot actual vs baseline.
+        // assertScreen <baseline.png> [tolerancia 0-64] [--create]
+        var rest = Array(args.dropFirst())
+        let createBaseline = rest.contains("--create")
+        rest.removeAll { $0 == "--create" }
+        guard let baselinePath = rest.first else {
+            print("Usage: auto assertScreen <baseline.png> [tolerance 0-64] [--create]")
+            print("       tolerance: max Hamming distance in bits (default \(ScreenAssert.defaultTolerance))")
+            print("       --create:  save current screen as baseline if it doesn't exist")
+            return true
+        }
+        var tolerance = ScreenAssert.defaultTolerance
+        if rest.count >= 2 {
+            guard let t = Int(rest[1]), (0...PerceptualHash.bits).contains(t) else {
+                print("Invalid tolerance '\(rest[1])' — must be an integer 0-\(PerceptualHash.bits)")
+                return true
+            }
+            tolerance = t
+        }
+
+        if !FileManager.default.fileExists(atPath: baselinePath) {
+            guard createBaseline else {
+                throw BridgeError.baselineNotFound(baselinePath)
+            }
+            try bridge.screenshot(path: baselinePath)
+            print("Baseline created: \(baselinePath) (\(elapsedMs(start))ms)")
+            return true
+        }
+
+        let currentPath = FileManager.default.temporaryDirectory
+            .appendingPathComponent("autopilot-assertscreen-\(UUID().uuidString).png").path
+        defer { try? FileManager.default.removeItem(atPath: currentPath) }
+        try bridge.screenshot(path: currentPath)
+        let result = try ScreenAssert.assertMatch(
+            currentPath: currentPath,
+            baselinePath: baselinePath,
+            tolerance: tolerance
+        )
+        print("MATCH (distance \(result.distance)/\(PerceptualHash.bits), tolerance \(tolerance)) (\(elapsedMs(start))ms)")
+
     case "exists":
         guard args.count >= 2 else {
             print("Usage: auto exists <identifier|title|label>")
