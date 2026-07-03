@@ -54,6 +54,7 @@ public enum iOSUsage {
           copyTextFrom <element>             Read text content from element
           clearState <bundleId>              Clear app data and permissions
           uninstall <bundleId>               Uninstall app from simulator
+          waitFor <label> [timeout]           Wait for element to appear (default 10s)
           waitUntilGone <label> [timeout]     Wait for element to disappear
           scrollTo <element> [direction]     Scroll until element is visible in viewport
           scrollUntilVisible <element> [dir] Alias of scrollTo (semantic name, emitted by recorder)
@@ -63,8 +64,10 @@ public enum iOSUsage {
           setAppearance <dark|light>         Switch dark/light mode
           lockDevice                         Lock device screen
           unlockDevice                       Unlock device screen
-          pushFile <local> <remote>          Push file to device
-          pullFile <remote> <local>          Pull file from device
+          pushFile <local> <remote>          Push file to app data container
+          pullFile <remote> <local>          Pull file from app data container
+                                            remote: ruta absoluta o <bundleId>/<ruta>
+                                            (ej: com.example.app/Documents/foto.jpg)
           config                             Show all config
           config <key> <value>              Set config value
           config <key>                      Get config value
@@ -97,6 +100,8 @@ public enum iOSUsage {
           auto inspect "Camera" --context
           auto tree -s "Información"
           auto swipe down
+          auto waitFor "Login" 5
+          auto pushFile foto.jpg com.example.app/Documents/foto.jpg
           auto run test-flow.auto
 
         Requirements:

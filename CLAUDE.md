@@ -158,6 +158,7 @@ auto launch
 
 ### Android
 - Con `--legacy`: `uiautomator dump` toma 1-2 segundos (el AgentBridge default no tiene este problema)
+- Con `--legacy` y el agente corriendo: `--legacy tree` y `--legacy tap` NO funcionan — Android solo permite un cliente UiAutomation a la vez, y mientras el agente (am instrument) retiene la conexion, `uiautomator dump` devuelve vacio sin mensaje de error. Parar el agente antes de usar `--legacy tree/tap` (`--legacy ping/screenshot/swipe` si funcionan). Ver issue #135
 - Clipboard read no soportado via ADB (solo write como workaround)
 - Camera mock no implementado aun en Android
 - Element index `$N` en Android: `auto-android index` funciona, `tap $N` auto-construye el indice
