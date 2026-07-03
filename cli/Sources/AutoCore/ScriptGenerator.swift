@@ -122,6 +122,11 @@ public final class ScriptGenerator {
             line += " within \"\(within)\""
         }
 
+        // Trailing args (#91): e.g. longPress "Foto" 1.5
+        if let suffix = action.argsSuffix {
+            line += " \(suffix)"
+        }
+
         return line
     }
 }

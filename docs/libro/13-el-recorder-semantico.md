@@ -269,11 +269,14 @@ tap "Cerrar sesion[2]"                 # toca el boton del dialogo
 
 | Gesto | iOS | Android |
 |-------|-----|---------|
-| Tap | mouseDown < 0.5s | touchDown+Up < 0.5s, movimiento < 20px |
-| Long press | mouseDown→Up > 0.5s | touchDown→Up > 0.5s |
+| Tap | down→up <0.5s, desplazamiento <10px (#91) | touchDown+Up < 0.5s, movimiento < 20px |
+| Long press | down→up >0.5s sin movimiento; emite `[secs]` si el hold supera 1s (#91) | touchDown→Up > 0.5s |
 | Double tap | 2 clicks <300ms mismo selector | 2 taps <300ms mismo selector |
-| Swipe | NO detectable (trackpad bypass) | movimiento > 50px, calcula direccion |
-| Scroll | NO detectable | Solo swipe, no cantidad de pixels |
+| Swipe | drag del mouse >=10px, rapido (>=500px/s), recto y axial → `scroll <elem> <dir>` o `swipe <dir>` (#91) | movimiento > 50px, calcula direccion |
+| Drag | drag del mouse >=10px lento, diagonal o serpenteante → `drag <from> <to>` (#91) | NO |
+| Scroll (rueda/trackpad 2 dedos) | scrollWheel con fallback a pointDelta (#50) | Solo swipe, no cantidad de pixels |
+
+Los gestos directos de trackpad sobre el Simulator (pinch, pan multi-touch) siguen sin ser visibles — bypassean CGEventTap (ver Intento 6). Lo que #91 agrega es la clasificacion de los gestos que SI llegan: los drags del mouse, que antes se grababan como `tap` en el punto de origen.
 
 ---
 
@@ -388,6 +391,65 @@ cuatro perdidas *reales* de interaccion, todas silenciosas:
 silenciosa. Un recorder puede perder eventos por razones legitimas, pero
 nunca debe hacerlo sin dejar rastro: fail-open + warning es mejor que
 fail-closed mudo, y un contador que miente es peor que no tener contador.
+
+---
+
+## Clasificacion de gestos por trayectoria (#91)
+
+Hasta aqui el recorder trataba el mouse de forma binaria: duracion corta =
+tap, duracion larga = longPress. Los `mouseDragged` entre down y up ni
+siquiera se capturaban — un drag del usuario (reordenar una celda, ajustar
+un slider, scrollear arrastrando) se grababa como `tap` en el punto de
+origen. La intencion se perdia en silencio.
+
+El fix tiene dos piezas:
+
+1. **`EventRecorder` captura `leftMouseDragged`** y deja de filtrar
+   dragged/up por window frame — un drag que arranca dentro de la ventana
+   puede salirse a mitad de trayectoria, y filtrar el mouseUp dejaba el
+   gesto abierto. Solo el mouseDown (inicio del gesto) exige estar dentro
+   del frame, asi que clicks completos fuera de la ventana siguen sin
+   generar lineas.
+
+2. **`GestureClassifier`** (`cli/Sources/AutoLibiOS/GestureClassifier.swift`):
+   funcion PURA — secuencia de puntos+timestamps → gesto — separada del
+   CGEventTap y testeable con trayectorias sinteticas (21 tests en
+   `cli/Tests/GestureClassifierTests.swift`). Las reglas, en orden:
+
+```
+desplazamiento neto < 10px:
+    duracion >= 0.5s              → longPress (emite [secs] si hold > 1s)
+    si no                          → tap (temblor de click ignorado)
+desplazamiento >= 10px:
+    velocidad >= 500px/s
+      Y eje dominante >= 2x el otro
+      Y camino <= 1.4x el neto     → swipe up/down/left/right
+    cualquier otro movimiento      → drag(from, to)
+```
+
+Los umbrales estan en `GestureClassifier.Thresholds` (inyectables en tests).
+500px/s en coordenadas de ventana ≈ el flick inercial de >800pt/s que
+sugiere el issue #91, porque la ventana del Simulator renderiza a ~40-60%
+del tamaño fisico del device.
+
+`RecordingSession` decide en el mouseUp con la trayectoria completa:
+
+- **tap** → pipeline existente (resolucion semantica contra el tree
+  PRE-click, buffer de 300ms para double tap)
+- **longPress** → mismo hit-test semantico, con duracion real si supera 1s
+- **swipe** → si el punto de origen resuelve a un contenedor scrolleable o
+  etiquetado, `scroll "<elem>" <dir>`; si no, `swipe <dir>` — mas `wait 0.5`
+  post-scroll (#63)
+- **drag** → ambos extremos por hit-test AX contra el tree PRE-gesto (el
+  origen todavia esta en su lugar y el destino es lo que habia bajo el punto
+  de drop). Si algun extremo no resuelve — o ambos resuelven al mismo
+  elemento, como un slider que viaja con el puntero — cae a
+  `drag x1,y1 x2,y2` con comment de fragilidad.
+
+Lo que queda del issue #91 para iteraciones futuras: la cascada XCUI
+(snapshot diff pre/post gesto para ambiguedades, consolidacion `scrollTo`,
+deteccion de navegacion/sheet). Esta pieza cubre el paso 1 de la cascada —
+features del gesto fisico — con el hit-test AX rapido que ya existia.
 
 ---
 
