@@ -246,4 +246,87 @@ final class AsciiLayoutTests: XCTestCase {
             XCTAssertEqual(line.count, 42)
         }
     }
+
+    // MARK: - Chrome de la ventana del Simulator (#162)
+
+    /// AX tree real de la ventana del Simulator: los hijos de la ventana son
+    /// los window controls, el toolbar (Home/Volume) y el AXGroup con el
+    /// contenido del device.
+    private func simulatorWindowTree() -> [[String: Any]] {
+        [
+            ["role": "AXButton", "frame": ["x": 8, "y": 6, "width": 14, "height": 14]],   // close
+            ["role": "AXButton", "frame": ["x": 28, "y": 6, "width": 14, "height": 14]],  // minimize
+            ["role": "AXButton", "frame": ["x": 48, "y": 6, "width": 14, "height": 14]],  // zoom
+            ["role": "AXStaticText", "title": "iPhone 15 — iOS 17",
+             "frame": ["x": 120, "y": 4, "width": 160, "height": 20]],
+            [
+                "role": "AXToolbar",
+                "frame": ["x": 0, "y": 0, "width": 400, "height": 28],
+                "children": [
+                    ["role": "AXButton", "title": "Home",
+                     "frame": ["x": 300, "y": 4, "width": 20, "height": 20]],
+                    ["role": "AXButton", "title": "Volume Up",
+                     "frame": ["x": 330, "y": 4, "width": 20, "height": 20]],
+                    ["role": "AXButton", "title": "Volume Down",
+                     "frame": ["x": 360, "y": 4, "width": 20, "height": 20]]
+                ]
+            ],
+            [
+                "role": "AXGroup",
+                "frame": ["x": 0, "y": 28, "width": 400, "height": 772],
+                "children": [
+                    ["role": "AXButton", "title": "Guardar",
+                     "frame": ["x": 20, "y": 600, "width": 170, "height": 140]],
+                    ["role": "AXStaticText", "label": "Perfil",
+                     "frame": ["x": 20, "y": 160, "width": 200, "height": 120]]
+                ]
+            ]
+        ]
+    }
+
+    func testPruneSimulatorWindowChrome() {
+        let output = AsciiLayout.render(
+            tree: simulatorWindowTree(),
+            viewport: viewport,
+            options: smallGrid()
+        )
+        XCTAssertTrue(output.contains("[B] Guardar"), "el contenido de la app se conserva:\n\(output)")
+        XCTAssertTrue(output.contains("[T] Perfil"))
+        XCTAssertFalse(output.contains("Home"), "el chrome del Simulator no se dibuja:\n\(output)")
+        XCTAssertFalse(output.contains("Volume"))
+        XCTAssertFalse(output.contains("iPhone 15"))
+        XCTAssertTrue(output.contains("2 elemento(s)"))
+    }
+
+    func testPruneSimulatorChromeWithWindowRoot() {
+        // Misma poda cuando el tree viene con la AXWindow como raíz.
+        let tree: [[String: Any]] = [[
+            "role": "AXWindow",
+            "frame": ["x": 0, "y": 0, "width": 400, "height": 800],
+            "children": simulatorWindowTree()
+        ]]
+        let pruned = AsciiLayout.pruneSimulatorChrome(tree)
+        XCTAssertEqual(pruned.count, 1)
+        let children = pruned[0]["children"] as? [[String: Any]] ?? []
+        XCTAssertEqual(children.count, 1)
+        XCTAssertEqual(children[0]["role"] as? String, "AXGroup")
+    }
+
+    func testPruneLeavesNonSimulatorTreesIntact() {
+        // Tree Android: roles sin prefijo AX → intacto.
+        let android: [[String: Any]] = [[
+            "role": "FrameLayout",
+            "frame": ["x": 0, "y": 0, "width": 1080, "height": 2340]
+        ]]
+        XCTAssertEqual(AsciiLayout.pruneSimulatorChrome(android).count, 1)
+
+        // Tree AX sin AXGroup a nivel raíz (app-only) → intacto.
+        let appOnly: [[String: Any]] = [
+            ["role": "AXButton", "title": "Guardar",
+             "frame": ["x": 0, "y": 0, "width": 100, "height": 100]],
+            ["role": "AXStaticText", "label": "Perfil",
+             "frame": ["x": 0, "y": 200, "width": 100, "height": 100]]
+        ]
+        XCTAssertEqual(AsciiLayout.pruneSimulatorChrome(appOnly).count, 2)
+    }
 }

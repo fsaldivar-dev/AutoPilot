@@ -97,6 +97,12 @@ public final class XCUIBridge: DeviceBridge {
 
         if let ok = response["ok"] as? Bool, !ok {
             let errMsg = response["error"] as? String ?? "unknown error"
+            // "element not found: X" del runner → caso tipado con el target
+            // desnudo; envolver el mensaje completo duplicaba el prefijo:
+            // "Element not found: 'element not found: X'" (#162).
+            if let notFound = BridgeError.unwrapElementNotFound(errMsg) {
+                throw notFound
+            }
             if errMsg.contains("element not found") {
                 throw BridgeError.elementNotFound(errMsg)
             }
