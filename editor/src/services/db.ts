@@ -93,3 +93,22 @@ export async function listRuns(
   const rows = await invoke<RunRecordRow[]>("db_list_runs", { flowId, limit });
   return rows.map((r) => rowToRun(r));
 }
+
+export async function deleteRun(id: string): Promise<void> {
+  await invoke("db_delete_run", { id });
+}
+
+// Guarda el PNG de un paso (data-URI). El backend lo decodifica a BLOB.
+export async function saveScreenshot(
+  id: string,
+  runId: string,
+  capturedAt: number,
+  dataUrl: string
+): Promise<void> {
+  await invoke("db_save_screenshot", { id, runId, capturedAt, dataUrl });
+}
+
+// Devuelve el PNG de un paso como data-URI, o null si no existe.
+export async function getScreenshot(id: string): Promise<string | null> {
+  return invoke<string | null>("db_get_screenshot", { id });
+}
