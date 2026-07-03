@@ -42,15 +42,13 @@ public final class iOSDeviceResolver: DeviceResolver {
         }
         self.legacyBridge = Self.makeLegacyBridge(sim: sim, xcui: xcui, observerLive: observerLive)
 
-        // When the observer is live, skip AXBackend entirely — AX macOS is the
-        // only path that requires `NSRunningApplication.activate()` and it's
-        // what robs focus from the caller (editor). The observer covers all of
-        // AX's capabilities sin tocar Simulator.app foreground.
-        //
-        // Can be forced back on with AUTO_FORCE_AX=1 for debugging (ej: si el
-        // observer tiene un bug puntual y queremos comparar).
+        // ARD #164: AX macOS está FUERA del path por defecto. Es el único
+        // motor que requiere `NSRunningApplication.activate()` y roba el foco
+        // del usuario en cada acción — inaceptable como default. El chain
+        // default es observer (si vive) → XCUI runner. AX solo se registra
+        // como opt-in explícito para debug con AUTO_FORCE_AX=1.
         let forceAX = ProcessInfo.processInfo.environment["AUTO_FORCE_AX"] == "1"
-        if !observerLive || forceAX {
+        if forceAX {
             backends.append(AXBackend.make(simulatorBridge: sim))
         }
 
@@ -83,11 +81,8 @@ public final class iOSDeviceResolver: DeviceResolver {
             default:          break
             }
         }
-        if observerLive {
-            // Legacy commands van directo a XCUI cuando no los cubre el router.
-            // Evita activar Simulator.app via AX macOS.
-            return xcui
-        }
-        return HybridBridge(fast: sim, deep: xcui)
+        // ARD #164: default XCUI siempre — nunca AX (hybrid/simulator quedan
+        // como opt-in explícito via AUTO_BRIDGE para debug/benchmarks).
+        return xcui
     }
 }
