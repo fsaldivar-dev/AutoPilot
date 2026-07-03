@@ -165,3 +165,4 @@ auto launch
 
 ### General
 - El editor necesita Rust toolchain instalado (`rustup`)
+- `record` no ve input sintetico (#132/#133, comportamiento esperado): en iOS el recorder captura CGEvents de hardware y `auto tap` usa AXPress/XCUITest (no genera CGEvents); en Android captura `getevent` del kernel y `auto-android tap`/`adb input tap` inyectan a nivel InputManager. Solo se graban interacciones reales — el CLI imprime este aviso al arrancar la grabacion. Ver docs/libro/13-el-recorder-semantico.md

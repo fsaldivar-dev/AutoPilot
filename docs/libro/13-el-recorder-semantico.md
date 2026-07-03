@@ -332,6 +332,65 @@ El viewport check fue posible gracias al segundo motor ([capitulo 15](15-el-segu
 
 ---
 
+## Lo que el recorder no puede ver: input sintetico (#132, #133)
+
+En el triage de 2026-07-02 aparecieron dos issues gemelos: `auto record` en iOS
+genero 0 lineas cuando los taps durante la sesion fueron `auto tap` desde otra
+terminal (#132), y `auto-android record` reporto "3 lines" con solo 2 comandos
+en el archivo y sin el tap de la sesion (#133).
+
+**La parte esperada — ceguera al input sintetico.** Es arquitectura, no bug:
+
+1. **iOS**: el recorder captura via `CGEventTap` en `.listenOnly` — solo ve
+   eventos HID del host (mouse/teclado fisicos). `auto tap` usa
+   `AXUIElementPerformAction(kAXPressAction)` (o XCUITest dentro del
+   simulador), que entra directo al proceso del Simulator sin generar ningun
+   CGEvent. El recorder no tiene donde verlo.
+2. **Android**: el recorder captura via `adb shell getevent`, que lee
+   `/dev/input` del kernel. `auto-android tap` (UiAutomation), igual que
+   `adb shell input tap`, inyecta a nivel InputManager — nunca pasa por el
+   kernel (ya lo habiamos verificado en el Intento 7).
+
+En ambos casos el capturador esta *debajo* del punto de inyeccion. Grabar
+input sintetico requeriria otro capturador (hook al bridge, no al hardware).
+Desde ahora `record` imprime un aviso al arrancar en ambas plataformas:
+los taps del propio CLI no se graban — usar interaccion real.
+
+**La parte que si eran bugs.** Al revisar el pipeline por #132/#133 aparecieron
+cuatro perdidas *reales* de interaccion, todas silenciosas:
+
+1. **Filtro fail-closed del window frame (iOS)**: si `getSimulatorWindowFrame()`
+   devolvia nil al arrancar, el frame quedaba en `.zero` y el guard
+   `windowFrame != .zero && contains` descartaba TODOS los clicks humanos —
+   0 lineas sin ningun error. Ahora es fail-open: frame desconocido = capturar
+   todo, con warning en stderr. Y el frame se refresca cada 1s, porque mover
+   la ventana del Simulator a mitad de grabacion dejaba el filtro apuntando
+   al frame viejo.
+2. **Race de drenaje en el stop (Android)**: `stop()` esperaba a que muriera
+   el proceso adb (`waitUntilExit`) pero no a que el reader thread terminara
+   de procesar los bytes ya escritos al pipe. El ultimo tap podia encolarse
+   *despues* del flush y desaparecer. Ahora el reader señala EOF con un
+   semaforo y `stop()` espera esa señal antes de flushear. La linea parcial
+   final (getevent muere por SIGINT a mitad de linea) tambien se drena.
+3. **Gestos descartados sin tree (Android)**: `handleTouchUp` exigia
+   `touchDownTree != nil` — si el cache de tree estaba vacio (el `tree()`
+   inicial fallo y el refresh de 1s no habia corrido), el gesto completo se
+   tiraba en silencio, incluso swipes que ni usan el tree. Ahora los swipes
+   se emiten siempre y tap/longPress caen a `tapAt x y` (fragil pero
+   presente) en vez de perderse.
+4. **El contador mentiroso**: "N line(s) recorded" usaba `lineCount`, que
+   cuenta el buffer crudo — incluida la linea en blanco del header
+   terminate/launch y los comments de fragilidad. De ahi el "3 lines" con
+   2 comandos: terminate + launch + linea en blanco, y el tap nunca entro
+   (era sintetico). Ahora se reporta `commandCount`: solo lineas ejecutables.
+
+**Que aprendimos:** los cuatro bugs compartian el mismo patron — perdida
+silenciosa. Un recorder puede perder eventos por razones legitimas, pero
+nunca debe hacerlo sin dejar rastro: fail-open + warning es mejor que
+fail-closed mudo, y un contador que miente es peor que no tener contador.
+
+---
+
 ## Comparativa con la industria
 
 | Aspecto | AutoPilot | Maestro Studio | Appium Inspector |

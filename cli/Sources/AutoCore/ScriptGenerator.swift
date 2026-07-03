@@ -85,8 +85,20 @@ public final class ScriptGenerator {
         return script
     }
 
-    /// Number of lines in the script buffer.
+    /// Number of lines in the script buffer (includes blank separators and comments).
     public var lineCount: Int { lines.count }
+
+    /// Number of executable command lines — excludes blank separators and
+    /// `#` comments. Es lo que hay que reportar al usuario: `lineCount`
+    /// contaba la línea en blanco del header terminate/launch y los comments
+    /// de fragilidad, produciendo el "3 line(s) recorded" con solo 2 comandos
+    /// en el archivo (#133).
+    public var commandCount: Int {
+        lines.filter { line in
+            let trimmed = line.trimmingCharacters(in: .whitespaces)
+            return !trimmed.isEmpty && !trimmed.hasPrefix("#")
+        }.count
+    }
 
     // MARK: - Private
 
