@@ -168,10 +168,28 @@ extension SimulatorBridge {
     public func terminateApp(bundleId: String) throws {
         let deviceId = try getBootedDeviceId()
         let process = Process()
+        let errPipe = Pipe()
         process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
         process.arguments = ["simctl", "terminate", deviceId, bundleId]
+        // #162: sin capturar stderr, simctl volcaba crudo "found nothing to
+        // terminate" al terminal justo antes del "Terminated ..." del CLI.
+        process.standardError = errPipe
         try process.run()
         process.waitUntilExit()
+        let errData = errPipe.fileHandleForReading.readDataToEndOfFile()
+        let stderr = String(data: errData, encoding: .utf8)?
+            .trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+
+        guard process.terminationStatus != 0 else { return }
+
+        // Benigno: la app no estaba corriendo — no es un error, solo avisar.
+        if stderr.contains("found nothing to terminate") {
+            print("(\(bundleId) no estaba corriendo)")
+            return
+        }
+        throw BridgeError.simctlFailed(
+            stderr.isEmpty ? "simctl terminate exited \(process.terminationStatus)" : stderr
+        )
     }
 
     /// Install an app on the booted simulator.
