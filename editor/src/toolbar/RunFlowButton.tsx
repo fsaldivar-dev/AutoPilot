@@ -1,7 +1,24 @@
 import { useState } from "react";
+import { invoke } from "@tauri-apps/api/core";
 import { selectCurrentFlow, selectCurrentProject, useStore } from "../state/store";
 import * as executor from "../services/executor";
 import { runFlow } from "../services/flowRunner";
+import { RunRecorder } from "../services/runRecorder";
+import * as db from "../services/db";
+import type { Block, RunStatus } from "../domain/types";
+
+// Bloques cuyo screenshot capturamos en el replay: comandos y componentes
+// reales. Los wrappers logic (if/repeat/try) no tienen estado visual propio.
+function isCapturableBlock(flow: { blocks: Block[] }, id: string): boolean {
+  const walk = (blocks: Block[]): boolean => {
+    for (const b of blocks) {
+      if (b.id === id) return b.kind === "command" || b.kind === "component";
+      if (b.slots) for (const slot of b.slots) if (walk(slot)) return true;
+    }
+    return false;
+  };
+  return walk(flow.blocks);
+}
 
 interface Props {
   platform: "ios" | "android" | "both";
@@ -50,6 +67,28 @@ export function RunFlowButton({ platform }: Props) {
     setRunning(true);
     setAborting(false);
 
+    // Grabador del run (#163): captura screenshot+comando+estado por paso y
+    // persiste run_records + screenshots para el replay. La captura reusa el
+    // mismo `screenshot_only` que alimenta el mirror del DevicePreview.
+    const recorder = new RunRecorder(flow.id, {
+      capture: async () => {
+        try {
+          const cur = useStore.getState().sessionId ?? sess ?? null;
+          return await invoke<string>("screenshot_only", {
+            platform: runtime,
+            sessionId: cur,
+          });
+        } catch {
+          return null;
+        }
+      },
+      saveScreenshot: db.saveScreenshot,
+      saveRun: db.saveRun,
+    });
+    // Encadena las capturas para que ocurran en orden sin bloquear las
+    // decisiones de control-flow del runner (onBlockEnd es síncrono).
+    let recordChain: Promise<void> = Promise.resolve();
+
     const result = await runFlow(sess, runtime, flow, project.env, {
       onBlockStart: (id) => {
         updateBlock(flow.id, id, { meta: { status: "running", ranAt: Date.now() } });
@@ -63,11 +102,24 @@ export function RunFlowButton({ platform }: Props) {
             ranAt: Date.now(),
           },
         });
+        const capture = isCapturableBlock(flow, id);
+        recordChain = recordChain.then(() =>
+          recorder.recordStep(id, ok, ms, err, capture)
+        );
       },
       shouldAbortOnError: () => aborting,
       onSessionChange: (newSid) => setSession(newSid, runtime),
       onUIMutation: () => bumpRefreshTick(),
     });
+
+    // Espera a que terminen las capturas pendientes antes de persistir.
+    await recordChain;
+    const status: RunStatus = aborting
+      ? "cancelled"
+      : result.ok
+        ? "passed"
+        : "failed";
+    await recorder.finish(status);
 
     setRunning(false);
     if (result.ok) {

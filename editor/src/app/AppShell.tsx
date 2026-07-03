@@ -10,6 +10,7 @@ import { PrimitivesPalette } from "../composer/PrimitivesPalette";
 import { LogicPalette } from "../composer/LogicPalette";
 import { BlockProperties } from "../inspector/BlockProperties";
 import { Timeline } from "../timeline/Timeline";
+import { ReplayPanel } from "../replay/ReplayPanel";
 import { Toolbar } from "../toolbar/Toolbar";
 import { EnvChips } from "../toolbar/EnvChips";
 import { useStore } from "../state/store";
@@ -23,6 +24,7 @@ export function AppShell() {
   const dismissToast = useStore((s) => s.dismissToast);
   const selectedIds = useStore((s) => s.selectedBlockIds);
   const viewMode = useStore((s) => s.viewMode);
+  const [rightTab, setRightTab] = useState<"timeline" | "replay">("timeline");
 
   useEffect(() => {
     void hydrateFromDisk();
@@ -53,7 +55,29 @@ export function AppShell() {
       </main>
       <aside className="panel-right">
         <DevicePreview platform={platform} />
-        {selectedIds.length === 1 ? <BlockProperties /> : <Timeline />}
+        {selectedIds.length === 1 ? (
+          <BlockProperties />
+        ) : (
+          <>
+            <div className="right-tabs" data-testid="right-tabs">
+              <button
+                className={`right-tab ${rightTab === "timeline" ? "active" : ""}`}
+                data-testid="tab-timeline"
+                onClick={() => setRightTab("timeline")}
+              >
+                Timeline
+              </button>
+              <button
+                className={`right-tab ${rightTab === "replay" ? "active" : ""}`}
+                data-testid="tab-replay"
+                onClick={() => setRightTab("replay")}
+              >
+                Replay
+              </button>
+            </div>
+            {rightTab === "timeline" ? <Timeline /> : <ReplayPanel />}
+          </>
+        )}
       </aside>
       <footer className="status-bar">
         <span data-testid="status-text">

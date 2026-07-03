@@ -67,6 +67,9 @@ impl Db {
             .map_err(|e| format!("open {}: {}", path.display(), e))?;
         conn.pragma_update(None, "journal_mode", "WAL")
             .map_err(|e| format!("pragma wal: {}", e))?;
+        // ON DELETE CASCADE en el esquema solo aplica con foreign_keys activo.
+        conn.pragma_update(None, "foreign_keys", "ON")
+            .map_err(|e| format!("pragma fk: {}", e))?;
         let db = Self {
             conn: Mutex::new(conn),
         };
@@ -76,6 +79,8 @@ impl Db {
 
     pub fn open_memory() -> Result<Self, String> {
         let conn = Connection::open_in_memory().map_err(|e| format!("memory: {}", e))?;
+        conn.pragma_update(None, "foreign_keys", "ON")
+            .map_err(|e| format!("pragma fk: {}", e))?;
         let db = Self {
             conn: Mutex::new(conn),
         };
@@ -404,6 +409,58 @@ impl Db {
         rows.collect::<Result<_, _>>()
             .map_err(|e| format!("collect: {}", e))
     }
+
+    pub fn delete_run(&self, id: &str) -> Result<(), String> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute("DELETE FROM run_records WHERE id = ?1", params![id])
+            .map_err(|e| format!("delete run: {}", e))?;
+        Ok(())
+    }
+
+    // ---- run step screenshots ----
+    //
+    // Cada paso capturado durante un run guarda su PNG como BLOB, ligado al
+    // run_id (cascade delete). El frontend referencia el screenshot por su id
+    // en `RunEvent.screenshotId` y lo pide bajo demanda al abrir el replay,
+    // así el JSON de eventos del run queda liviano (sin base64 inline).
+
+    /// Guarda un screenshot de paso. `data` son los bytes PNG crudos.
+    pub fn save_screenshot(
+        &self,
+        id: &str,
+        run_id: &str,
+        captured_at: i64,
+        data: &[u8],
+    ) -> Result<(), String> {
+        let conn = self.conn.lock().unwrap();
+        conn.execute(
+            r#"INSERT INTO screenshots (id, run_id, captured_at, data)
+               VALUES (?1, ?2, ?3, ?4)
+               ON CONFLICT(id) DO UPDATE SET
+                 run_id = excluded.run_id,
+                 captured_at = excluded.captured_at,
+                 data = excluded.data"#,
+            params![id, run_id, captured_at, data],
+        )
+        .map_err(|e| format!("save screenshot: {}", e))?;
+        Ok(())
+    }
+
+    /// Devuelve los bytes PNG de un screenshot por id, o None si no existe.
+    pub fn get_screenshot(&self, id: &str) -> Result<Option<Vec<u8>>, String> {
+        let conn = self.conn.lock().unwrap();
+        let mut stmt = conn
+            .prepare("SELECT data FROM screenshots WHERE id = ?1")
+            .map_err(|e| format!("prepare: {}", e))?;
+        let mut rows = stmt
+            .query_map(params![id], |row| row.get::<_, Vec<u8>>(0))
+            .map_err(|e| format!("query: {}", e))?;
+        match rows.next() {
+            Some(Ok(bytes)) => Ok(Some(bytes)),
+            Some(Err(e)) => Err(format!("read screenshot: {}", e)),
+            None => Ok(None),
+        }
+    }
 }
 
 #[cfg(test)]
@@ -498,6 +555,107 @@ mod tests {
         assert_eq!(vars.len(), 1);
         assert_eq!(vars[0].value, "v2");
         assert!(vars[0].secret);
+    }
+
+    fn seed_flow(db: &Db) {
+        db.upsert_project(&ProjectRow {
+            id: "p1".into(),
+            name: "p".into(),
+            platform: "ios".into(),
+            data: serde_json::json!({}),
+            created_at: now(),
+            updated_at: now(),
+        })
+        .unwrap();
+        db.upsert_flow(&FlowRow {
+            id: "f1".into(),
+            project_id: "p1".into(),
+            name: "Login".into(),
+            data: serde_json::json!({ "blocks": [] }),
+            updated_at: now(),
+        })
+        .unwrap();
+    }
+
+    #[test]
+    fn runs_saved_and_listed_newest_first() {
+        let db = Db::open_memory().unwrap();
+        seed_flow(&db);
+        db.save_run(&RunRecordRow {
+            id: "r1".into(),
+            flow_id: "f1".into(),
+            started_at: 100,
+            ended_at: Some(200),
+            status: "passed".into(),
+            events: serde_json::json!([{ "blockId": "b1", "ok": true }]),
+        })
+        .unwrap();
+        db.save_run(&RunRecordRow {
+            id: "r2".into(),
+            flow_id: "f1".into(),
+            started_at: 300,
+            ended_at: Some(400),
+            status: "failed".into(),
+            events: serde_json::json!([]),
+        })
+        .unwrap();
+        let runs = db.list_runs("f1", 10).unwrap();
+        assert_eq!(runs.len(), 2);
+        // started_at DESC → r2 primero.
+        assert_eq!(runs[0].id, "r2");
+        assert_eq!(runs[1].id, "r1");
+    }
+
+    #[test]
+    fn run_upsert_updates_status_and_events() {
+        let db = Db::open_memory().unwrap();
+        seed_flow(&db);
+        db.save_run(&RunRecordRow {
+            id: "r1".into(),
+            flow_id: "f1".into(),
+            started_at: 100,
+            ended_at: None,
+            status: "running".into(),
+            events: serde_json::json!([]),
+        })
+        .unwrap();
+        db.save_run(&RunRecordRow {
+            id: "r1".into(),
+            flow_id: "f1".into(),
+            started_at: 100,
+            ended_at: Some(250),
+            status: "passed".into(),
+            events: serde_json::json!([{ "blockId": "b1" }]),
+        })
+        .unwrap();
+        let runs = db.list_runs("f1", 10).unwrap();
+        assert_eq!(runs.len(), 1);
+        assert_eq!(runs[0].status, "passed");
+        assert_eq!(runs[0].ended_at, Some(250));
+    }
+
+    #[test]
+    fn screenshots_roundtrip_and_cascade_delete() {
+        let db = Db::open_memory().unwrap();
+        seed_flow(&db);
+        db.save_run(&RunRecordRow {
+            id: "r1".into(),
+            flow_id: "f1".into(),
+            started_at: 100,
+            ended_at: Some(200),
+            status: "passed".into(),
+            events: serde_json::json!([]),
+        })
+        .unwrap();
+        let png = [0x89u8, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a];
+        db.save_screenshot("s1", "r1", 150, &png).unwrap();
+        let got = db.get_screenshot("s1").unwrap();
+        assert_eq!(got.as_deref(), Some(&png[..]));
+        assert!(db.get_screenshot("nope").unwrap().is_none());
+
+        // Borrar el run debe cascada-borrar sus screenshots.
+        db.delete_run("r1").unwrap();
+        assert!(db.get_screenshot("s1").unwrap().is_none());
     }
 
     #[test]
