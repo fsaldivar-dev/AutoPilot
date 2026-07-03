@@ -125,18 +125,44 @@ public final class SimulatorBridge {
         AXUIElementPerformAction(axElement, kAXPressAction as CFString)
     }
 
-    /// Clear a text field: tap it, select all (Cmd+A), then delete.
+    /// Clear a text field. Estrategia en cascada, SIEMPRE verificando el
+    /// AXValue al final — nunca reportar éxito sin comprobar (#121):
+    ///   1. AXUIElementSetAttributeValue(kAXValue, "") directo
+    ///   2. tap + Cmd+A + Delete (CGEvent al pid, sin mover el mouse)
+    ///   3. Delete por carácter (N = longitud del value + margen)
+    /// Si tras las tres el texto persiste, lanza error tipado.
     public func clear(target: String) throws {
-        try tap(target: target)
+        let root = try findSimulatorContent()
+        guard let axElement = findAXElement(in: root, matching: target, depth: 0, maxDepth: 20) else {
+            throw BridgeError.elementNotFound(target)
+        }
+
+        // Un campo vacío reporta su PLACEHOLDER como AXValue (SwiftUI expone
+        // el placeholder en value y en label/description cuando no hay texto).
+        let placeholder = (getAttribute(axElement, kAXDescriptionAttribute) as? String) ?? ""
+        func isCleared() -> Bool {
+            let value = (getAttribute(axElement, kAXValueAttribute) as? String) ?? ""
+            return value.isEmpty || value == placeholder
+        }
+        func currentValue() -> String {
+            (getAttribute(axElement, kAXValueAttribute) as? String) ?? ""
+        }
+        if isCleared() { return }
+
+        // 1. setValue directo — el camino más confiable cuando el field lo soporta
+        AXUIElementSetAttributeValue(axElement, kAXValueAttribute as CFString, "" as CFTypeRef)
+        usleep(150_000)
+        if isCleared() { return }
+
+        // 2. tap para foco + Cmd+A + Delete
+        AXUIElementPerformAction(axElement, kAXPressAction as CFString)
         usleep(200_000)
 
         guard let pid = simulatorPID ?? findSimulatorPID() else {
             throw BridgeError.simulatorNotRunning
         }
-
         let src = CGEventSource(stateID: .combinedSessionState)
 
-        // Cmd+A (select all)
         let aDown = CGEvent(keyboardEventSource: src, virtualKey: 0, keyDown: true) // 0 = 'a'
         let aUp = CGEvent(keyboardEventSource: src, virtualKey: 0, keyDown: false)
         aDown?.flags = .maskCommand
@@ -145,11 +171,24 @@ public final class SimulatorBridge {
         aUp?.postToPid(pid)
         usleep(100_000)
 
-        // Delete
         let delDown = CGEvent(keyboardEventSource: src, virtualKey: 51, keyDown: true) // 51 = delete
         let delUp = CGEvent(keyboardEventSource: src, virtualKey: 51, keyDown: false)
         delDown?.postToPid(pid)
         delUp?.postToPid(pid)
+        usleep(250_000)
+        if isCleared() { return }
+
+        // 3. Borrado por carácter — N deletes (el tap del paso 2 deja el
+        // cursor al final en iOS). OJO: nada de Cmd+flechas — son shortcuts
+        // de Simulator.app (Cmd+→ ROTA el device).
+        let remaining = currentValue().count
+        try eraseText(count: remaining + 4)
+        usleep(250_000)
+        if isCleared() { return }
+
+        throw BridgeError.unknown(
+            "clear failed: '\(target)' sigue conteniendo texto ('\(currentValue())'). " +
+            "El campo puede no aceptar edición por AX/teclado.")
     }
 
     /// Characters that are unreliable through CGEvent + shift modifier
