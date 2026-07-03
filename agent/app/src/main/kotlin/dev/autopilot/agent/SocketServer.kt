@@ -201,7 +201,37 @@ class SocketServer(
     // ── Swipe ────────────────────────────────────────────
 
     private fun handleSwipe(params: JSONObject?): String {
-        val direction = params?.optString("direction", "") ?: return errorResponse("Missing direction")
+        // Dos formas del mensaje, mutuamente excluyentes:
+        //   {direction}              — swipe direccional de pantalla completa
+        //   {x1,y1,x2,y2[,duration]} — swipe entre coordenadas; la usan
+        //                              `scroll <elem> <dir>` y `drag` (AgentBridge)
+        if (params == null) return errorResponse("Missing params: direction or x1,y1,x2,y2")
+
+        val hasDirection = params.optString("direction", "").isNotEmpty()
+        val coordKeys = listOf("x1", "y1", "x2", "y2")
+        val presentCoords = coordKeys.filter { params.has(it) }
+
+        if (hasDirection && presentCoords.isNotEmpty()) {
+            return errorResponse("Ambiguous swipe: send either direction or x1,y1,x2,y2, not both")
+        }
+
+        if (presentCoords.isNotEmpty()) {
+            if (presentCoords.size < coordKeys.size) {
+                return errorResponse("Swipe coordinates require all of x1,y1,x2,y2 (got: $presentCoords)")
+            }
+            // Clamp a >= 0: elementos parcialmente fuera de pantalla producen
+            // bounds negativos en boundsInScreen — clampear, no rechazar
+            val x1 = params.optInt("x1").coerceAtLeast(0)
+            val y1 = params.optInt("y1").coerceAtLeast(0)
+            val x2 = params.optInt("x2").coerceAtLeast(0)
+            val y2 = params.optInt("y2").coerceAtLeast(0)
+            val duration = params.optLong("duration", 300L).coerceIn(1L, 60_000L)
+            input.swipe(x1, y1, x2, y2, duration)
+            return successResponse("from" to "$x1,$y1", "to" to "$x2,$y2")
+        }
+
+        val direction = params.optString("direction", "")
+        if (direction.isEmpty()) return errorResponse("Missing direction or coordinates")
 
         // Get screen size from root window bounds
         val root = getRoot() ?: return errorResponse("No active window")
