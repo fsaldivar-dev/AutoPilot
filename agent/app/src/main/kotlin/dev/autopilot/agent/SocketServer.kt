@@ -14,6 +14,8 @@ import android.util.Base64
 import android.util.Log
 import android.view.KeyEvent as AndroidKeyEvent
 import android.view.accessibility.AccessibilityNodeInfo
+import android.view.accessibility.AccessibilityWindowInfo
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.File
@@ -99,6 +101,7 @@ class SocketServer(
             val result = when (method) {
                 "ping" -> handlePing()
                 "tree" -> handleTree()
+                "windows" -> handleWindows()
                 "tap" -> handleTap(params)
                 "tapAt" -> handleTapAt(params)
                 "longPress" -> handleLongPress(params)
@@ -131,14 +134,55 @@ class SocketServer(
     }
 
     private fun handleTree(): String {
-        val root = getRoot()
-            ?: return errorResponse("No active window — is an app open? Try restarting the agent.")
+        // Todas las ventanas: la activa primero (sin wrapper, compatible con
+        // el formato histórico) + IME/overlays como roots "Window" (issue #130)
+        val roots = getAllRoots()
+        if (roots.isEmpty()) {
+            return errorResponse("No active window — is an app open? Try restarting the agent.")
+        }
 
-        val tree = TreeSerializer.serialize(root)
-        root.recycle()
+        val tree = JSONArray()
+        for ((root, window) in roots) {
+            if (window == null) {
+                tree.put(TreeSerializer.serializeNode(root))
+            } else {
+                tree.put(TreeSerializer.serializeWindow(root, window))
+            }
+            root.recycle()
+        }
 
         val response = JSONObject()
         response.put("result", tree)
+        return response.toString()
+    }
+
+    private fun handleWindows(): String {
+        val list = JSONArray()
+        for (window in interactiveWindows()) {
+            val obj = JSONObject()
+            obj.put("type", TreeSerializer.windowTypeName(window.type))
+            obj.put("layer", window.layer)
+            obj.put("active", window.isActive)
+            obj.put("focused", window.isFocused)
+
+            val bounds = Rect()
+            window.getBoundsInScreen(bounds)
+            val frame = JSONObject()
+            frame.put("x", bounds.left)
+            frame.put("y", bounds.top)
+            frame.put("width", bounds.width())
+            frame.put("height", bounds.height())
+            obj.put("frame", frame)
+
+            val root = window.root
+            obj.put("package", root?.packageName?.toString() ?: "")
+            root?.recycle()
+
+            list.put(obj)
+        }
+
+        val response = JSONObject()
+        response.put("result", list)
         return response.toString()
     }
 
@@ -426,27 +470,60 @@ class SocketServer(
         return null
     }
 
-    /** Busca un nodo por text, content-desc, o resource-id. Recursivo. */
+    /**
+     * Ventanas interactivas visibles (requiere FLAG_RETRIEVE_INTERACTIVE_WINDOWS,
+     * ver AgentInstrumentation). Lista vacía si la API falla.
+     */
+    private fun interactiveWindows(): List<AccessibilityWindowInfo> {
+        return try {
+            uiAutomation.windows ?: emptyList()
+        } catch (e: Exception) {
+            Log.w(TAG, "getWindows failed: ${e.message}")
+            emptyList()
+        }
+    }
+
+    /**
+     * Roots de TODAS las ventanas: la activa primero (window == null),
+     * luego IME/overlays/diálogos con su AccessibilityWindowInfo (issue #130).
+     * El caller debe recycle() cada root.
+     */
+    private fun getAllRoots(): List<Pair<AccessibilityNodeInfo, AccessibilityWindowInfo?>> {
+        val roots = mutableListOf<Pair<AccessibilityNodeInfo, AccessibilityWindowInfo?>>()
+        val active = getRoot()
+        if (active != null) roots.add(active to null)
+
+        for (window in interactiveWindows()) {
+            val root = try { window.root } catch (e: Exception) { null } ?: continue
+            if (active != null && root.windowId == active.windowId) {
+                root.recycle()
+                continue
+            }
+            roots.add(root to window)
+        }
+        return roots
+    }
+
+    /**
+     * Busca un nodo por text, content-desc, o resource-id en TODAS las
+     * ventanas (activa primero, luego IME/overlays). Recursivo.
+     * Match exacto en cualquier ventana gana sobre match parcial.
+     */
     private fun findNode(query: String): AccessibilityNodeInfo? {
-        val root = getRoot() ?: return null
+        val roots = getAllRoots()
+        if (roots.isEmpty()) return null
         val q = query.lowercase()
 
-        // First pass: exact match
-        val exact = findRecursive(root, q, exact = true)
-        if (exact != null) {
-            root.recycle()
-            return exact
+        var found: AccessibilityNodeInfo? = null
+        outer@ for (exact in booleanArrayOf(true, false)) {
+            for ((root, _) in roots) {
+                found = findRecursive(root, q, exact)
+                if (found != null) break@outer
+            }
         }
 
-        // Second pass: contains match
-        val contains = findRecursive(root, q, exact = false)
-        if (contains != null) {
-            root.recycle()
-            return contains
-        }
-
-        root.recycle()
-        return null
+        for ((root, _) in roots) root.recycle()
+        return found
     }
 
     private fun findRecursive(node: AccessibilityNodeInfo, query: String, exact: Boolean): AccessibilityNodeInfo? {
