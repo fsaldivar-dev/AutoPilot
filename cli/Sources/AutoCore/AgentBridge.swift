@@ -703,6 +703,21 @@ public final class AgentBridge: DeviceBridge {
         try legacy.uninstallApp(bundleId: bundleId)
     }
 
+    // MARK: - DeviceBridge: System Accounts (via adb, issue #86)
+    //
+    // Delegado al bridge legacy: `dumpsys account` + `pm clear` van por adb
+    // directo. No pasa por el agente porque `AccountManager.removeAccount()`
+    // exige la firma del autenticador o privilegios de sistema que el
+    // proceso instrumentado no tiene — no hay versión "quirúrgica" posible.
+
+    public func listAccounts() throws -> [AccountDump.Account] {
+        try legacy.listAccounts()
+    }
+
+    public func clearAccounts(type: String) throws {
+        try legacy.clearAccounts(type: type)
+    }
+
     // MARK: - DeviceBridge: Viewport
 
     public func viewport() throws -> CGRect {

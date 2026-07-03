@@ -35,6 +35,8 @@
     { "name": "uninstall", "group": "app", "platform": "both", "description": "Desinstala app", "params": [{ "name": "bundleId", "type": "string" }], "example": "uninstall \"com.banco.app\"", "returns": "void" },
     { "name": "clearState", "group": "app", "platform": "both", "description": "Borra datos y permisos de la app", "params": [{ "name": "bundleId", "type": "string" }], "example": "clearState \"com.banco.app\"", "returns": "void" },
     { "name": "keychain reset", "group": "app", "platform": "both", "description": "Reset keychain (iOS) o equivalente", "params": [], "example": "keychain reset", "returns": "void" },
+    { "name": "accounts list", "group": "app", "platform": "both", "description": "Lista cuentas del AccountManager (Android; no-op iOS)", "params": [{ "name": "type", "type": "string", "required": false }], "example": "accounts list \"com.google\"", "returns": "void" },
+    { "name": "accounts clear", "group": "app", "platform": "both", "description": "Borra cuentas de un tipo via pm clear del autenticador (Android; no-op iOS)", "params": [{ "name": "type", "type": "string", "required": false }], "example": "accounts clear \"com.google\"", "returns": "void" },
 
     { "name": "screenshot", "group": "capture", "platform": "both", "description": "Toma captura de pantalla", "params": [{ "name": "filename", "type": "string", "required": false }], "example": "screenshot \"evidencia.png\"", "returns": "void" },
     { "name": "startRecording", "group": "capture", "platform": "both", "description": "Inicia grabacion de video", "params": [], "example": "startRecording", "returns": "void" },

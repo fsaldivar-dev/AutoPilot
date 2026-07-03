@@ -805,6 +805,65 @@ public final class AdbLegacyBridge: DeviceBridge {
         try runAdb(["shell", "pm", "clear", bundleId])
     }
 
+    // MARK: - System Accounts (issue #86)
+
+    public func listAccounts() throws -> [AccountDump.Account] {
+        let dump = try runAdb(["shell", "dumpsys", "account"])
+        return AccountDump.parse(dump).accounts
+    }
+
+    /// Borra las cuentas de un tipo (p.ej. `com.google`) del AccountManager
+    /// del sistema, que sobreviven al `pm uninstall` del bundle de la app.
+    ///
+    /// Sin root NO hay vía quirúrgica en un emulador API 35 (build `user`):
+    /// - `adb root` → "adbd cannot run as root in production builds"
+    /// - `cmd account` solo expone `set/get-bind-instant-service-allowed`
+    /// - `accounts_ce.db` pertenece al uid system, ilegible desde shell
+    /// - `AccountManager.removeAccount()` exige firma del autenticador o
+    ///   privilegios de sistema — ni el agente instrumentado los tiene
+    ///
+    /// La opción menos mala y 100% scriptable: `pm clear` del package
+    /// autenticador que provee el tipo (resuelto vía `dumpsys account`,
+    /// no hardcodeado). Nuclear para ese proveedor — para `com.google`
+    /// borra TODAS las cuentas Google del device y el estado de GMS
+    /// (~30s de re-inicialización) — pero no toca el resto del sistema.
+    public func clearAccounts(type: String) throws {
+        let parsed = AccountDump.parse(try runAdb(["shell", "dumpsys", "account"]))
+
+        let matching = parsed.accounts.filter { $0.type == type }
+        guard !matching.isEmpty else {
+            // Idempotente: sin cuentas del tipo, la post-condición ya vale.
+            print("No accounts of type '\(type)' on the device — nothing to clear")
+            return
+        }
+        guard let authenticatorPackage = parsed.authenticators[type] else {
+            let known = parsed.authenticators.keys.sorted().joined(separator: ", ")
+            throw BridgeError.adbFailed(
+                "No authenticator registered for account type '\(type)'. Registered types: \(known)")
+        }
+
+        print("WARNING: removing \(matching.count) account(s) of type '\(type)' via `pm clear \(authenticatorPackage)`")
+        if authenticatorPackage == "com.google.android.gms" {
+            print("         This wipes ALL Google accounts and Play Services state on the device (~30s to re-initialize)")
+        } else {
+            print("         This wipes ALL state of the '\(authenticatorPackage)' provider package")
+        }
+
+        try runAdb(["shell", "pm", "clear", authenticatorPackage])
+
+        // `pm clear` retorna al instante pero el AccountManagerService purga
+        // las cuentas de forma asíncrona — confirmamos la post-condición
+        // antes de reportar éxito para no dar un falso "listo" al script.
+        let deadline = Date().addingTimeInterval(15)
+        while Date() < deadline {
+            let remaining = AccountDump.parse((try? runAdb(["shell", "dumpsys", "account"])) ?? "").accounts
+            if !remaining.contains(where: { $0.type == type }) { return }
+            usleep(500_000)
+        }
+        throw BridgeError.adbFailed(
+            "Accounts of type '\(type)' still present after `pm clear \(authenticatorPackage)` — device may need a reboot")
+    }
+
     public func uninstallApp(bundleId: String) throws {
         do {
             try runAdb(["uninstall", bundleId])
