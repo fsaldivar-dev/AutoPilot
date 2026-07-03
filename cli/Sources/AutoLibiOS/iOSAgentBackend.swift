@@ -7,7 +7,13 @@ public enum iOSAgentBackend {
 
     public static let capabilities: Set<ActionKind> = [
         .tap, .doubleTap, .longPress, .clear,
-        .scroll, .swipe, .tapAtCoordinate,
+        // `.scrollTo` (#153): ejecuta el scrollTo compartido de DeviceBridge
+        // sobre tree/swipe/viewport del observer. Sin esta capability el
+        // router caía siempre al legacyBridge XCUI, cuyo snapshot NO expone
+        // elementos SwiftUI offscreen (no puede ni encontrar el target) y
+        // paga ~13s por tree. El observer los ve en ~3ms. AgentBackend
+        // (Android) ya la declaraba — esto empareja iOS.
+        .scroll, .swipe, .scrollTo, .tapAtCoordinate,
         .tree, .search, .elementAt,
         .typeText, .pressKey, .hideKeyboard,
         .viewport,
