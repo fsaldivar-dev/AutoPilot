@@ -502,8 +502,11 @@ func handleListCommand(type: String) throws {
     // only when the observer isn't available (no agentBridge registered).
     let items: [[String: Any]]
     if deviceResolver.agentBridge != nil {
+        // #150: el árbol del observer es anidado — iOSListFilter recursa
+        // sobre children (antes filtraba solo el nivel top y con el shape
+        // nuevo solo habría visto las ventanas raíz).
         let tree = try bridge.tree()
-        items = filterTreeByListType(tree, type: type)
+        items = iOSListFilter.filter(tree: tree, type: type)
     } else {
         items = try xcuiBridge.list(type: type)
     }
@@ -533,29 +536,6 @@ func handleListCommand(type: String) throws {
         if !enabled { line += "  (disabled)" }
         line += "  \(frame)"
         print(line)
-    }
-}
-
-/// Filter a tree (from DeviceBridge.tree / observer) to entries matching the
-/// requested `auto list <type>` filter. Reuses the AX role taxonomy the observer
-/// already emits, so we skip the XCUI typed-query roundtrip.
-private func filterTreeByListType(_ tree: [[String: Any]], type: String) -> [[String: Any]] {
-    let wanted: Set<String>
-    switch type.lowercased() {
-    case "all":                         return tree
-    case "buttons":                     wanted = ["AXButton"]
-    case "labels", "statictexts":       wanted = ["AXStaticText"]
-    case "textfields":                  wanted = ["AXTextField", "AXTextArea"]
-    case "cells":                       wanted = ["AXCell"]
-    case "switches":                    wanted = ["AXCheckBox", "AXSwitch"]
-    case "links":                       wanted = ["AXLink"]
-    case "images":                      wanted = ["AXImage"]
-    case "navbars", "navigationbars":   wanted = ["AXNavigationBar"]
-    default:                            return []
-    }
-    return tree.filter { node in
-        guard let role = node["role"] as? String else { return false }
-        return wanted.contains(role)
     }
 }
 
