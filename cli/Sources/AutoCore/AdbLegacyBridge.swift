@@ -107,8 +107,13 @@ public final class AdbLegacyBridge: DeviceBridge {
         let output = String(data: stdout.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
 
         guard process.terminationStatus == 0 else {
-            let err = String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? ""
-            throw BridgeError.adbFailed(err.isEmpty ? "exit \(process.terminationStatus)" : err.trimmingCharacters(in: .whitespacesAndNewlines))
+            let err = (String(data: stderr.fileHandleForReading.readDataToEndOfFile(), encoding: .utf8) ?? "")
+                .trimmingCharacters(in: .whitespacesAndNewlines)
+            // adb reporta algunos fallos por stdout con stderr vacío
+            // (p.ej. `adb uninstall` imprime "Failure [...]" por stdout),
+            // así que usamos stdout como causa antes de caer al exit code (issue #139).
+            let cause = err.isEmpty ? output.trimmingCharacters(in: .whitespacesAndNewlines) : err
+            throw BridgeError.adbFailed(cause.isEmpty ? "exit \(process.terminationStatus)" : cause)
         }
 
         return output
@@ -738,7 +743,21 @@ public final class AdbLegacyBridge: DeviceBridge {
     }
 
     public func uninstallApp(bundleId: String) throws {
-        try runAdb(["uninstall", bundleId])
+        do {
+            try runAdb(["uninstall", bundleId])
+        } catch BridgeError.adbFailed(let msg) where msg.contains("DELETE_FAILED_INTERNAL_ERROR") {
+            // `adb uninstall` responde "Failure [DELETE_FAILED_INTERNAL_ERROR]"
+            // (por stdout, exit 1) cuando el paquete no existe en el dispositivo.
+            // Confirmamos con `pm list packages` para dar un mensaje claro (issue #139).
+            let installed = (try? runAdb(["shell", "pm", "list", "packages", bundleId])) ?? ""
+            let isInstalled = installed
+                .split(whereSeparator: \.isNewline)
+                .contains { $0.trimmingCharacters(in: .whitespaces) == "package:\(bundleId)" }
+            if !isInstalled {
+                throw BridgeError.adbFailed("Package '\(bundleId)' not installed")
+            }
+            throw BridgeError.adbFailed(msg)
+        }
     }
 
     // MARK: - Viewport

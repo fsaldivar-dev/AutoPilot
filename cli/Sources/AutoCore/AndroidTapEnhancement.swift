@@ -51,7 +51,11 @@ public enum AndroidTapEnhancement {
         if let match = matches.first {
             let clickable = AndroidComposeResolver.findClickableFrame(for: match.element, in: tree)
             if clickable != nil {
-                fputs("[tap] found Button frame for '\(target)'\n", stderr)
+                // El frame resuelto puede venir de cualquier ancestro clickable
+                // (Button, EditText, contenedor Compose...), así que reportamos
+                // el rol real del elemento matcheado en vez de "Button" (issue #139).
+                let role = (match.element["role"] as? String) ?? "element"
+                fputs("[tap] found clickable frame for '\(target)' (\(role))\n", stderr)
             }
             let tapFrame = clickable ?? match.element["frame"] as? [String: Any]
             if let frame = tapFrame,
