@@ -307,3 +307,35 @@ private func probeSocket() -> Bool {
 **Workaround alternativo**: tap en coordenadas absolutas del boton "Ahora no". Requiere medir coordenadas a mano para cada device size porque el dialog no esta en AX. No implementado en esta sesion.
 
 **Para el benchmark / recorder**: este dialog NO se puede grabar ni reproducir con `auto`. Maestro tampoco lo maneja (cae al mismo problema). Solucion futura: agregar `auto tap <x> <y>` por coordenadas absolutas, o un comando `auto dismissSystemDialog`.
+
+---
+
+## Sesion 2026-07-02 — Android: teclado virtual (#54) y dialogos de permisos (#53)
+
+Implementados sobre la base de #130 (ventanas IME/overlay visibles en el tree) y #133 (fiabilidad del recorder). Logica pura en `AndroidRecorderDetection` (AutoCore), integrada en `AndroidRecordingSession.handleTouchUp`.
+
+### Teclado virtual → `type` semantico (#54)
+
+- Deteccion por region: el tree post-#130 trae un nodo `Window` con `title: "IME"` y el frame del teclado. Si el touchUp cae dentro, el toque se absorbe como tecleo.
+- Texto por diff de value (Opcion B del issue): value del EditText enfocado al abrir la sesion de tecleo vs al cerrarla (primer gesto fuera del IME o stop del recorder). Emite UN `type "texto"` — backspaces y autocorrect quedan absorbidos por el diff.
+- Casos: sufijo → `type`; solo borrado → `eraseText N`; edicion mixta → `eraseText` + `type`; password → comment de advertencia (el tree enmascara con `••••`, limitacion de plataforma).
+- Enter: solo si el teclado expone la tecla al tree (LatinIME si, GBoard no siempre) → `pressKey enter`. Si no la expone, el toque se absorbe sin corromper el texto.
+- Fuentes del value final, en orden: tree fresco del bridge → tree del gesto que cerro la sesion → ultimo value visto por el refresh de cache de 1s (fallback si el campo perdio el foco).
+
+### Dialogos de permisos → `permission grant` (#53)
+
+- Deteccion por package, no por texto: el tree contiene un subarbol top-level cuyo package es `com.google.android.permissioncontroller` / `com.android.permissioncontroller` / `com.android.packageinstaller`.
+- Hit-test dentro del subarbol del dialogo resuelve el label real del boton. Negativo se evalua ANTES que afirmativo ("Don't allow" contiene "allow").
+- Boton afirmativo + servicio mapeable (keywords en/es del mensaje: camera, location, microphone, notifications, contacts, calendars, photos) → emite `# permiso: <mensaje>` + `permission grant <service> <package>` (idempotente, locale-agnostic).
+- Package de la app: de las otras ventanas del tree (saltando systemui/launcher/IME), fallback al foreground detectado al arrancar la grabacion.
+- Deny / servicio no mapeable → flujo normal: el resolver semantico SI ve el dialogo post-#130, asi que sale `tap "Deny"` (label real), nunca `tapAt`.
+
+### Tests
+
+30 tests unitarios en `cli/Tests/AndroidRecorderDetectionTests.swift` con trees mock que replican el formato de `TreeSerializer.kt` (clasificacion IME, diff de values, deteccion de package, mapeo de servicios, dialecto es/en). Sin emulador.
+
+### Limitaciones honestas
+
+- Passwords: el value enmascarado impide reconstruir el texto real — el script queda con `type "••••"` + comment para edicion manual.
+- Enter/submit con GBoard: si el teclado no expone teclas al tree, el enter fisico no se graba (el texto si).
+- Si el cache de tree (refresh 1s) aun no vio el IME cuando llega el primer keypress muy rapido, ese primer toque puede salir como `tapAt` sobre el teclado — la ventana de riesgo es <1s tras abrir el teclado.

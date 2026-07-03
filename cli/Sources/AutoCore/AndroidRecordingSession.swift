@@ -32,6 +32,20 @@ public final class AndroidRecordingSession {
     private var pendingTap: (action: ResolvedAction, timestamp: Double)?
     private var pendingTapWork: DispatchWorkItem?
 
+    // #54: sesión de tecleo sobre el teclado virtual (ventana IME del tree).
+    // Mientras está activa, los toques dentro del IME se absorben y al cerrar
+    // se emite UN `type "<texto>"` con el diff del value del campo enfocado.
+    private var keyboardActive = false
+    private var keyboardValueBefore: String?
+    // Último value del campo enfocado visto por el refresh del tree cache
+    // mientras la sesión de tecleo está activa — fallback si al finalizar
+    // el campo ya perdió el foco.
+    private var keyboardValueLatest: String?
+
+    // #53: package de la app en foreground al arrancar — fallback para
+    // `permission grant <service> <package>` si el tree no lo revela.
+    private var foregroundPackage: String?
+
     public init(bridge: any DeviceBridge, outputPath: String) {
         self.bridge = bridge
         self.outputPath = outputPath
@@ -52,6 +66,7 @@ public final class AndroidRecordingSession {
 
         // 3. Auto-inject terminate + launch for the current foreground app
         if let bundleId = detectForegroundApp() {
+            foregroundPackage = bundleId
             generator.appendRaw("terminate \"\(bundleId)\"")
             generator.appendRaw("launch \"\(bundleId)\"")
             generator.appendRaw("")
@@ -94,6 +109,9 @@ public final class AndroidRecordingSession {
         // por el reader (resolveQueue es serial).
         resolveQueue.sync {
             flushPendingTap()
+            // #54: si la grabación termina con el teclado abierto, cerrar la
+            // sesión de tecleo pendiente para no perder el texto escrito.
+            finalizeKeyboardCapture(treeAtGesture: nil)
         }
 
         // Write script
@@ -174,6 +192,12 @@ public final class AndroidRecordingSession {
     private func refreshTreeCache() {
         if let tree = try? bridge.tree(), !tree.isEmpty {
             cachedTree = tree
+            // #54: mientras hay sesión de tecleo, trackear el value del campo
+            // enfocado — fallback si al finalizar el campo perdió el foco.
+            if keyboardActive,
+               let value = AndroidRecorderDetection.focusedEditableValue(in: tree) {
+                keyboardValueLatest = value
+            }
         }
     }
 
@@ -227,21 +251,152 @@ public final class AndroidRecordingSession {
         touchDownTree = nil
         lastMovePoint = nil
 
+        // #54: toques sobre el teclado virtual — el más fresco entre el tree
+        // del touch-down y el cache (el IME puede haber aparecido después de
+        // la última captura del touch-down).
+        let imeTree = tree ?? cachedTree
+        let insideIME = imeTree.map {
+            AndroidRecorderDetection.isPointInsideIME(x: downPoint.x, y: downPoint.y, tree: $0)
+        } ?? false
+        let imeCacheTree = cachedTree.flatMap {
+            AndroidRecorderDetection.isPointInsideIME(x: downPoint.x, y: downPoint.y, tree: $0) ? $0 : nil
+        }
+
         // Classify gesture
         switch Self.classifyGesture(distance: distance, duration: duration) {
         case .swipe:
+            if insideIME || imeCacheTree != nil {
+                // Glide typing / swipe dentro del teclado: parte del tecleo
+                beginKeyboardCaptureIfNeeded(tree: tree ?? imeCacheTree)
+                return
+            }
+            finalizeKeyboardCapture(treeAtGesture: tree)
             handleSwipe(from: downPoint, to: upPoint)
         case .longPress:
+            if insideIME || imeCacheTree != nil {
+                // Long press en tecla (acentos, símbolos) — sigue siendo tecleo
+                beginKeyboardCaptureIfNeeded(tree: tree ?? imeCacheTree)
+                return
+            }
+            finalizeKeyboardCapture(treeAtGesture: tree)
             let action = Self.resolveTouchOrFallback(
                 x: downPoint.x, y: downPoint.y, tree: tree, command: "longPress"
             )
             emitAction(action, timestamp: timestamp)
         case .tap:
+            if insideIME || imeCacheTree != nil {
+                // Para detectar la tecla Enter se necesita el tree que SÍ
+                // contiene la ventana IME; para el value inicial, el tree
+                // del touch-down (previo al keypress).
+                handleKeyboardTap(x: downPoint.x, y: downPoint.y,
+                                  gestureTree: tree ?? imeCacheTree,
+                                  imeTree: (insideIME ? imeTree : nil) ?? imeCacheTree)
+                return
+            }
+            finalizeKeyboardCapture(treeAtGesture: tree)
+
+            // #53: ¿el tap cayó en un diálogo de permisos del sistema?
+            if let permissionTree = tree ?? cachedTree,
+               handlePermissionDialogTap(x: downPoint.x, y: downPoint.y, tree: permissionTree) {
+                return
+            }
+
             let action = Self.resolveTouchOrFallback(
                 x: downPoint.x, y: downPoint.y, tree: tree, command: "tap"
             )
             handlePotentialDoubleTap(action: action, timestamp: timestamp)
         }
+    }
+
+    // MARK: - #54: Keyboard Capture
+
+    /// Tap dentro de la ventana IME: arranca/continúa la sesión de tecleo.
+    /// Si el toque cayó sobre una tecla Enter expuesta al tree, cierra la
+    /// sesión (emite el `type`) y agrega `pressKey enter`.
+    private func handleKeyboardTap(x: Int, y: Int,
+                                   gestureTree: [[String: Any]]?,
+                                   imeTree: [[String: Any]]?) {
+        if let imeTree, keyboardActive,
+           AndroidRecorderDetection.isEnterKeyTap(x: x, y: y, tree: imeTree) {
+            finalizeKeyboardCapture(treeAtGesture: imeTree)
+            let line = "pressKey enter"
+            generator.appendRaw(line)
+            printRecorded(line)
+            return
+        }
+        beginKeyboardCaptureIfNeeded(tree: gestureTree)
+    }
+
+    private func beginKeyboardCaptureIfNeeded(tree: [[String: Any]]?) {
+        guard !keyboardActive else { return }
+        keyboardActive = true
+        // Value del campo enfocado ANTES del primer keypress: el tree del
+        // touch-down se capturó antes de que la tecla aplicara su carácter.
+        keyboardValueBefore = tree.flatMap {
+            AndroidRecorderDetection.focusedEditableValue(in: $0)
+        } ?? ""
+        keyboardValueLatest = nil
+        printRecorded("# teclado virtual detectado — acumulando tecleo…")
+    }
+
+    /// Cierra la sesión de tecleo: lee el value final del campo enfocado y
+    /// emite los comandos del diff (`type` / `eraseText`). Orden de fuentes
+    /// para el value final: tree fresco del bridge → tree del gesto que cerró
+    /// la sesión → último value visto por el refresh del cache.
+    private func finalizeKeyboardCapture(treeAtGesture: [[String: Any]]?) {
+        guard keyboardActive else { return }
+        keyboardActive = false
+
+        let freshValue = (try? bridge.tree()).flatMap {
+            AndroidRecorderDetection.focusedEditableValue(in: $0)
+        }
+        let gestureValue = treeAtGesture.flatMap {
+            AndroidRecorderDetection.focusedEditableValue(in: $0)
+        }
+        let after = freshValue ?? gestureValue ?? keyboardValueLatest
+
+        let commands = AndroidRecorderDetection.typingCommands(
+            before: keyboardValueBefore, after: after
+        )
+        keyboardValueBefore = nil
+        keyboardValueLatest = nil
+
+        // Si hay un tap buffereado (detección de double-tap), emitirlo ANTES
+        // del type para preservar el orden real de los gestos en el script.
+        if !commands.isEmpty { flushPendingTap() }
+
+        for line in commands {
+            generator.appendRaw(line)
+            printRecorded(line)
+        }
+    }
+
+    // MARK: - #53: Permission Dialog Detection
+
+    /// Si el tap cayó sobre el botón afirmativo de un diálogo de permisos y
+    /// el servicio + package son deducibles, emite el comando idempotente
+    /// `permission grant <service> <package>` (con comment del diálogo) y
+    /// devuelve true. En cualquier otro caso devuelve false y el flujo normal
+    /// resuelve el tap semántico contra el tree (que post-#130 SÍ ve el
+    /// diálogo, así que sale `tap "Deny"` y no `tapAt x y`).
+    private func handlePermissionDialogTap(x: Int, y: Int, tree: [[String: Any]]) -> Bool {
+        guard let dialog = AndroidRecorderDetection.detectPermissionDialog(x: x, y: y, tree: tree),
+              dialog.affirmative,
+              let service = dialog.service,
+              let package = dialog.appPackage ?? foregroundPackage else {
+            return false
+        }
+        // Emitir el tap buffereado previo antes del grant (orden del script)
+        flushPendingTap()
+        if let message = dialog.message {
+            let comment = "# permiso: \(message)"
+            generator.appendRaw(comment)
+            printRecorded(comment)
+        }
+        let line = "permission grant \(service) \(package)"
+        generator.appendRaw(line)
+        printRecorded(line)
+        return true
     }
 
     // MARK: - Gesture Classification (pure, testable)
