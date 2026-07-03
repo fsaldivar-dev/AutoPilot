@@ -1,6 +1,7 @@
-import { useMemo, useState } from "react";
+import { useMemo, useRef, useState } from "react";
 import { CommandBar } from "./CommandBar";
 import { InlineCommandEditor } from "./InlineCommandEditor";
+import { useBlockDrag } from "./useBlockDrag";
 import { CommandBlock } from "../blocks/CommandBlock";
 import { ComponentBlock } from "../blocks/ComponentBlock";
 import { LogicBlock } from "../blocks/LogicBlock";
@@ -20,7 +21,7 @@ export function BlockCanvas({ platform }: Props) {
   const setSelected = useStore((s) => s.setSelectedBlocks);
   const removeBlock = useStore((s) => s.removeBlock);
   const updateBlock = useStore((s) => s.updateBlock);
-  const moveBlock = useStore((s) => s.moveBlock);
+  const moveBlockToTarget = useStore((s) => s.moveBlockToTarget);
   const sessionId = useStore((s) => s.sessionId);
   const setSession = useStore((s) => s.setSession);
   const running = useStore((s) => s.running);
@@ -29,9 +30,17 @@ export function BlockCanvas({ platform }: Props) {
   const bumpRefreshTick = useStore((s) => s.bumpRefreshTick);
 
   const [showGroupModal, setShowGroupModal] = useState(false);
-  const [draggingId, setDraggingId] = useState<string | null>(null);
-  const [dragOverIndex, setDragOverIndex] = useState<number | null>(null);
   const [editingId, setEditingId] = useState<string | null>(null);
+
+  const canvasRef = useRef<HTMLDivElement>(null);
+  const flowIdRef = useRef<string | undefined>(flow?.id);
+  flowIdRef.current = flow?.id;
+  const { draggingId, indicator, onPointerDown } = useBlockDrag(canvasRef, {
+    enabled: !running && editingId == null,
+    onDrop: (blockId, dest) => {
+      if (flowIdRef.current) moveBlockToTarget(flowIdRef.current, blockId, dest);
+    },
+  });
 
   const selectedBlocks = useMemo(
     () => (flow?.blocks ?? []).filter((b) => selectedIds.includes(b.id)),
@@ -54,44 +63,6 @@ export function BlockCanvas({ platform }: Props) {
     if (!flow) return;
     removeBlock(flow.id, id);
     setSelected(selectedIds.filter((x) => x !== id));
-  }
-
-  function onDragStart(e: React.DragEvent, id: string) {
-    setDraggingId(id);
-    e.dataTransfer.effectAllowed = "move";
-    e.dataTransfer.setData("text/x-block-id", id);
-    // Opaque drag image — otherwise Chrome shows the handle only
-    const target = (e.currentTarget as HTMLElement).closest(".block-wrapper");
-    if (target) e.dataTransfer.setDragImage(target, 20, 20);
-  }
-  function onDragEnd() {
-    setDraggingId(null);
-    setDragOverIndex(null);
-  }
-  // Drop zone is the block itself — top half inserts before, bottom half after.
-  function onDragOverBlock(e: React.DragEvent, blockIdx: number) {
-    if (!draggingId) return;
-    e.preventDefault();
-    e.dataTransfer.dropEffect = "move";
-    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect();
-    const isTopHalf = e.clientY - rect.top < rect.height / 2;
-    setDragOverIndex(isTopHalf ? blockIdx : blockIdx + 1);
-  }
-  function onDropBlock(e: React.DragEvent) {
-    e.preventDefault();
-    const id = e.dataTransfer.getData("text/x-block-id") || draggingId;
-    if (!id || !flow || dragOverIndex == null) {
-      setDraggingId(null);
-      setDragOverIndex(null);
-      return;
-    }
-    const fromIdx = flow.blocks.findIndex((b) => b.id === id);
-    if (fromIdx < 0) return;
-    let target = dragOverIndex;
-    if (fromIdx < dragOverIndex) target = dragOverIndex - 1;
-    if (target !== fromIdx) moveBlock(flow.id, id, target);
-    setDraggingId(null);
-    setDragOverIndex(null);
   }
 
   function onEditStart(id: string) {
@@ -148,7 +119,13 @@ export function BlockCanvas({ platform }: Props) {
   }
 
   return (
-    <div className="canvas" data-testid="block-canvas">
+    <div
+      className="canvas"
+      data-testid="block-canvas"
+      data-drop-root
+      ref={canvasRef}
+      onPointerDown={onPointerDown}
+    >
       <CommandBar platform={platform} />
 
       {selectedBlocks.length >= 2 && (
@@ -179,13 +156,10 @@ export function BlockCanvas({ platform }: Props) {
         </div>
       ) : (
         <>
-          {flow.blocks.map((b, idx) => {
-            const showInsertBefore = dragOverIndex === idx && draggingId && draggingId !== b.id;
-            const showInsertAfter = dragOverIndex === idx + 1 && draggingId && draggingId !== b.id && idx === flow.blocks.length - 1;
+          {flow.blocks.map((b) => {
             const isEditing = editingId === b.id;
             return (
               <div key={b.id}>
-                {showInsertBefore && <div className="drop-indicator" />}
                 {isEditing ? (
                   <div onDoubleClick={(e) => e.stopPropagation()}>
                     <InlineCommandEditor
@@ -197,33 +171,27 @@ export function BlockCanvas({ platform }: Props) {
                   </div>
                 ) : (
                   <div
-                    className={`block-wrapper${draggingId === b.id ? " block-dragging" : ""}`}
-                    draggable={b.kind !== "logic"}
-                    onDragStart={(e) => onDragStart(e, b.id)}
-                    onDragEnd={onDragEnd}
-                    onDragOver={(e) => onDragOverBlock(e, idx)}
-                    onDrop={onDropBlock}
+                    className="block-wrapper"
                     onDoubleClick={(e) => {
                       e.stopPropagation();
                       if (b.kind === "command") onEditStart(b.id);
-                    }}
-                    onDragLeave={(e) => {
-                      const to = e.relatedTarget as Node | null;
-                      if (!to || !(e.currentTarget as HTMLElement).contains(to)) {
-                        if (dragOverIndex === idx || dragOverIndex === idx + 1) {
-                          setDragOverIndex(null);
-                        }
-                      }
                     }}
                   >
                     {renderBlock(b, project?.components ?? [], selectedIds, onSelect, onDelete, onRunBlock, onEditStart, !running)}
                   </div>
                 )}
-                {showInsertAfter && <div className="drop-indicator" />}
               </div>
             );
           })}
         </>
+      )}
+
+      {draggingId && indicator && (
+        <div
+          className="dnd-indicator"
+          data-testid="dnd-indicator"
+          style={{ top: indicator.top, left: indicator.left, width: indicator.width }}
+        />
       )}
 
       {showGroupModal && project && (

@@ -17,6 +17,7 @@ export function TryBlock({ block, onChildSelect }: Props) {
       data-block-id={block.id}
     >
       <div className="logic-header">
+        <span className="drag-handle" title="Arrastrar para reordenar" aria-hidden>⋮⋮</span>
         <span className="logic-keyword">try</span>
       </div>
       <LogicSlot

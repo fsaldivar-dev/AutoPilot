@@ -268,12 +268,6 @@ body {
 .block-wrapper {
   position: relative;
 }
-.block-wrapper[draggable="true"] {
-  cursor: grab;
-}
-.block-wrapper[draggable="true"]:active {
-  cursor: grabbing;
-}
 .block-dragging {
   opacity: 0.4;
 }
@@ -288,17 +282,35 @@ body {
   margin-right: 2px;
   user-select: none;
   flex-shrink: 0;
+  cursor: grab;
+  touch-action: none;
 }
-.block-wrapper[draggable="true"]:hover .drag-handle {
+.drag-handle:hover {
   color: var(--fg-dim);
 }
-.drop-indicator {
+/* Durante un drag activo: cursor global + sin selección accidental. */
+body.dnd-active,
+body.dnd-active * {
+  cursor: grabbing !important;
+  user-select: none !important;
+}
+/* Línea flotante que marca dónde caerá el bloque (posicionada por JS). */
+.dnd-indicator {
+  position: fixed;
+  z-index: 1000;
   height: 3px;
-  margin: 6px 0;
+  pointer-events: none;
   background: linear-gradient(90deg, transparent, var(--violet-2), transparent);
   border-radius: 2px;
   box-shadow: 0 0 12px rgba(167, 139, 250, 0.5);
   animation: drop-pulse 0.8s ease-in-out infinite alternate;
+}
+/* Slot resaltado mientras el cursor lo sobrevuela con un bloque en la mano. */
+.logic-slot.slot-drop-hover {
+  outline: 2px dashed var(--violet-2);
+  outline-offset: -2px;
+  background: rgba(167, 139, 250, 0.08);
+  border-radius: 8px;
 }
 @keyframes drop-pulse {
   from { opacity: 0.6; }

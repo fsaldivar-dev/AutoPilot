@@ -131,6 +131,122 @@ export function updateBlockById(
 }
 
 // ──────────────────────────────────────────────────────────────────────────────
+// Drag & drop — mover un bloque a cualquier contenedor (raíz o slot).
+
+/**
+ * Destino de un drop.
+ * - `parentId === undefined` → raíz del flow.
+ * - `index` se interpreta DESPUÉS de remover el bloque arrastrado de su
+ *   contenedor origen (así el hit-test del DOM, que excluye al bloque
+ *   arrastrado, produce índices consistentes sin ajustes).
+ */
+export interface DropTarget {
+  parentId?: string;
+  slot?: number;
+  index: number;
+}
+
+/** Ubicación actual de un bloque: contenedor + índice dentro de él. */
+export function locateBlock(
+  blocks: Block[],
+  id: string,
+): { parentId?: string; slot?: number; index: number } | null {
+  const idx = blocks.findIndex(b => b.id === id);
+  if (idx >= 0) return { index: idx };
+  for (const b of blocks) {
+    if (!b.slots) continue;
+    for (let s = 0; s < b.slots.length; s++) {
+      const direct = b.slots[s].findIndex(c => c.id === id);
+      if (direct >= 0) return { parentId: b.id, slot: s, index: direct };
+      const deep = locateBlock(b.slots[s], id);
+      if (deep) return deep;
+    }
+  }
+  return null;
+}
+
+/**
+ * Mueve un bloque (de cualquier profundidad) al destino dado.
+ * Soporta: reorden en raíz, raíz → slot, slot → raíz, slot → slot.
+ * No-op (devuelve el array original) si:
+ * - el bloque no existe,
+ * - el destino es el propio bloque o un descendiente suyo (ciclo),
+ * - el movimiento no cambia la posición.
+ */
+export function moveBlockTo(blocks: Block[], blockId: string, dest: DropTarget): Block[] {
+  const found = findBlock(blocks, blockId);
+  if (!found) return blocks;
+
+  // Guard anti-ciclo: no soltar dentro de sí mismo ni de un descendiente.
+  if (dest.parentId !== undefined) {
+    if (dest.parentId === blockId) return blocks;
+    if (findBlock(found.block.slots?.flat() ?? [], dest.parentId)) return blocks;
+    // El parent destino debe existir.
+    const parent = findBlock(blocks, dest.parentId);
+    if (!parent || parent.block.kind !== "logic") return blocks;
+  }
+
+  const src = locateBlock(blocks, blockId);
+  if (!src) return blocks;
+
+  // No-op: mismo contenedor y misma posición resultante.
+  if (
+    src.parentId === dest.parentId &&
+    (src.parentId === undefined || src.slot === dest.slot) &&
+    src.index === dest.index
+  ) {
+    return blocks;
+  }
+
+  // 1) Remover del origen.
+  const without =
+    src.parentId === undefined
+      ? blocks.filter(b => b.id !== blockId)
+      : removeFromSlot(blocks, src.parentId, src.slot!, blockId);
+
+  // 2) Insertar en destino (índice clampeado al tamaño del contenedor).
+  if (dest.parentId === undefined) {
+    const arr = [...without];
+    arr.splice(clamp(dest.index, arr.length), 0, found.block);
+    return arr;
+  }
+  return insertIntoSlotAt(without, dest.parentId, dest.slot ?? 0, dest.index, found.block);
+}
+
+/** Inserta `child` en la posición `index` del slot (clampeado). */
+function insertIntoSlotAt(
+  blocks: Block[],
+  parentId: string,
+  slot: number,
+  index: number,
+  child: Block,
+): Block[] {
+  return blocks.map(b => {
+    if (b.id === parentId) {
+      const newSlots = ensureSlots(b.slots, slot + 1);
+      const updated = newSlots.map((s, idx) => {
+        if (idx !== slot) return s;
+        const arr = [...s];
+        arr.splice(clamp(index, arr.length), 0, child);
+        return arr;
+      });
+      return { ...b, slots: updated };
+    }
+    if (b.slots) {
+      const newSlots = b.slots.map(s => insertIntoSlotAt(s, parentId, slot, index, child));
+      if (slotsChanged(b.slots, newSlots)) {
+        return { ...b, slots: newSlots };
+      }
+    }
+    return b;
+  });
+}
+
+function clamp(i: number, max: number): number {
+  return Math.max(0, Math.min(i, max));
+}
+
+// ──────────────────────────────────────────────────────────────────────────────
 // Internals
 
 function ensureSlots(slots: Block[][] | undefined, minLength: number): Block[][] {
