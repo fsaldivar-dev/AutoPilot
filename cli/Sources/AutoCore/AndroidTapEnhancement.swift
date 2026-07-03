@@ -32,12 +32,32 @@ public enum AndroidTapEnhancement {
             seedTree = tree
             return tree
         }
-        for target in targets {
-            let snapshot = await AutoWait.stabilize(initialTree: seedTree, config: autoWait) {
+        // #158: en multi-tap se estabiliza UNA sola vez antes del primer target
+        // y se reusa el snapshot para los siguientes. El layout de un keypad de
+        // PIN no cambia entre dígitos: re-estabilizar por dígito era el grueso
+        // del costo creciente por tap tras #157.
+        let isMultiTap = targets.count > 1
+        var sharedSnapshot: AutoWait.Snapshot?
+        if isMultiTap {
+            sharedSnapshot = await AutoWait.stabilize(initialTree: seedTree, config: autoWait) {
                 try await fetchTree(router: router)
             }
-            seedTree = nil // solo el primer target hereda el árbol de TapTargets
-            try await executeSingle(target: target, router: router, start: start,
+            seedTree = nil
+        }
+        for target in targets {
+            let snapshot: AutoWait.Snapshot?
+            if isMultiTap {
+                snapshot = sharedSnapshot
+            } else {
+                snapshot = await AutoWait.stabilize(initialTree: seedTree, config: autoWait) {
+                    try await fetchTree(router: router)
+                }
+                seedTree = nil // solo el primer target hereda el árbol de TapTargets
+            }
+            // #158: cronómetro POR target — cada línea "Tapped 'X' (Nms)" mide
+            // ese tap, no el acumulado desde el inicio del comando.
+            let targetStart = CFAbsoluteTimeGetCurrent()
+            try await executeSingle(target: target, router: router, start: targetStart,
                                     snapshot: snapshot, autoWait: autoWait)
         }
     }

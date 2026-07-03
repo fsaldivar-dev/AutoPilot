@@ -61,8 +61,28 @@ public enum iOSTapEnhancement {
         // existe como elemento (labels de celdas iOS contienen comas:
         // "Nombre, iPhone"). Match exacto sobre el árbol AX rápido (#124).
         let targets = try TapTargets.resolve(args[1]) { try deps.simulatorBridge.tree() }
+
+        // #158: en multi-tap la estabilización pre-acción del path default
+        // (router) se hace UNA sola vez, antes del primer target, y se reusa el
+        // pre-hash para la verificación post-tap de cada dígito. El layout de un
+        // keypad de PIN no cambia entre dígitos: re-estabilizar por dígito era
+        // el grueso del costo creciente por tap tras #157.
+        let isMultiTap = targets.count > 1
+        var sharedSnapshot: AutoWait.Snapshot?
+        if isMultiTap {
+            sharedSnapshot = await AutoWait.stabilize(config: autoWait) {
+                guard case .elements(let tree) = try await deps.router.execute(.tree) else { return [] }
+                return tree
+            }
+        }
         for target in targets {
-            try await executeSingle(target: target, deps: deps, start: start, autoWait: autoWait)
+            // #158: cronómetro POR target — cada línea "Tapped 'X' (Nms)" mide
+            // ese tap, no el acumulado desde el inicio del comando (antes todos
+            // imprimían elapsedMs(start), números acumulados y engañosos).
+            let targetStart = CFAbsoluteTimeGetCurrent()
+            try await executeSingle(target: target, deps: deps, start: targetStart,
+                                    sharedSnapshot: isMultiTap ? sharedSnapshot : nil,
+                                    autoWait: autoWait)
         }
     }
 
@@ -70,6 +90,7 @@ public enum iOSTapEnhancement {
         target: String,
         deps: Dependencies,
         start: CFAbsoluteTime,
+        sharedSnapshot: AutoWait.Snapshot? = nil,
         autoWait: AutoWait.Config = .current
     ) async throws {
         // $N → resolve por índice
@@ -118,7 +139,14 @@ public enum iOSTapEnhancement {
         let doTap: () async throws -> Void = {
             _ = try await deps.router.execute(.tap(target: target))
         }
-        let snapshot = await AutoWait.stabilize(config: autoWait, fetch: fetchTree)
+        // #158: en multi-tap reusamos la estabilización única (sharedSnapshot);
+        // en tap único estabilizamos aquí.
+        let snapshot: AutoWait.Snapshot?
+        if let sharedSnapshot {
+            snapshot = sharedSnapshot
+        } else {
+            snapshot = await AutoWait.stabilize(config: autoWait, fetch: fetchTree)
+        }
         try await doTap()
         if let snapshot {
             _ = await AutoWait.verifyTapEffect(target: target, preHash: snapshot.hash,
