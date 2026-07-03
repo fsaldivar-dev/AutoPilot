@@ -5,7 +5,7 @@ import Foundation
 public final class AndroidRecordingSession {
 
     private let bridge: any DeviceBridge
-    private let generator = ScriptGenerator()
+    private let generator = ScriptGenerator(binaryName: "auto-android")
     private let outputPath: String
     private let resolveQueue = DispatchQueue(label: "autopilot.android.resolve", qos: .userInitiated)
 

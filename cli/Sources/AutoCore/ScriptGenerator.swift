@@ -8,7 +8,14 @@ public final class ScriptGenerator {
     private var lastTimestamp: CFAbsoluteTime = 0
     private var lastCommand: String?
 
-    public init() {}
+    /// Binario con el que se reproduce el script ("auto" iOS /
+    /// "auto-android"). El header de las grabaciones Android decía
+    /// "Run with: auto run" — binario equivocado (#162).
+    private let binaryName: String
+
+    public init(binaryName: String = "auto") {
+        self.binaryName = binaryName
+    }
 
     /// Process a resolved action, return the lines to print (and append to buffer).
     /// - uiChanges: number of AX changes since last action (from UIStabilizer)
@@ -98,7 +105,7 @@ public final class ScriptGenerator {
 
         var script = "# Recorded by AutoPilot — \(date)\n"
         script += "#\n"
-        script += "# Run with: auto run <this-file>\n"
+        script += "# Run with: \(binaryName) run <this-file>\n"
         script += "#\n\n"
 
         for line in lines {

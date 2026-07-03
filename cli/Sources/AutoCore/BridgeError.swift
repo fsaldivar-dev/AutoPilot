@@ -20,6 +20,8 @@ public enum BridgeError: Error, CustomStringConvertible {
     /// agente caído, observer no cargado). Distinto de `elementNotFound`:
     /// el ActionRouter degrada al siguiente backend en vez de abortar (#154).
     case connectionFailed(String)
+    /// Error reportado por el agente nativo (no por adb) — prefijo "Agent error:" (#162).
+    case agentFailed(String)
     case uiAutomationBusy
     case avdNotFound(String, [String])
     case eventTapFailed
@@ -33,12 +35,38 @@ public enum BridgeError: Error, CustomStringConvertible {
     case ocrTextNotFound(expected: String, recognized: [String])
     case unknown(String)
 
+    /// Nombre del binario CLI en ejecución ("auto" iOS / "auto-android").
+    /// Lo setea el main de cada plataforma al arrancar — los mensajes
+    /// accionables lo usan para no sugerir el binario equivocado (#162).
+    public static var binaryName = "auto"
+
+    /// Detecta mensajes "element not found: X" / "Element not found: 'X'" que
+    /// ya vienen formateados del runner XCUI o del agente Android y los
+    /// convierte al caso tipado con el target desnudo. Sin esto el CLI
+    /// duplicaba el prefijo: "Element not found: 'element not found: X'" (#162).
+    /// Devuelve nil si el mensaje no es un element-not-found.
+    public static func unwrapElementNotFound(_ message: String) -> BridgeError? {
+        let prefix = "element not found"
+        guard message.lowercased().hasPrefix(prefix) else { return nil }
+        var target = String(message.dropFirst(prefix.count))
+            .trimmingCharacters(in: .whitespaces)
+        if target.hasPrefix(":") {
+            target = String(target.dropFirst()).trimmingCharacters(in: .whitespaces)
+        }
+        if target.count >= 2, target.hasPrefix("'"), target.hasSuffix("'") {
+            target = String(target.dropFirst().dropLast())
+        }
+        return .elementNotFound(target.isEmpty ? message : target)
+    }
+
     public var description: String {
         switch self {
         case .simulatorNotRunning: return "Simulator is not running. Open it first."
         case .noWindow: return "No simulator window found. Is the Simulator open?"
         case .accessibilityNotTrusted: return "Accessibility permission denied. Grant access in: System Settings → Privacy & Security → Accessibility. Add Terminal (or the app running this command)."
-        case .elementNotFound(let t): return "Element not found: '\(t)'"
+        case .elementNotFound(let t):
+            return "Element not found: '\(t)'\n"
+                + "Tip: explora la pantalla con `\(Self.binaryName) layout` o `\(Self.binaryName) tree -s \"<texto>\"`"
         case .noFrame(let t): return "Element '\(t)' has no frame"
         case .noBootedDevice: return "No booted simulator. Run: xcrun simctl boot <device>"
         case .invalidDirection(let d): return "Invalid direction: \(d). Use up/down/left/right"
@@ -51,6 +79,7 @@ public enum BridgeError: Error, CustomStringConvertible {
         case .adbNotFound: return "ADB not found. Set ANDROID_HOME or add adb to PATH."
         case .adbFailed(let msg): return "ADB failed: \(msg)"
         case .connectionFailed(let msg): return msg
+        case .agentFailed(let msg): return "Agent error: \(msg)"
         case .uiAutomationBusy: return """
             El agente AutoPilot retiene la conexion UiAutomation (Android solo permite \
             un cliente a la vez), por lo que 'uiautomator dump' devuelve vacio.
