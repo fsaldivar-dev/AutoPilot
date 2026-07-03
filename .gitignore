@@ -1,6 +1,7 @@
 # Build artifacts
 .build/
 /auto
+/auto-android
 *.o
 *.d
 
