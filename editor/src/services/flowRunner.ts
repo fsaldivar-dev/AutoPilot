@@ -16,7 +16,12 @@ export interface RunnerCallbacks {
     ms: number | undefined,
     err?: string
   ) => void;
+  // true → un paso fallido aborta el flow. Default esperado: siempre true
+  // (honestidad tipo script). El estado del run se marca "failed" via result.ok.
   shouldAbortOnError: () => boolean;
+  // true → el usuario pidió Stop; aborta en el próximo límite de bloque
+  // aunque los pasos vayan en verde (#170). Marca el run como "cancelled".
+  shouldStop?: () => boolean;
   // Fired when the sidecar was respawned mid-run. Caller should persist
   // the new sessionId in the store.
   onSessionChange?: (newSessionId: string) => void;
@@ -133,6 +138,9 @@ async function runBlocksSeq(
   cb: RunnerCallbacks,
 ): Promise<void> {
   for (const block of blocks) {
+    // #170: el Stop del usuario aborta en cualquier punto (antes solo se
+    // chequeaba tras un fallo, así que un flow en verde no se podía parar).
+    if (cb.shouldStop?.()) throw new AbortedError();
     if (block.kind === "logic") {
       await runLogicBlock(block, platform, envVars, state, cb);
     } else if (block.kind === "command" || block.kind === "component") {
@@ -159,19 +167,29 @@ async function runCommandBlock(
     const { frame, sessionId: newSid } = await executor.sendWithRecover(
       platform, state.sid, line, timeoutMs,
     );
-    if (newSid !== state.sid) {
+    // #170/#171: si la sesión murió y hubo que respawnearla A MITAD del flow,
+    // la app se relanzó desde cero — el resultado de este paso NO es confiable
+    // (el retry corrió sobre otra pantalla). Antes ese retry podía reportar
+    // frame.ok=true "tapeando" un elemento de la pantalla equivocada. Lo
+    // marcamos como fallo honesto en vez de mentir en verde.
+    const sessionDied = newSid !== state.sid;
+    if (sessionDied) {
       state.sid = newSid;
       cb.onSessionChange?.(newSid);
     }
     state.ran++;
-    cb.onBlockEnd(block.id, frame.ok, frame.ms, frame.err ?? undefined);
+    const stepOk = frame.ok && !sessionDied;
+    const stepErr = sessionDied
+      ? (frame.err ?? "la sesión murió durante el paso (app relanzada) — resultado no confiable")
+      : (frame.err ?? undefined);
+    cb.onBlockEnd(block.id, stepOk, frame.ms, stepErr);
     // Refresh reactivo: si el comando probable mutó la UI, disparamos un
     // refresh del inspector después de un pequeño delay (para dejar que las
     // animaciones terminen). Fire-and-forget.
-    if (frame.ok && isUIMutator(block.command)) {
+    if (stepOk && isUIMutator(block.command)) {
       cb.onUIMutation?.();
     }
-    if (!frame.ok && cb.shouldAbortOnError()) {
+    if (!stepOk && cb.shouldAbortOnError()) {
       state.errored = block.id;
       throw new AbortedError();
     }

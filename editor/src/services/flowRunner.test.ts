@@ -172,3 +172,50 @@ describe("flowRunner control flow", () => {
     expect(existsLines[0][1]).toBe('exists "A"');
   });
 });
+
+// Regresión de las "mentiras en verde" del editor que el QA cazó (#170/#171).
+describe("flowRunner honestidad (#170/#171)", () => {
+  it("un paso fallido ABORTA el flow — no continúa en verde", async () => {
+    sendMock.mockImplementation(async (sid, line) => {
+      if (line === 'tap "boom"') return { frame: errFrame("element not found"), sessionId: sid };
+      return { frame: okFrame(), sessionId: sid };
+    });
+    const flow = makeFlow([cmd("a", 'tap "boom"'), cmd("b", 'tap "no debe correr"')]);
+    const cb = mkCb();
+    const r = await runFlow("s1", "ios", flow, [], cb);
+    expect(r.ok).toBe(false);              // run = failed, no passed
+    expect(r.errored).toBe("a");
+    expect(cb.ended.find(e => e.id === "a")?.ok).toBe(false);
+    // el paso b NUNCA se ejecutó (antes el flow seguía y terminaba "passed")
+    expect(sendMock.mock.calls.some(c => c[1] === 'tap "no debe correr"')).toBe(false);
+  });
+
+  it("session death mid-flow (respawn) marca el paso FAILED aunque el retry diga ok", async () => {
+    // sendWithRecover respawnea y devuelve un sessionId DISTINTO con frame.ok=true:
+    // es el "tap fantasma" — el retry corrió sobre otra pantalla.
+    sendMock.mockImplementation(async (_sid, _line) => ({ frame: okFrame(), sessionId: "s-RESPAWNED" }));
+    const flow = makeFlow([cmd("a", 'tap "No Existe"')]);
+    const cb = mkCb();
+    const r = await runFlow("s1", "ios", flow, [], cb);
+    expect(cb.ended.find(e => e.id === "a")?.ok).toBe(false); // no miente en verde
+    expect(r.ok).toBe(false);
+  });
+
+  it("shouldStop del usuario aborta aunque los pasos vayan en verde", async () => {
+    sendMock.mockImplementation(async (sid) => ({ frame: okFrame(), sessionId: sid ?? "s1" }));
+    let stop = false;
+    const started: string[] = [];
+    const cb = {
+      started,
+      onBlockStart: (id: string) => { started.push(id); stop = true; }, // pedir stop tras el 1er bloque
+      onBlockEnd: () => {},
+      shouldAbortOnError: () => true,
+      shouldStop: () => stop,
+    };
+    const flow = makeFlow([cmd("a", 'tap "A"'), cmd("b", 'tap "B"'), cmd("c", 'tap "C"')]);
+    const r = await runFlow("s1", "ios", flow, [], cb as any);
+    expect(r.ok).toBe(false);
+    // se corrió 'a', se pidió stop, 'b'/'c' no corren
+    expect(sendMock.mock.calls.filter(c => String(c[1]).startsWith("tap ")).length).toBe(1);
+  });
+});
