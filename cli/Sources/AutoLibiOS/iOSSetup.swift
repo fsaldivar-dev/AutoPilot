@@ -110,7 +110,7 @@ public enum iOSSetup {
         let proj = "\(repoRoot)/Demo/iOS/Test Automatitacion/Test Automatitacion.xcodeproj"
 
         guard FileManager.default.fileExists(atPath: proj) else {
-            throw BridgeError.unknown("Runner project not found: \(proj)")
+            throw BridgeError.unknown("Runner project not found: \(proj) — run `auto setup` from inside the AutoPilot repo (no .git found walking up from the cwd)")
         }
 
         let proc = Process()

@@ -1,4 +1,4 @@
-project=Demo/CameraTestApp/CameraTestApp.xcodeproj
+project=Demo/iOS/CameraTestApp/CameraTestApp.xcodeproj
 scheme=CameraTestApp
 bundle=dev.autopilot.test.CameraTestApp
 image=scripts/demo-images/foto-1.jpg

@@ -20,6 +20,8 @@ final class InterpreterMockBackend: Backend, @unchecked Sendable {
 
     // Sequencial de resultados para `.bool` predicates (consume uno por call).
     var boolResults: [Bool] = []
+    // Árbol que devuelve `.tree` (para la resolución multi-tap de #145).
+    var treeNodes: [[String: Any]] = []
     // Resultados para Actions que no son predicado.
     var defaultResult: ActionResult = .void
     // Si es no nil, la próxima ejecución de una Action con ese ActionKind throws.
@@ -38,6 +40,8 @@ final class InterpreterMockBackend: Backend, @unchecked Sendable {
             return .text("ios")
         case .getOrientation:
             return .text("portrait")
+        case .tree:
+            return .elements(treeNodes)
         default:
             return defaultResult
         }
@@ -68,6 +72,54 @@ final class ScriptInterpreterTests: XCTestCase {
         } else {
             XCTFail("Expected .tap")
         }
+    }
+
+    // MARK: - Multi-tap por coma en modo router directo (#145)
+
+    /// `tap "1,2,3,4"` sin match del label completo → cuatro `.tap`, uno por
+    /// fragmento. Antes de #145 el modo router directo mandaba un único
+    /// `.tap(target: "1,2,3,4")` sin split ni pre-check.
+    func testTapCommaSplitsInDirectRouterMode() async throws {
+        let backend = InterpreterMockBackend()
+        backend.treeNodes = [["label": "1"], ["label": "2"]]
+        let interp = await makeInterpreter(backend)
+
+        try await interp.run(try parseStatements(#"tap "1,2,3,4""#))
+
+        let taps = backend.executed.compactMap { action -> String? in
+            if case .tap(let target) = action { return target }
+            return nil
+        }
+        XCTAssertEqual(taps, ["1", "2", "3", "4"])
+        // Consultó el árbol para el pre-check del label completo.
+        XCTAssertTrue(backend.executed.contains { $0.kind == .tree })
+    }
+
+    /// Label con coma que SÍ existe como elemento → un solo `.tap` con el
+    /// label completo (misma regla que iOS/Android via TapTargets).
+    func testTapCommaFullLabelDoesNotSplit() async throws {
+        let backend = InterpreterMockBackend()
+        backend.treeNodes = [["label": "Nombre, iPhone"]]
+        let interp = await makeInterpreter(backend)
+
+        try await interp.run(try parseStatements(#"tap "Nombre, iPhone""#))
+
+        let taps = backend.executed.compactMap { action -> String? in
+            if case .tap(let target) = action { return target }
+            return nil
+        }
+        XCTAssertEqual(taps, ["Nombre, iPhone"])
+    }
+
+    /// Target sin coma: ni consulta el árbol ni cambia el comportamiento previo.
+    func testTapWithoutCommaSkipsTree() async throws {
+        let backend = InterpreterMockBackend()
+        let interp = await makeInterpreter(backend)
+
+        try await interp.run(try parseStatements(#"tap "Login""#))
+
+        XCTAssertFalse(backend.executed.contains { $0.kind == .tree })
+        XCTAssertEqual(backend.executed.count, 1)
     }
 
     // MARK: - if / else

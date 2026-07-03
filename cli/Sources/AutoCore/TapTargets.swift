@@ -25,7 +25,23 @@ public enum TapTargets {
     ) rethrows -> [String] {
         guard raw.contains(",") else { return [raw] }
         if hasExactMatch(raw, in: try treeProvider()) { return [raw] }
-        return raw.split(separator: ",")
+        return split(raw)
+    }
+
+    /// Variante async de `resolve` — misma semántica, para rutas donde el
+    /// árbol viene del `ActionRouter` (Android, ScriptInterpreter). Ver #145:
+    /// las tres rutas de tap deben compartir esta resolución.
+    public static func resolve(
+        _ raw: String,
+        treeProvider: () async throws -> [[String: Any]]
+    ) async rethrows -> [String] {
+        guard raw.contains(",") else { return [raw] }
+        if hasExactMatch(raw, in: try await treeProvider()) { return [raw] }
+        return split(raw)
+    }
+
+    private static func split(_ raw: String) -> [String] {
+        raw.split(separator: ",")
             .map { $0.trimmingCharacters(in: .whitespaces) }
             .filter { !$0.isEmpty }
     }
