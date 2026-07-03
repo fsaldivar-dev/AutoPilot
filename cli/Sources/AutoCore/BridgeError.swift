@@ -25,6 +25,8 @@ public enum BridgeError: Error, CustomStringConvertible {
     case imageDecodeFailed(String)
     case baselineNotFound(String)
     case screenMismatch(distance: Int, tolerance: Int)
+    case invalidRegion(String)
+    case ocrTextNotFound(expected: String, recognized: [String])
     case unknown(String)
 
     public var description: String {
@@ -63,6 +65,13 @@ public enum BridgeError: Error, CustomStringConvertible {
         case .imageDecodeFailed(let p): return "Cannot decode image: '\(p)'"
         case .baselineNotFound(let p): return "Baseline not found: '\(p)'. Create it with: assertScreen \(p) --create"
         case .screenMismatch(let d, let t): return "MISMATCH (distance \(d)/\(PerceptualHash.bits), tolerance \(t))"
+        case .invalidRegion(let raw): return "Invalid region: '\(raw)'. Use --region x,y,w,h (pixels, positive width/height)"
+        case .ocrTextNotFound(let expected, let recognized):
+            if recognized.isEmpty {
+                return "OCR: '\(expected)' not found — no text recognized in screenshot"
+            }
+            let top = recognized.prefix(10).map { "  '\($0)'" }.joined(separator: "\n")
+            return "OCR: '\(expected)' not found. Recognized text (top \(min(10, recognized.count))):\n\(top)"
         case .unknown(let msg): return msg
         }
     }
