@@ -16,6 +16,7 @@ public enum BridgeError: Error, CustomStringConvertible {
     case cameraImageNotFound(String)
     case adbNotFound
     case adbFailed(String)
+    case uiAutomationBusy
     case avdNotFound(String, [String])
     case eventTapFailed
     case timeout(String)
@@ -40,6 +41,13 @@ public enum BridgeError: Error, CustomStringConvertible {
         case .cameraImageNotFound(let p): return "Image not found: '\(p)'"
         case .adbNotFound: return "ADB not found. Set ANDROID_HOME or add adb to PATH."
         case .adbFailed(let msg): return "ADB failed: \(msg)"
+        case .uiAutomationBusy: return """
+            El agente AutoPilot retiene la conexion UiAutomation (Android solo permite \
+            un cliente a la vez), por lo que 'uiautomator dump' devuelve vacio.
+            Para usar --legacy tree/tap deten el agente primero:
+              auto-android agent stop   (o: adb shell am force-stop dev.autopilot.agent)
+            Reactivalo despues con: auto-android agent start
+            """
         case .avdNotFound(let name, let avds):
             let list = avds.isEmpty
                 ? "(none — create one with Android Studio or avdmanager)"

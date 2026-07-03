@@ -121,8 +121,29 @@ public final class AdbLegacyBridge: DeviceBridge {
     }
 
     private func dumpUITree() throws -> [[String: Any]] {
-        let xml = try runAdb(["exec-out", "uiautomator", "dump", "/dev/tty"])
-        return try UIAutomatorParser.parse(xml)
+        do {
+            let xml = try runAdb(["exec-out", "uiautomator", "dump", "/dev/tty"])
+            return try UIAutomatorParser.parse(xml)
+        } catch {
+            // Limitacion de plataforma (#135): Android solo permite UNA conexion
+            // UiAutomation por sesion. Si el agente AutoPilot (instrumentation)
+            // esta corriendo, retiene esa conexion y `uiautomator dump` devuelve
+            // vacio sin mensaje de error. Detectamos el caso y damos un error
+            // accionable en vez del criptico "Invalid uiautomator XML output".
+            if isAgentProcessRunning() {
+                throw BridgeError.uiAutomationBusy
+            }
+            throw error
+        }
+    }
+
+    /// True si el proceso del agente AutoPilot (instrumentation) esta vivo en
+    /// el device. Se usa para diagnosticar el conflicto de exclusividad de
+    /// UiAutomation con `--legacy tree/tap` (#135).
+    public func isAgentProcessRunning() -> Bool {
+        // `pidof` sale con exit 1 si el proceso no existe → runAdb lanza → false.
+        let out = (try? runAdb(["shell", "pidof", AgentBridge.agentPackage])) ?? ""
+        return !out.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
     }
 
     private func searchRecursive(

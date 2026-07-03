@@ -6,6 +6,11 @@ import CoreGraphics
 /// Communication: JSON over TCP socket (adb forward localabstract:autopilot).
 public final class AgentBridge: DeviceBridge {
 
+    /// Package del agente instrumentation en el device.
+    public static let agentPackage = "dev.autopilot.agent"
+    /// Componente completo para `am instrument`.
+    public static let agentComponent = "dev.autopilot.agent/.AgentInstrumentation"
+
     private let host: String
     private let port: Int
     private let legacy: AdbLegacyBridge
@@ -155,7 +160,7 @@ public final class AgentBridge: DeviceBridge {
         throw BridgeError.adbFailed("""
             Agent did not respond after recovery. Check:
               1. APK installed: adb install agent/app/build/outputs/apk/debug/app-debug.apk
-              2. Manually launch: adb shell am instrument -w dev.autopilot.agent/.AgentInstrumentation
+              2. Manually launch: adb shell am instrument -w \(Self.agentComponent)
               3. Run: auto-android doctor
             """)
     }
@@ -197,7 +202,7 @@ public final class AgentBridge: DeviceBridge {
         // reparented to launchd/init so it survives this CLI exiting.
         // Without this the instrumentation dies the moment the swift parent
         // exits, and the next CLI invocation sees an "Empty response".
-        let cmd = "( \"\(adb)\" shell am instrument -w dev.autopilot.agent/.AgentInstrumentation </dev/null >/dev/null 2>&1 & )"
+        let cmd = "( \"\(adb)\" shell am instrument -w \(Self.agentComponent) </dev/null >/dev/null 2>&1 & )"
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: "/bin/sh")
         proc.arguments = ["-c", cmd]
@@ -230,6 +235,50 @@ public final class AgentBridge: DeviceBridge {
         }
 
         throw BridgeError.adbFailed("Agent did not come up after 3s. Check that the APK is installed.")
+    }
+
+    // MARK: - Agent Lifecycle (#135)
+
+    /// Estado del agente on-device, sin efectos secundarios (no dispara recovery).
+    public enum AgentStatus: String {
+        /// Socket responde a un ping real — el agente esta operativo.
+        case running
+        /// Proceso instrumentation vivo pero el socket no responde
+        /// (tipicamente falta `adb forward` — correr `auto-android setup`).
+        case processOnly = "process-only"
+        /// Ni proceso ni socket — UiAutomation libre para `--legacy tree/tap`.
+        case stopped
+    }
+
+    /// Detiene el agente via `am force-stop` de la instrumentation, liberando
+    /// la conexion UiAutomation. Necesario para usar `--legacy tree/tap`
+    /// (`uiautomator dump` no puede adquirir UiAutomation mientras el agente
+    /// corre — #135). Reactivar despues con `setupAgent()`.
+    ///
+    /// Nota: cualquier comando posterior en modo agente (sin `--legacy`)
+    /// relanzara el agente automaticamente via auto-recovery.
+    public func stopAgent(verbose: Bool = true) throws {
+        if verbose { print("→ adb shell am force-stop \(Self.agentPackage)") }
+        try legacy.runAdbPublic(["shell", "am", "force-stop", Self.agentPackage])
+
+        // Esperar (max 2s) a que el socket deje de responder, para que el
+        // caller pueda encadenar `--legacy tree` inmediatamente despues.
+        for _ in 0..<10 {
+            if !probeSocket() {
+                if verbose { print("✓ Agent stopped — UiAutomation liberada para --legacy tree/tap") }
+                return
+            }
+            usleep(200_000)
+        }
+        throw BridgeError.adbFailed("Agent still responding after force-stop")
+    }
+
+    /// Probe del estado actual del agente: socket primero (ping real),
+    /// despues proceso (pidof). No relanza nada.
+    public func agentStatus() -> AgentStatus {
+        if probeSocket() { return .running }
+        if legacy.isAgentProcessRunning() { return .processOnly }
+        return .stopped
     }
 
     // MARK: - DeviceBridge: Tree (via agent)

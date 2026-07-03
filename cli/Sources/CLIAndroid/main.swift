@@ -271,6 +271,36 @@ func executeCommand(_ args: [String]) throws {
     case "help", "--help", "-h":
         AndroidUsage.printUsage()
 
+    case "agent":
+        // Ciclo de vida del agente on-device (#135). `stop` libera la conexion
+        // UiAutomation para poder usar --legacy tree/tap (benchmark #62);
+        // `start` lo relanza; `status` reporta socket + proceso.
+        // Se crea un AgentBridge dedicado: el comando debe funcionar igual
+        // con o sin --legacy.
+        let agent = AgentBridge()
+        switch args.count >= 2 ? args[1] : "" {
+        case "stop":
+            try agent.stopAgent()
+            print("(\(elapsedMs(start))ms)")
+        case "start":
+            try agent.setupAgent()
+            print("(\(elapsedMs(start))ms)")
+        case "status":
+            switch agent.agentStatus() {
+            case .running:
+                print("Agent running — socket responding (\(elapsedMs(start))ms)")
+            case .processOnly:
+                print("Agent process alive but socket not responding — run: auto-android setup (\(elapsedMs(start))ms)")
+            case .stopped:
+                print("Agent stopped — UiAutomation libre para --legacy tree/tap (\(elapsedMs(start))ms)")
+            }
+        default:
+            print("Usage: auto-android agent <stop|start|status>")
+            print("  stop    Force-stop the agent (releases UiAutomation for --legacy tree/tap)")
+            print("  start   Relaunch the agent via am instrument")
+            print("  status  Probe agent socket + process")
+        }
+
     case "setup":
         // Bootstrap completo paridad con iOS: adb + device + apk + agent + warmup.
         // Device actions viajan por el router (ARD-001).
