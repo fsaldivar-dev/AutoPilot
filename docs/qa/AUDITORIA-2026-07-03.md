@@ -80,3 +80,30 @@ Top 5 por impacto real:
 
 No-problemas documentados: CLI one-shot bloqueante, polling de waitFor, runner mono-cliente
 serial (por diseño), mirror con setInterval+guard, XCUIBridge (sockets bien hechos).
+
+---
+
+## Resolución (2026-07-03)
+
+Los 13 issues derivados de esta auditoría (#151–#163) fueron resueltos, verificados y
+mergeados a main el mismo día, junto con el retiro de AX del path por defecto (#164) y
+un bug de runner encontrado en el camino (#149). Estado:
+
+| Issue | Resultado |
+|---|---|
+| #151 tap IME | ✅ hit-test por centro + filtro por ventana (no tapea overlays IME) |
+| #152 exit 0 falso | ✅ comando desconocido en script → FAIL+línea+sugerencia Levenshtein+exit 1 |
+| #153 scrollTo iOS | ✅ valida viewport útil (descuenta tab/nav bar) → error tipado elementOccluded |
+| #154 lifecycle observer | ✅ doctor honesto, degradación del router, detección de puerto secuestrado |
+| #155 screenshot | ✅ era ruteo (XCUIBackend ganaba a MediaBackend); ahora framebuffer nativo simctl |
+| #156 sockets sin timeout | ✅ SO_RCVTIMEO en AgentBridge (15s) y autopilotd (60s) → dispara recovery |
+| #157 auto-wait | ✅ estabilización pre-acción + retryTap opt-in (~112ms overhead p50) |
+| #158 timing multi-tap | ✅ cronómetro por-tap + estabiliza 1× (850ms plano vs 4050ms creciente) |
+| #159 sleeps fijos | ✅ setup 5.6s→~3s (polls condicionados) |
+| #160 editor async | ✅ db_* async, find_binary cacheado, autosave con diff |
+| #161 replay recorder | ✅ preámbulo comentado en grabaciones mid-session |
+| #162 cosméticos | ✅ 7 items (Agent error, tip DX, ping honesto, etc.) |
+| #163 replay de runs | ✅ persistencia + panel de replay paso a paso (gap #1 vs Studio) |
+
+Las "tres mentiras en verde" que descalificaban para CI están cerradas. La suite pasó de
+328 a 436 tests. La killer feature de Maestro (auto-wait) ahora es nuestra.
