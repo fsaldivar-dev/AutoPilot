@@ -106,7 +106,7 @@ public enum iOSSetup {
         }
 
         print("→ Building runner (xcodebuild build-for-testing, ~30s)...")
-        let repoRoot = findRepoRoot()
+        let repoRoot = RepoRoot.find()
         let proj = "\(repoRoot)/Demo/iOS/Test Automatitacion/Test Automatitacion.xcodeproj"
 
         guard FileManager.default.fileExists(atPath: proj) else {
@@ -167,17 +167,6 @@ public enum iOSSetup {
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
         let output = String(data: data, encoding: .utf8) ?? ""
         return output.isEmpty ? nil : output.trimmingCharacters(in: .whitespacesAndNewlines)
-    }
-
-    private static func findRepoRoot() -> String {
-        var dir = FileManager.default.currentDirectoryPath
-        while dir != "/" {
-            if FileManager.default.fileExists(atPath: "\(dir)/.git") {
-                return dir
-            }
-            dir = (dir as NSString).deletingLastPathComponent
-        }
-        return FileManager.default.currentDirectoryPath
     }
 
     // MARK: - Step 4: Runner installed + Xcode 26 workaround [env — filesystem]
