@@ -51,3 +51,6 @@ scripts/benchmark-suite/tools/
 !scripts/benchmark-suite/tools/.gitkeep
 scripts/benchmark-suite/evidence/
 scripts/benchmark-suite/benchmark-results/
+
+# Worktrees temporales de agentes
+.claude/worktrees/
