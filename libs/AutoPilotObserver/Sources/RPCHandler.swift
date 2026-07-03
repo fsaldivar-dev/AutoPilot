@@ -63,9 +63,17 @@ final class RPCHandler {
             return ["result": found]
 
         case "type":
+            // #166: type ahora es HONESTO — si no logra escribir (sin text
+            // input, becomeFirstResponder falla, o el value no cambió) LANZA
+            // en vez de retornar success. El handler propaga el error como
+            // {"error": ...} para que el CLI reporte fallo + exit 1.
             let text = params?["text"] as? String ?? ""
-            DispatchQueue.main.sync { typeText(text) }
-            return ["result": true]
+            do {
+                try typeText(text)
+                return ["result": true]
+            } catch {
+                return ["error": error.localizedDescription]
+            }
 
         case "clear":
             let target = params?["target"] as? String ?? ""
@@ -150,13 +158,28 @@ final class RPCHandler {
         DispatchQueue.main.sync {
             switch resolved {
             case .view(let v):
-                if let ctrl = v as? UIControl {
+                // #166: si el target ES (o contiene) un UITextField/UITextView,
+                // enfocarlo con becomeFirstResponder ANTES/EN LUGAR de activate.
+                // accessibilityActivate NO da foco a un campo SwiftUI: el teclado
+                // no sube y typeText no tiene a quién escribir. becomeFirstResponder
+                // sí lo enfoca (es el mecanismo que usa el tap real de UIKit).
+                if let input = Self.textInput(in: v) {
+                    input.becomeFirstResponder()
+                } else if let ctrl = v as? UIControl {
                     ctrl.sendActions(for: .touchUpInside)
                 } else {
                     _ = v.accessibilityActivate()
                 }
             case .axNode(let node):
-                _ = node.accessibilityActivate?()
+                // #166: un axNode SwiftUI (TextField / searchable) no da el UIView
+                // directamente. Buscamos el UITextField/UITextView cuyo frame
+                // contenga (o coincida con) el del axNode y lo enfocamos. Si no
+                // hay campo detrás, es un nodo normal → accessibilityActivate.
+                if let field = Self.textInputBacking(axNode: node) {
+                    field.becomeFirstResponder()
+                } else {
+                    _ = node.accessibilityActivate?()
+                }
             case .barButton(let item):
                 // UIBarButtonItem invokes its action by sending the selector to the target.
                 if let action = item.action, let t = item.target {
@@ -239,13 +262,152 @@ final class RPCHandler {
         }
     }
 
-    private func typeText(_ text: String) {
-        guard let responder = findFirstResponder() else { return }
-        if let textField = responder as? UITextField {
-            textField.insertText(text)
-        } else if let textView = responder as? UITextView {
-            textView.insertText(text)
+    /// #166: type HONESTO. Ya no retorna en silencio cuando no hay foco —
+    /// intenta enfocar el primer text input visible y verifica que el texto
+    /// llegó al campo. Lanza `ObserverError.noTextInput` / `.typeFailed` si no
+    /// puede escribir, para que el CLI reporte fallo real (nunca "Typed text"
+    /// sin haber escrito). PRECONDICIÓN: se llama fuera de la main queue; abre
+    /// su propio `DispatchQueue.main.sync` internamente.
+    private func typeText(_ text: String) throws {
+        var thrown: Error?
+        DispatchQueue.main.sync {
+            do { try typeTextOnMain(text) }
+            catch { thrown = error }
         }
+        if let e = thrown { throw e }
+    }
+
+    /// PRECONDICIÓN: main queue. Localiza el input (firstResponder o, si no hay,
+    /// el primer UITextField/UITextView visible al que enfoca), escribe y
+    /// verifica el resultado.
+    private func typeTextOnMain(_ text: String) throws {
+        dispatchPrecondition(condition: .onQueue(.main))
+
+        // 1. ¿Ya hay un campo enfocado?
+        var input: UIView? = (findFirstResponder() as? UITextField)
+            ?? (findFirstResponder() as? UITextView)
+
+        // 2. Si no, buscar el primer text input visible y enfocarlo — el tap
+        //    del target debería haberlo hecho, pero para `type` bare (sin tap
+        //    previo) enfocamos aquí. becomeFirstResponder es lo que sube el
+        //    teclado y habilita insertText en un campo SwiftUI.
+        if input == nil {
+            if let field = Self.firstVisibleTextInput() {
+                field.becomeFirstResponder()
+                input = field
+            }
+        }
+
+        guard let field = input else {
+            throw ObserverError.noTextInput
+        }
+
+        // Snapshot del value ANTES para poder verificar el cambio (patrón de
+        // `clear` tras #121: sin verificación el motor puede "mentir en verde").
+        let before = Self.currentText(of: field)
+
+        if let textField = field as? UITextField {
+            // Si becomeFirstResponder falló (no isFirstResponder) el insertText
+            // no tiene efecto — verificamos abajo por value.
+            textField.insertText(text)
+        } else if let textView = field as? UITextView {
+            textView.insertText(text)
+        } else {
+            throw ObserverError.noTextInput
+        }
+
+        // 3. Verificar: el campo debe contener AHORA el texto que pedimos. Si el
+        //    value no cambió (o no incluye el texto) es fallo — nunca success.
+        let after = Self.currentText(of: field)
+        let wrote = after != before && after.contains(text)
+        guard wrote else {
+            throw ObserverError.typeFailed(text: text, actual: after)
+        }
+    }
+
+    // MARK: - Text input resolution (#166)
+
+    /// El texto actual de un text input (para verificación post-escritura).
+    private static func currentText(of view: UIView) -> String {
+        if let tf = view as? UITextField { return tf.text ?? "" }
+        if let tv = view as? UITextView { return tv.text ?? "" }
+        return ""
+    }
+
+    /// Devuelve el UITextField/UITextView asociado a un UIView resuelto por
+    /// target: el propio view si lo es, o el primer descendiente que lo sea
+    /// (un TextField SwiftUI a veces resuelve a un contenedor cuyo hijo es el
+    /// UITextField real).
+    private static func textInput(in view: UIView) -> UIView? {
+        if view is UITextField || view is UITextView { return view }
+        return firstTextInputDescendant(view)
+    }
+
+    private static func firstTextInputDescendant(_ view: UIView) -> UIView? {
+        for sub in view.subviews {
+            if sub is UITextField || sub is UITextView { return sub }
+            if let found = firstTextInputDescendant(sub) { return found }
+        }
+        return nil
+    }
+
+    /// Resuelve el UITextField/UITextView real detrás de un axNode SwiftUI.
+    /// El axNode expone `accessibilityFrame` (coordenadas de pantalla) pero no
+    /// el UIView; buscamos el input visible cuyo frame en pantalla contenga el
+    /// centro del axNode (o cuyo frame coincida). Es el mismo truco de
+    /// frame-containment que usa hitTest, pero limitado a text inputs.
+    private static func textInputBacking(axNode: AnyObject) -> UIView? {
+        let nodeFrame = (axNode.accessibilityFrame ?? .zero) as CGRect
+        guard nodeFrame != .zero else { return nil }
+        let center = CGPoint(x: nodeFrame.midX, y: nodeFrame.midY)
+
+        var best: (view: UIView, area: CGFloat)?
+        for field in allTextInputs() {
+            guard let win = field.window else { continue }
+            let screenFrame = field.convert(field.bounds, to: win)
+            guard screenFrame.contains(center) else { continue }
+            let area = screenFrame.width * screenFrame.height
+            // Preferir el input MÁS PEQUEÑO que contenga el centro (el campo
+            // concreto, no un contenedor scrollable que también lo contenga).
+            if best == nil || area < best!.area { best = (field, area) }
+        }
+        return best?.view
+    }
+
+    /// Primer text input visible y enfocable de la jerarquía (para `type` sin
+    /// target previo). Salta los ocultos / transparentes / fuera de ventana.
+    private static func firstVisibleTextInput() -> UIView? {
+        for field in allTextInputs() {
+            if field.isUserInteractionEnabled, field.canBecomeFirstResponder {
+                return field
+            }
+        }
+        return allTextInputs().first
+    }
+
+    /// Todos los UITextField/UITextView visibles en pantalla, en orden de árbol.
+    private static func allTextInputs() -> [UIView] {
+        var out: [UIView] = []
+        for window in visibleWindows() {
+            collectTextInputs(window, into: &out)
+        }
+        return out
+    }
+
+    private static func collectTextInputs(_ view: UIView, into out: inout [UIView]) {
+        guard !view.isHidden, view.alpha > 0.01 else { return }
+        guard view is UIWindow || view.window != nil else { return }
+        if view is UITextField || view is UITextView { out.append(view) }
+        for sub in view.subviews { collectTextInputs(sub, into: &out) }
+    }
+
+    private static func visibleWindows() -> [UIWindow] {
+        if #available(iOS 13, *) {
+            return UIApplication.shared.connectedScenes
+                .compactMap { $0 as? UIWindowScene }
+                .flatMap { $0.windows }
+        }
+        return UIApplication.shared.windows
     }
 
     private func clearField(target: String) throws {
@@ -346,12 +508,33 @@ final class RPCHandler {
         guard let window = firstWindow() else { return }
         let point = CGPoint(x: x, y: y)
         if let hit = window.hitTest(point, with: nil) {
-            if let ctrl = hit as? UIControl {
+            // #166: tapAt es el path que usa `type "target" "texto"` (el
+            // dispatcher tapea el centro del campo por coordenada). Igual que
+            // performTap: si el hit ES/CONTIENE un UITextField/UITextView hay que
+            // ENFOCARLO (becomeFirstResponder) — hitTest sobre un TextField
+            // SwiftUI devuelve el UITextField subyacente, pero accessibilityActivate
+            // NO lo enfoca y el type siguiente escribiría en el vacío.
+            if let input = Self.textInput(in: hit)
+                ?? enclosingTextInput(of: hit) {
+                input.becomeFirstResponder()
+            } else if let ctrl = hit as? UIControl {
                 ctrl.sendActions(for: .touchUpInside)
             } else {
                 _ = hit.accessibilityActivate()
             }
         }
+    }
+
+    /// Sube por la cadena de superviews buscando un UITextField/UITextView —
+    /// hitTest puede devolver un subview interno (p.ej. la label del placeholder)
+    /// cuyo ancestro es el campo real.
+    private func enclosingTextInput(of view: UIView) -> UIView? {
+        var current: UIView? = view
+        while let v = current {
+            if v is UITextField || v is UITextView { return v }
+            current = v.superview
+        }
+        return nil
     }
 
     private func performPressKey(key: String) {
@@ -504,6 +687,12 @@ func warmupAccessibility() {
 enum ObserverError: Error, LocalizedError {
     case elementNotFound(String)
     case ambiguousTarget(String, [String])
+    /// #166: `type` no encontró ningún text input al que escribir (ni
+    /// firstResponder ni un UITextField/UITextView visible).
+    case noTextInput
+    /// #166: se intentó escribir pero el value del campo NO cambió al texto
+    /// pedido — becomeFirstResponder falló o el campo rechazó el input.
+    case typeFailed(text: String, actual: String)
 
     var errorDescription: String? {
         switch self {
@@ -511,6 +700,10 @@ enum ObserverError: Error, LocalizedError {
             return "element not found: \(t)"
         case .ambiguousTarget(let t, let matches):
             return "ambiguous target '\(t)' matches \(matches.count) elements: \(matches.joined(separator: " | "))"
+        case .noTextInput:
+            return "type failed: no focused text field and no visible text input to type into"
+        case .typeFailed(let text, let actual):
+            return "type failed: field did not accept '\(text)' (value is now '\(actual)')"
         }
     }
 }

@@ -37,6 +37,17 @@ enum ViewSerializer {
         if let text = (view as? UILabel)?.text, !text.isEmpty    { node["title"] = text }
         if let btn = view as? UIButton,
            let title = btn.title(for: .normal), !title.isEmpty   { node["title"] = title }
+        // #166: exponer el placeholder + value de los text inputs. Un TextField
+        // SwiftUI plano NO pone accessibilityLabel = placeholder (a diferencia de
+        // UISearchBar), así que sin esto el campo es un AXTextField anónimo y
+        // `type "Titulo de tu experiencia" "..."` no puede resolverlo por label.
+        if let tf = view as? UITextField {
+            if let ph = tf.placeholder, !ph.isEmpty              { node["placeholder"] = ph }
+            if let val = tf.text, !val.isEmpty                   { node["value"] = val }
+        }
+        if let tv = view as? UITextView, let val = tv.text, !val.isEmpty {
+            node["value"] = val
+        }
 
         var result: [[String: Any]] = [node]
 
@@ -161,7 +172,8 @@ enum ViewSerializer {
         guard visited.insert(ObjectIdentifier(view)).inserted else { return }
 
         let keys = [view.accessibilityLabel, view.accessibilityIdentifier,
-                    (view as? UILabel)?.text, (view as? UIButton)?.title(for: .normal)]
+                    (view as? UILabel)?.text, (view as? UIButton)?.title(for: .normal),
+                    (view as? UITextField)?.placeholder]  // #166: match por placeholder
         if let matched = firstMatch(keys, predicate) {
             out.append((.view(view), matched))
         }
@@ -291,8 +303,10 @@ enum ViewSerializer {
         let id    = view.accessibilityIdentifier ?? ""
         let text  = (view as? UILabel)?.text ?? ""
         let title = (view as? UIButton)?.title(for: .normal) ?? ""
+        let placeholder = (view as? UITextField)?.placeholder ?? ""  // #166
 
-        if label == target || id == target || text == target || title == target { return view }
+        if label == target || id == target || text == target || title == target
+            || (!placeholder.isEmpty && placeholder == target) { return view }
 
         for sub in view.subviews {
             if let found = searchView(sub, target: target) { return found }
