@@ -8,7 +8,8 @@ export function rankSuggestions(
   limit = 20
 ): Suggestion[] {
   const q = query.toLowerCase();
-  const scored = suggestions.map((s) => {
+  const scored: Suggestion[] = [];
+  for (const s of suggestions) {
     const label = s.label.toLowerCase();
     let score = s.score;
     if (q.length === 0) {
@@ -18,10 +19,13 @@ export function rankSuggestions(
     } else if (label.includes(q)) {
       score += 1.0;
     } else {
-      score -= 2.0;
+      // Antes: penalización -2.0 pero se mantenía en la lista → el popover
+      // "siempre tenía sugerencias" aunque nada matcheara, y Enter/predictivo
+      // operaba sobre basura (#180). Ahora los no-matches se descartan.
+      continue;
     }
-    return { ...s, score };
-  });
+    scored.push({ ...s, score });
+  }
   scored.sort((a, b) => b.score - a.score);
   return scored.slice(0, limit);
 }
