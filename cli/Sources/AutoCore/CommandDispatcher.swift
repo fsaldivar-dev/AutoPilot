@@ -480,7 +480,7 @@ public func executeSharedCommand(
                 print("No config set. Use: auto config <key> <value>")
                 print("\nAvailable keys:")
                 for k in AutoPilotConfig.knownKeys {
-                    print("  \(k.key.padding(toLength: 10, withPad: " ", startingAt: 0)) \(k.description)")
+                    print("  \(k.key.padding(toLength: 16, withPad: " ", startingAt: 0)) \(k.description)")
                 }
             } else {
                 print(".autopilot config:")

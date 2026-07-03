@@ -55,8 +55,17 @@ public enum AndroidUsage {
           pushFile <local> <remote>          Push file to device
           pullFile <remote> <local>          Pull file from device
           terminate <package>               Kill app
+          permission <grant|revoke> <service> <package>  Manage app permissions
+                                            services: camera, microphone, photos, contacts,
+                                                      calendars, location, notifications
+          logs [package] [--lines N]        Get device logs via logcat (last 50 lines)
+          logs --system                     Get unfiltered system logs
+          waitFor <label> [timeout]          Wait for element to appear (default 10s)
           config                            Show all config
           config <key> <value>              Set config value
+                                            Android keys: android_project (raiz del proyecto
+                                            gradle, requerido por build), android_module
+                                            (modulo gradle, default: app)
           record <output.auto>               Record touch interactions to script (Ctrl+C to stop)
           run <script.auto>                 Run automation script
           doctor                            Check environment setup (adb, devices, agent)

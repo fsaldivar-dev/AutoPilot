@@ -197,15 +197,14 @@ cd editor && npm run tauri build
 cp -r src-tauri/target/release/bundle/macos/AutoPilot\ Editor.app /Applications/
 ```
 
-> **⚠ Cada vez que modifiques `cli/Sources/...` tenes que re-sincronizar los binarios del editor antes de rebuild.** Tauri bundlea desde `editor/src-tauri/binaries/` que NO se actualiza automaticamente cuando recompilas el CLI. Flujo correcto:
+> **ℹ Los binarios del editor se sincronizan automaticamente.** Desde [#81](https://github.com/fsaldivar-dev/AutoPilot/issues/81) (resuelto en PR #109), `npm run tauri dev` y `npm run tauri build` invocan `./refresh-binaries.sh` automaticamente (via `beforeDevCommand`/`beforeBuildCommand` en `tauri.conf.json`), asi que Tauri siempre bundlea el CLI fresco desde `cli/.build/`. Solo asegurate de compilar el CLI primero:
 >
 > ```bash
-> cd cli && swift build && cd ..
-> ./editor/refresh-binaries.sh        # copia el CLI fresco a binaries/
-> cd editor && npm run tauri build    # ahora bundlea el CLI actualizado
+> cd cli && swift build && cd ..     # si falta, refresh-binaries.sh falla con exit 1
+> cd editor && npm run tauri build   # refresh-binaries.sh corre automaticamente
 > ```
 >
-> Sin este paso, el `.app` queda con la version anterior del `auto` binario y cualquier comando nuevo del CLI falla en el editor con `Unknown command: ...`. Fix permanente (hook post-build automatico) tracked en [#81](https://github.com/fsaldivar-dev/AutoPilot/issues/81).
+> Si el editor muestra `Unknown command: ...`, casi siempre el CLI en `cli/.build/` esta desactualizado — recompila con `swift build` y volve a correr `npm run tauri dev|build`.
 
 ---
 

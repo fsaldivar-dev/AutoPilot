@@ -71,10 +71,12 @@ public struct AutoPilotConfig {
 
     /// Valid config keys with descriptions.
     public static let knownKeys: [(key: String, description: String)] = [
-        ("project", "Ruta al .xcodeproj"),
-        ("scheme", "Scheme de Xcode"),
-        ("device", "Nombre o UDID del simulador"),
-        ("bundle", "Bundle ID de la app"),
+        ("project", "Ruta al .xcodeproj (iOS)"),
+        ("scheme", "Scheme de Xcode (iOS)"),
+        ("device", "Nombre o UDID del simulador (iOS)"),
+        ("bundle", "Bundle ID / package de la app"),
         ("image", "Ruta a imagen para camara mock"),
+        ("android_project", "Raiz del proyecto gradle, requerido por build (Android)"),
+        ("android_module", "Modulo gradle a compilar, default: app (Android)"),
     ]
 }
