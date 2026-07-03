@@ -39,11 +39,13 @@ public enum iOSDoctor {
             print("  ✗ xcrun not working — install Xcode Command Line Tools")
         }
 
-        print("\nAccessibility Permission:")
+        // ARD #164: AX ya no es parte del path default (robaba el foco) —
+        // el permiso solo importa para los modos opt-in de debug.
+        print("\nAccessibility Permission (solo AUTO_FORCE_AX=1 / AUTO_BRIDGE=simulator|hybrid):")
         if AXIsProcessTrusted() {
             print("  ✓ Granted")
         } else {
-            print("  ✗ Not granted — add this app to: System Settings > Privacy & Security > Accessibility")
+            print("  ○ Not granted — irrelevante para el path default (observer/XCUI)")
         }
 
         // ARD-002 Phase 5 (#116): reportar qué backend está activo
@@ -55,8 +57,8 @@ public enum iOSDoctor {
                 print("  ⚠ AUTO_FORCE_AX=1 — AXBackend forzado además del observer (debug)")
             }
         } else {
-            print("  ○ Observer no disponible — fallback AX macOS + XCUI runner")
-            print("    (para usar el observer: compilar la app con `auto build` — ver docs/ios/OBSERVER-MIGRATION.md)")
+            print("  ○ Observer no disponible — motor: XCUI runner (deep, sin robo de foco)")
+            print("    (el observer se inyecta con `auto launch <bundle>`; apps de sistema no lo aceptan)")
         }
         let daemonStatus = Process()
         daemonStatus.executableURL = URL(fileURLWithPath: "/bin/ls")

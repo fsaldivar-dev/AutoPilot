@@ -95,7 +95,7 @@ docs/                    → Documentacion por modulo
 - `CommandDispatcher` — logica compartida de comandos
 - Errores tipados con `BridgeError` enum
 - `public` solo para lo que necesita el CLI, `private` para el resto
-- Env var `AUTO_BRIDGE=simulator|xcui|hybrid` para debug del motor iOS (default: hybrid)
+- Motor iOS default (ARD #164): observer in-process (inyectado por `auto launch`) → XCUI runner. AX macOS esta FUERA del default (robaba el foco del usuario en cada accion) — opt-in solo con `AUTO_FORCE_AX=1` o `AUTO_BRIDGE=simulator|hybrid` para debug/benchmarks
 
 ### TypeScript (Editor)
 - Componentes funcionales con hooks
@@ -114,7 +114,7 @@ docs/                    → Documentacion por modulo
 ### Scripts .auto
 ```bash
 ping                    # Verificar conexion
-tap Elemento            # Tap por label (hybrid: fast → escala a XCUI si falla)
+tap Elemento            # Tap por label (observer si esta inyectado, si no XCUI runner)
 tap Camera[2]           # Segundo duplicado
 tap 1,2,3,4,Confirmar  # Multi-tap
 waitFor "texto" 10          # Esperar elemento
@@ -130,7 +130,7 @@ list buttons|labels|textfields|cells|switches|links|images|navbars
 ```bash
 auto list buttons       # solo botones con labels y frames (~1s)
 auto list textfields    # solo inputs
-auto exists "Guardar"   # boolean rapido, hybrid decide fast/deep
+auto exists "Guardar"   # boolean rapido (observer ~1ms / XCUI ~800ms)
 ```
 
 ### CI/CD

@@ -132,6 +132,18 @@ public final class iOSAgentBridge: DeviceBridge {
         return bytesRead > 0
     }
 
+    /// Probe con reintentos hasta `deadlineMs` — el observer tarda unos ms en
+    /// abrir el socket tras el launch (+load difiere al main queue). Usado por
+    /// `auto launch` para reportar honestamente si el observer cargó (#164).
+    public func probeSocketWithRetry(deadlineMs: Int) -> Bool {
+        let steps = max(1, deadlineMs / 100)
+        for _ in 0..<steps {
+            if probeSocket() { return true }
+            usleep(100_000)
+        }
+        return false
+    }
+
     // MARK: - DeviceBridge: Tree (via observer)
 
     public func tree() throws -> [[String: Any]] {

@@ -20,7 +20,10 @@ public enum iOSLaunchEnhancement {
         var envVars: [String: String] = [:]
         var injectImage: String? = nil
         var recompile = false
-        var withObserver = false
+        // ARD #164: el observer se inyecta POR DEFECTO — es el motor sin robo
+        // de foco (3.6ms/tap). Opt-out con --no-observer; --observer se acepta
+        // por compatibilidad con scripts existentes.
+        var withObserver = true
 
         if let img = config["image"] {
             envVars["AUTOPILOT_CAMERA_IMAGE"] = img
@@ -50,6 +53,9 @@ public enum iOSLaunchEnhancement {
             } else if args[i] == "--observer" {
                 withObserver = true
                 i += 1
+            } else if args[i] == "--no-observer" {
+                withObserver = false
+                i += 1
             } else {
                 i += 1
             }
@@ -67,17 +73,39 @@ public enum iOSLaunchEnhancement {
 
         switch (imgPath, withObserver) {
         case (.some(let path), true):
-            try simulatorBridge.injectCameraAndObserverAndLaunch(
-                bundleId: bundleId, imagePath: path, extraEnv: envVars)
-            print("Launched \(bundleId) with camera + observer → \(path) (\(elapsedMs(start))ms)")
+            do {
+                try simulatorBridge.injectCameraAndObserverAndLaunch(
+                    bundleId: bundleId, imagePath: path, extraEnv: envVars)
+                print("Launched \(bundleId) with camera + observer → \(path) (\(elapsedMs(start))ms)")
+            } catch {
+                // ARD #164: la inyección del observer nunca debe bloquear el
+                // launch — degradar a camera-only con aviso (queda XCUI runner)
+                fputs("[observer] inyección falló (\(error)) — launch solo con camera mock; motor deep: XCUI runner\n", stderr)
+                try simulatorBridge.injectAndLaunch(
+                    bundleId: bundleId, imagePath: path, extraEnv: envVars)
+                print("Launched \(bundleId) with camera mock → \(path) (\(elapsedMs(start))ms)")
+            }
         case (.some(let path), false):
             try simulatorBridge.injectAndLaunch(
                 bundleId: bundleId, imagePath: path, extraEnv: envVars)
             print("Launched \(bundleId) with camera mock → \(path) (\(elapsedMs(start))ms)")
         case (.none, true):
-            try simulatorBridge.injectObserverAndLaunch(
-                bundleId: bundleId, extraEnv: envVars)
-            print("Launched \(bundleId) with observer (\(elapsedMs(start))ms)")
+            do {
+                try simulatorBridge.injectObserverAndLaunch(
+                    bundleId: bundleId, extraEnv: envVars)
+                // La inyección puede "succeed" pero el dylib no cargar (apps de
+                // sistema rechazan DYLD_INSERT). Probar el socket para ser honesto.
+                let observerUp = iOSAgentBridge().probeSocketWithRetry(deadlineMs: 1500)
+                if observerUp {
+                    print("Launched \(bundleId) with observer (\(elapsedMs(start))ms)")
+                } else {
+                    print("Launched \(bundleId) — observer no cargó (¿app de sistema?); motor: XCUI runner (\(elapsedMs(start))ms)")
+                }
+            } catch {
+                fputs("[observer] inyección falló (\(error)) — launch normal; motor deep: XCUI runner\n", stderr)
+                _ = try await router.execute(.launchApp(bundleId: bundleId, envVars: envVars))
+                print("Launched \(bundleId) (\(elapsedMs(start))ms)")
+            }
         case (.none, false):
             // Launch vía router → SimCtlBackend (declara .launchApp).
             _ = try await router.execute(.launchApp(bundleId: bundleId, envVars: envVars))
@@ -91,7 +119,7 @@ public enum iOSLaunchEnhancement {
     }
 
     private static func printUsage() {
-        print("Usage: auto launch <bundleId> [--inject image.jpg] [--observer] [--env KEY=VALUE ...]")
+        print("Usage: auto launch <bundleId> [--inject image.jpg] [--no-observer] [--env KEY=VALUE ...]")
         print("   or: auto config bundle com.example.app")
         print("       auto launch")
         print("")
