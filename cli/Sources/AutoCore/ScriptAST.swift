@@ -87,6 +87,11 @@ public enum InterpreterError: Error, Equatable, CustomStringConvertible {
     case assertionFailed(line: Int)
     case unknownPredicate(name: String, line: Int)
     case invalidBooleanResult(from: String, line: Int)
+    /// Un comando o predicado falló con un error ajeno al interpreter
+    /// (excepción de bridge/router). Envuelve el error original con el número
+    /// de línea del statement — sin esto, un "Cannot connect to observer"
+    /// abortaba el run sin decir en qué línea (#154).
+    case commandFailed(line: Int, message: String)
 
     public var description: String {
         switch self {
@@ -96,6 +101,8 @@ public enum InterpreterError: Error, Equatable, CustomStringConvertible {
             return "Unknown predicate `\(name)` at line \(line)"
         case .invalidBooleanResult(let from, let line):
             return "Predicate `\(from)` at line \(line) did not return a boolean"
+        case .commandFailed(let line, let message):
+            return "FAIL at line \(line): \(message)"
         }
     }
 }

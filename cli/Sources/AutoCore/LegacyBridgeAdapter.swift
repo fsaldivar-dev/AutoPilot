@@ -19,6 +19,10 @@ public final class LegacyBridgeAdapter: Backend, @unchecked Sendable {
 
     private let bridge: any DeviceBridge
 
+    /// Diagnóstico: reportar el bridge concreto (iOSAgentBridge, XCUIBridge...),
+    /// no el adapter — es lo que el usuario reconoce en un warning del router.
+    public var name: String { String(describing: type(of: bridge)) }
+
     public init(_ bridge: any DeviceBridge) {
         self.bridge = bridge
     }

@@ -10,6 +10,10 @@ public final class ConstrainedBackend: Backend, @unchecked Sendable {
     public let capabilities: Set<ActionKind>
     private let delegate: any Backend
 
+    /// Diagnóstico: el nombre útil es el del delegate (el ConstrainedBackend
+    /// es un wrapper transparente).
+    public var name: String { delegate.name }
+
     public init(capabilities: Set<ActionKind>, delegate: any Backend) {
         self.capabilities = capabilities
         self.delegate = delegate

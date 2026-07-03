@@ -26,11 +26,16 @@ final class InterpreterMockBackend: Backend, @unchecked Sendable {
     var defaultResult: ActionResult = .void
     // Si es no nil, la próxima ejecución de una Action con ese ActionKind throws.
     var throwKinds: Set<ActionKind> = []
+    // Kinds que fallan con connectionFailed (#154) — simula observer muerto.
+    var connectionFailKinds: Set<ActionKind> = []
 
     func execute(_ action: Action) async throws -> ActionResult {
         executed.append(action)
         if throwKinds.contains(action.kind) {
             throw BridgeError.elementNotFound("mock throw")
+        }
+        if connectionFailKinds.contains(action.kind) {
+            throw BridgeError.connectionFailed("Cannot connect to observer (mock)")
         }
         switch action.kind {
         case .exists, .isVisible, .hasText:
@@ -352,6 +357,74 @@ final class ScriptInterpreterTests: XCTestCase {
         } catch let e as InterpreterError {
             if case .assertionFailed = e { return }
             XCTFail("Expected .assertionFailed, got \(e)")
+        }
+    }
+
+    // MARK: - Line numbers en errores de bridge (#154)
+
+    /// Un error de bridge (observer muerto) en una acción debe salir envuelto
+    /// en `commandFailed` con la línea del statement — antes abortaba el run
+    /// sin número de línea.
+    func testBridgeErrorInActionCarriesLineNumber() async throws {
+        let backend = InterpreterMockBackend()
+        backend.connectionFailKinds = [.tap]
+        let interp = await makeInterpreter(backend)
+
+        let script = """
+        screenshot before.png
+        tap "Login"
+        """
+        do {
+            try await interp.run(try parseStatements(script))
+            XCTFail("Expected commandFailed error")
+        } catch let e as InterpreterError {
+            guard case .commandFailed(let line, let message) = e else {
+                return XCTFail("Expected .commandFailed, got \(e)")
+            }
+            XCTAssertEqual(line, 2)
+            XCTAssertTrue(message.contains("Cannot connect to observer"), "El error original debe preservarse: \(message)")
+            XCTAssertTrue("\(e)".hasPrefix("FAIL at line 2:"), "Formato esperado 'FAIL at line N: <error>', got: \(e)")
+        }
+    }
+
+    /// El mismo contrato aplica evaluando el predicado de un assert: un
+    /// bridge que explota (no un assert falso) también reporta la línea.
+    func testBridgeErrorInAssertPredicateCarriesLineNumber() async throws {
+        let backend = InterpreterMockBackend()
+        backend.connectionFailKinds = [.exists]
+        let interp = await makeInterpreter(backend)
+
+        let script = """
+        screenshot before.png
+        screenshot mid.png
+        assert exists "Home"
+        """
+        do {
+            try await interp.run(try parseStatements(script))
+            XCTFail("Expected commandFailed error")
+        } catch let e as InterpreterError {
+            guard case .commandFailed(let line, _) = e else {
+                return XCTFail("Expected .commandFailed, got \(e)")
+            }
+            XCTAssertEqual(line, 3)
+        }
+    }
+
+    /// El FAIL "semántico" del assert (predicado false, sin excepción) debe
+    /// seguir siendo assertionFailed — no lo envolvemos.
+    func testAssertFalseStillThrowsAssertionFailed() async throws {
+        let backend = InterpreterMockBackend()
+        backend.boolResults = [false]
+        let interp = await makeInterpreter(backend)
+
+        do {
+            try await interp.run(try parseStatements(#"assert exists "Gone""#))
+            XCTFail("Expected assertionFailed")
+        } catch let e as InterpreterError {
+            guard case .assertionFailed(let line) = e else {
+                return XCTFail("Expected .assertionFailed sin envolver, got \(e)")
+            }
+            XCTAssertEqual(line, 1)
         }
     }
 

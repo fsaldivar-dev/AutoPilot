@@ -282,10 +282,14 @@ extension SimulatorBridge {
     /// Simulator-only: iOS device sandbox blocks DYLD injection. Device uses
     /// the static lib with `-force_load` at build time (see BuildInterceptor).
     public func injectObserverAndLaunch(bundleId: String, extraEnv: [String: String] = [:]) throws {
+        // #154: el observer recibe el bundle esperado para poder loggear si
+        // termina corriendo en otro proceso (el CLI valida vía handshake ping).
+        var env = extraEnv
+        env["AUTOPILOT_OBSERVER_BUNDLE"] = bundleId
         try launchWithDylibs(
             bundleId: bundleId,
             dylibPaths: [try ObserverInjector().ensureDylib()],
-            extraEnv: extraEnv
+            extraEnv: env
         )
     }
 
@@ -297,10 +301,12 @@ extension SimulatorBridge {
     ) throws {
         let cameraDylib = try DylibInjector().ensureDylib()
         let observerDylib = try ObserverInjector().ensureDylib()
+        var env = extraEnv
+        env["AUTOPILOT_OBSERVER_BUNDLE"] = bundleId // #154 (ver injectObserverAndLaunch)
         try launchWithDylibs(
             bundleId: bundleId,
             dylibPaths: [cameraDylib, observerDylib],
-            extraEnv: extraEnv,
+            extraEnv: env,
             setupBeforeLaunch: {
                 if let img = imagePath { try self.setInjectImage(img) }
             }
