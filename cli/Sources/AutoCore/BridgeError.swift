@@ -21,6 +21,8 @@ public enum BridgeError: Error, CustomStringConvertible {
     case timeout(String)
     case recordingAlreadyInProgress(String)
     case noRecordingInProgress
+    case invalidRegion(String)
+    case ocrTextNotFound(expected: String, recognized: [String])
     case unknown(String)
 
     public var description: String {
@@ -49,6 +51,13 @@ public enum BridgeError: Error, CustomStringConvertible {
         case .timeout(let msg): return msg
         case .recordingAlreadyInProgress(let device): return "Recording already in progress on '\(device)'. Run stopRecording first."
         case .noRecordingInProgress: return "No recording in progress. Run startRecording first."
+        case .invalidRegion(let raw): return "Invalid region: '\(raw)'. Use --region x,y,w,h (pixels, positive width/height)"
+        case .ocrTextNotFound(let expected, let recognized):
+            if recognized.isEmpty {
+                return "OCR: '\(expected)' not found — no text recognized in screenshot"
+            }
+            let top = recognized.prefix(10).map { "  '\($0)'" }.joined(separator: "\n")
+            return "OCR: '\(expected)' not found. Recognized text (top \(min(10, recognized.count))):\n\(top)"
         case .unknown(let msg): return msg
         }
     }
