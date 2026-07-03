@@ -64,17 +64,26 @@ pub async fn inspect(platform: Option<String>) -> Result<Value, String> {
             Ok::<_, String>(parse_tree_output(&stdout))
         })
     };
+    // En iOS el index es un comando independiente — tercer spawn en paralelo
+    // con screenshot+tree. En Android se deriva del tree, así que espera.
+    let index_fut = if plat == "android" {
+        None
+    } else {
+        let bin = bin.clone();
+        Some(tokio::spawn(async move {
+            let stdout = run_cli_async(&bin, &["index"]).await.unwrap_or_default();
+            parse_index_output(&stdout)
+        }))
+    };
 
     let screenshot = screenshot_fut.await.unwrap_or_default();
     let (elements, labels) = tree_fut
         .await
         .map_err(|e| format!("tree join: {}", e))??;
 
-    let index_elements = if plat == "android" {
-        index_from_tree(&elements)
-    } else {
-        let stdout = run_cli_async(&bin, &["index"]).await.unwrap_or_default();
-        parse_index_output(&stdout)
+    let index_elements = match index_fut {
+        Some(fut) => fut.await.unwrap_or_default(),
+        None => index_from_tree(&elements),
     };
 
     Ok(serde_json::json!({
@@ -196,21 +205,6 @@ pub async fn interactive_start(
 }
 
 #[tauri::command]
-pub async fn interactive_send(
-    line: String,
-    registry: State<'_, Arc<ExecutorRegistry>>,
-) -> Result<String, String> {
-    // Picks the first (and only) session in legacy mode.
-    let sessions = registry_ids(&registry).await;
-    let id = sessions
-        .into_iter()
-        .next()
-        .ok_or("no interactive session — call interactive_start first")?;
-    let frame = registry.send(&id, &line, Some(30_000)).await?;
-    serde_json::to_string(&frame).map_err(|e| format!("serialize frame: {}", e))
-}
-
-#[tauri::command]
 pub async fn interactive_stop(
     registry: State<'_, Arc<ExecutorRegistry>>,
 ) -> Result<(), String> {
@@ -218,102 +212,111 @@ pub async fn interactive_stop(
     Ok(())
 }
 
-async fn registry_ids(registry: &ExecutorRegistry) -> Vec<String> {
-    // Helper: read current ids. ExecutorRegistry doesn't expose listing; we
-    // rely on status() + explicit spawn tracking. For MVP we use a naive
-    // approach: return empty if unknown; legacy mode requires spawn first.
-    // Since we can't enumerate, callers of the legacy API must call
-    // interactive_start → receive id once — but our legacy wrapper swallows
-    // the id. Solution: track last spawned id in registry state.
-    let _ = registry;
-    vec![]
-}
-
 // ---- DB commands ----
+//
+// SQLite es I/O bloqueante (Mutex<Connection>): cada comando corre el acceso
+// en spawn_blocking para no ocupar el main thread de la UI de Tauri.
 
-#[tauri::command]
-pub fn db_list_projects(db: State<'_, Db>) -> Result<Vec<ProjectRow>, String> {
-    db.list_projects()
+async fn with_db<T, F>(db: &State<'_, Arc<Db>>, f: F) -> Result<T, String>
+where
+    T: Send + 'static,
+    F: FnOnce(&Db) -> Result<T, String> + Send + 'static,
+{
+    let db = Arc::clone(db.inner());
+    tauri::async_runtime::spawn_blocking(move || f(&db))
+        .await
+        .map_err(|e| format!("db task join: {}", e))?
 }
 
 #[tauri::command]
-pub fn db_upsert_project(row: ProjectRow, db: State<'_, Db>) -> Result<(), String> {
-    db.upsert_project(&row)
+pub async fn db_list_projects(db: State<'_, Arc<Db>>) -> Result<Vec<ProjectRow>, String> {
+    with_db(&db, |db| db.list_projects()).await
 }
 
 #[tauri::command]
-pub fn db_delete_project(id: String, db: State<'_, Db>) -> Result<(), String> {
-    db.delete_project(&id)
+pub async fn db_upsert_project(row: ProjectRow, db: State<'_, Arc<Db>>) -> Result<(), String> {
+    with_db(&db, move |db| db.upsert_project(&row)).await
 }
 
 #[tauri::command]
-pub fn db_list_flows(project_id: String, db: State<'_, Db>) -> Result<Vec<FlowRow>, String> {
-    db.list_flows(&project_id)
+pub async fn db_delete_project(id: String, db: State<'_, Arc<Db>>) -> Result<(), String> {
+    with_db(&db, move |db| db.delete_project(&id)).await
 }
 
 #[tauri::command]
-pub fn db_upsert_flow(row: FlowRow, db: State<'_, Db>) -> Result<(), String> {
-    db.upsert_flow(&row)
-}
-
-#[tauri::command]
-pub fn db_delete_flow(id: String, db: State<'_, Db>) -> Result<(), String> {
-    db.delete_flow(&id)
-}
-
-#[tauri::command]
-pub fn db_list_components(
+pub async fn db_list_flows(
     project_id: String,
-    db: State<'_, Db>,
+    db: State<'_, Arc<Db>>,
+) -> Result<Vec<FlowRow>, String> {
+    with_db(&db, move |db| db.list_flows(&project_id)).await
+}
+
+#[tauri::command]
+pub async fn db_upsert_flow(row: FlowRow, db: State<'_, Arc<Db>>) -> Result<(), String> {
+    with_db(&db, move |db| db.upsert_flow(&row)).await
+}
+
+#[tauri::command]
+pub async fn db_delete_flow(id: String, db: State<'_, Arc<Db>>) -> Result<(), String> {
+    with_db(&db, move |db| db.delete_flow(&id)).await
+}
+
+#[tauri::command]
+pub async fn db_list_components(
+    project_id: String,
+    db: State<'_, Arc<Db>>,
 ) -> Result<Vec<ComponentRow>, String> {
-    db.list_components(&project_id)
+    with_db(&db, move |db| db.list_components(&project_id)).await
 }
 
 #[tauri::command]
-pub fn db_upsert_component(row: ComponentRow, db: State<'_, Db>) -> Result<(), String> {
-    db.upsert_component(&row)
+pub async fn db_upsert_component(
+    row: ComponentRow,
+    db: State<'_, Arc<Db>>,
+) -> Result<(), String> {
+    with_db(&db, move |db| db.upsert_component(&row)).await
 }
 
 #[tauri::command]
-pub fn db_delete_component(id: String, db: State<'_, Db>) -> Result<(), String> {
-    db.delete_component(&id)
+pub async fn db_delete_component(id: String, db: State<'_, Arc<Db>>) -> Result<(), String> {
+    with_db(&db, move |db| db.delete_component(&id)).await
 }
 
 #[tauri::command]
-pub fn db_list_env_vars(
+pub async fn db_list_env_vars(
     project_id: String,
-    db: State<'_, Db>,
+    db: State<'_, Arc<Db>>,
 ) -> Result<Vec<EnvVarRow>, String> {
-    db.list_env_vars(&project_id)
+    with_db(&db, move |db| db.list_env_vars(&project_id)).await
 }
 
 #[tauri::command]
-pub fn db_upsert_env_var(row: EnvVarRow, db: State<'_, Db>) -> Result<(), String> {
-    db.upsert_env_var(&row)
+pub async fn db_upsert_env_var(row: EnvVarRow, db: State<'_, Arc<Db>>) -> Result<(), String> {
+    with_db(&db, move |db| db.upsert_env_var(&row)).await
 }
 
 #[tauri::command]
-pub fn db_delete_env_var(
+pub async fn db_delete_env_var(
     project_id: String,
     scope: String,
     key: String,
-    db: State<'_, Db>,
+    db: State<'_, Arc<Db>>,
 ) -> Result<(), String> {
-    db.delete_env_var(&project_id, &scope, &key)
+    with_db(&db, move |db| db.delete_env_var(&project_id, &scope, &key)).await
 }
 
 #[tauri::command]
-pub fn db_save_run(row: RunRecordRow, db: State<'_, Db>) -> Result<(), String> {
-    db.save_run(&row)
+pub async fn db_save_run(row: RunRecordRow, db: State<'_, Arc<Db>>) -> Result<(), String> {
+    with_db(&db, move |db| db.save_run(&row)).await
 }
 
 #[tauri::command]
-pub fn db_list_runs(
+pub async fn db_list_runs(
     flow_id: String,
     limit: Option<i64>,
-    db: State<'_, Db>,
+    db: State<'_, Arc<Db>>,
 ) -> Result<Vec<RunRecordRow>, String> {
-    db.list_runs(&flow_id, limit.unwrap_or(20))
+    with_db(&db, move |db| db.list_runs(&flow_id, limit.unwrap_or(20))).await
 }
 
 // ---- Utility commands ----
