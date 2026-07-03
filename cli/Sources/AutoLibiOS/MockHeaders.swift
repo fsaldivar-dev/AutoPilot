@@ -19,6 +19,7 @@ enum MockHeaders {
     #import <AVFoundation/AVFoundation.h>
     #import <UIKit/UIKit.h>
     #import <objc/runtime.h>
+    #include <string.h>
 
     static const void *kAPImageDataKey = &kAPImageDataKey;
     static const void *kAPTimestampKey = &kAPTimestampKey;
@@ -414,6 +415,80 @@ enum MockHeaders {
     }
 
     // ============================================================
+    // VisionKit private SPI shims — issue #120
+    // ============================================================
+    // VNDocumentCameraViewController (VisionKit → DocumentCamera.framework,
+    // internal class ICDocCamViewController) calls PRIVATE AVCaptureDevice
+    // setters during setupCaptureSession. Our mock hands out real
+    // [[AVCaptureDevice alloc] init] instances (see ap_defaultDevice /
+    // ap_defaultDeviceWithType), and the simulator device does not implement
+    // those SPI selectors, so the call dies with:
+    //   NSInvalidArgumentException:
+    //   "-[AVCaptureDevice setProvidesStortorgetMetadata:] Not supported by this device"
+    //
+    // Strategy — two ADDITIVE layers. We only class_addMethod when the
+    // selector is missing; we NEVER replace an existing (real) implementation:
+    //   1. Eager no-ops for the known VisionKit SPI setters (and their
+    //      getters, returning NO), registered in the constructor.
+    //   2. A +resolveInstanceMethod: hook on AVCaptureDevice as a safety
+    //      net: any still-unknown single-argument "setXxx:" selector gets a
+    //      dynamic no-op, so future iOS/VisionKit SPI additions degrade
+    //      gracefully instead of crashing.
+    //
+    // respondsToSelector: stays coherent for free: NSObject's implementation
+    // consults +resolveInstanceMethod: before answering NO, so a VisionKit
+    // feature-check and the subsequent call see the same answer. Because the
+    // resolver installs a real IMP, normal dispatch handles the call and no
+    // forwardingTargetForSelector: override is needed.
+
+    static void ap_spiSetterNoop(id self, SEL _cmd, id value) {
+        NSLog(@"[AutoPilot] SPI setter no-op %@ (issue #120)", NSStringFromSelector(_cmd));
+    }
+
+    static BOOL ap_spiGetterNo(id self, SEL _cmd) {
+        return NO;
+    }
+
+    // Adds a no-op ONLY if the class (or a superclass) does not already
+    // implement the selector. Never clobbers a real implementation.
+    static void ap_add_noop_if_missing(Class cls, NSString *selName, IMP imp, const char *types) {
+        SEL sel = NSSelectorFromString(selName);
+        if (class_getInstanceMethod(cls, sel)) return; // real impl exists — leave it alone
+        if (class_addMethod(cls, sel, imp, types)) {
+            NSLog(@"[AutoPilot] Added SPI no-op %@ to %@ (issue #120)", selName, NSStringFromClass(cls));
+        }
+    }
+
+    static BOOL (*orig_resolveInstanceMethod)(Class, SEL, SEL) = NULL;
+
+    static BOOL ap_resolveInstanceMethod(Class self, SEL _cmd, SEL sel) {
+        // Give the original resolver (NSObject's or AVFoundation's) first shot.
+        if (orig_resolveInstanceMethod && orig_resolveInstanceMethod(self, _cmd, sel)) {
+            return YES;
+        }
+        // Safety net: unknown single-argument property setter → dynamic no-op.
+        // Matches "setXxx…:" with exactly one trailing colon (plain property
+        // setters). Multi-argument "set…" methods (e.g. with completion
+        // handlers) are left untouched — a silent no-op there could hang
+        // callers waiting on a callback.
+        const char *name = sel_getName(sel);
+        size_t len = strlen(name);
+        // NOTE: no class_getInstanceMethod() here — it would re-enter method
+        // resolution and could recurse. The resolver only fires for selectors
+        // the runtime could not find, and class_addMethod already refuses to
+        // override a method added in the meantime.
+        if (len > 4 &&
+            strncmp(name, "set", 3) == 0 &&
+            (name[3] >= 'A' && name[3] <= 'Z') &&
+            name[len - 1] == ':' &&
+            strchr(name, ':') == name + len - 1) {
+            NSLog(@"[AutoPilot] Resolving unknown private setter %s as no-op (issue #120)", name);
+            return class_addMethod(self, sel, (IMP)ap_spiSetterNoop, "v@:@");
+        }
+        return NO;
+    }
+
+    // ============================================================
     // Constructor — runs at load time
     // ============================================================
 
@@ -443,6 +518,34 @@ enum MockHeaders {
         ap_swizzle_class_method(deviceClass,
             @selector(defaultDeviceWithDeviceType:mediaType:position:),
             (IMP)ap_defaultDeviceWithType, &orig_defaultDeviceWithType);
+
+        // --- VisionKit SPI shims (issue #120) ---
+        // Known private BOOL properties that ICDocCamViewController sets on
+        // the capture device. Added ONLY if the simulator runtime does not
+        // implement them (ap_add_noop_if_missing never overrides real IMPs).
+        ap_add_noop_if_missing(deviceClass, @"setProvidesStortorgetMetadata:", (IMP)ap_spiSetterNoop, "v@:B");
+        ap_add_noop_if_missing(deviceClass, @"setSpatialOverCaptureEnabled:", (IMP)ap_spiSetterNoop, "v@:B");
+        ap_add_noop_if_missing(deviceClass, @"setMultiCamSessionEnabled:", (IMP)ap_spiSetterNoop, "v@:B");
+        // Matching getters (VisionKit may read the property back) — report NO.
+        ap_add_noop_if_missing(deviceClass, @"providesStortorgetMetadata", (IMP)ap_spiGetterNo, "B@:");
+        ap_add_noop_if_missing(deviceClass, @"isSpatialOverCaptureEnabled", (IMP)ap_spiGetterNo, "B@:");
+        ap_add_noop_if_missing(deviceClass, @"isMultiCamSessionEnabled", (IMP)ap_spiGetterNo, "B@:");
+
+        // Safety net for SPI we have not enumerated: hook
+        // +resolveInstanceMethod: on AVCaptureDevice (metaclass). Prefer
+        // class_addMethod so we never touch NSObject's shared implementation;
+        // fall back to method_setImplementation only if AVCaptureDevice
+        // already overrides the resolver directly. Original is chained.
+        {
+            Method resolveM = class_getClassMethod(deviceClass, @selector(resolveInstanceMethod:));
+            orig_resolveInstanceMethod = (BOOL (*)(Class, SEL, SEL))method_getImplementation(resolveM);
+            Class deviceMeta = object_getClass(deviceClass);
+            if (!class_addMethod(deviceMeta, @selector(resolveInstanceMethod:),
+                                 (IMP)ap_resolveInstanceMethod, method_getTypeEncoding(resolveM))) {
+                method_setImplementation(resolveM, (IMP)ap_resolveInstanceMethod);
+            }
+            NSLog(@"[AutoPilot] resolveInstanceMethod hook on AVCaptureDevice active (issue #120)");
+        }
 
         // Swizzle AVCaptureDeviceInput
         Class deviceInputClass = [AVCaptureDeviceInput class];
