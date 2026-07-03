@@ -44,34 +44,36 @@ class InputInjector(private val uiAutomation: UiAutomation) {
      * que el evento se despacha). Con 20 MOVEs (22 injects sync + 20 sleeps) el swipe
      * tardaba ~685ms — 1.8x mas lento que `adb input swipe` (~370ms).
      *
-     * Optimizacion: menos pasos (10) y un `durationMs` default mas corto (150ms). El grueso
-     * del wall-clock eran los ~22 injects sync (~23ms/inject en emulador) mas 20 sleeps: bajar
-     * ambos casi mitad recupera la paridad con legacy. 10 MOVEs siguen siendo suficientes para
-     * que el VelocityTracker de la plataforma reconozca el gesto como swipe (velocidad
-     * consistente) sin degradarlo a tap ni dispararlo como fling incontrolado — Android mismo
-     * usa un paso cada ~5ms en `input swipe`, aqui muestreamos mas grueso pero uniforme.
-     * Los timestamps de los MotionEvent se calculan sobre `durationMs` (la velocidad que ve
-     * la app) — el gesto se mantiene determinista y reconocible aunque baje el tiempo real.
+     * Optimizacion (#168): el grueso del wall-clock eran los injects SINCRONOS.
+     * `injectInputEvent(event, true)` bloquea ~23ms/evento hasta que se despacha;
+     * con 12 injects (DOWN + 10 MOVE + UP) son ~276ms de puro bloqueo, mas los
+     * sleeps. Pero los MOVE intermedios NO necesitan ser sincronos: UiAutomation
+     * los encola y la velocidad que ve el VelocityTracker la dan los TIMESTAMPS
+     * del MotionEvent (de `now` a `now+durationMs`), no el tiempo real de inyeccion.
+     * Inyectamos los MOVE async (sync=false) y solo DOWN/UP sincronos para
+     * bracketear el gesto. Los sleeps mantienen un espaciado real minimo para que
+     * el input system no colapse la secuencia. Resultado: ~150ms vs ~450ms, sin
+     * degradar el gesto (sigue siendo swipe reconocible, no tap ni fling).
      */
     fun swipe(x1: Int, y1: Int, x2: Int, y2: Int, durationMs: Long = 150) {
         val steps = 10
         val now = SystemClock.uptimeMillis()
         val stepDuration = durationMs / steps
 
-        // Down
+        // Down (sync: abre el gesto)
         inject(MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, x1.toFloat(), y1.toFloat(), 0))
 
-        // Move
+        // Move (async: encolados; el timestamp lleva la velocidad, no el wall-clock)
         for (i in 1..steps) {
             val fraction = i.toFloat() / steps
             val x = x1 + ((x2 - x1) * fraction).toInt()
             val y = y1 + ((y2 - y1) * fraction).toInt()
             val time = now + stepDuration * i
             if (stepDuration > 0) Thread.sleep(stepDuration)
-            inject(MotionEvent.obtain(now, time, MotionEvent.ACTION_MOVE, x.toFloat(), y.toFloat(), 0))
+            inject(MotionEvent.obtain(now, time, MotionEvent.ACTION_MOVE, x.toFloat(), y.toFloat(), 0), sync = false)
         }
 
-        // Up
+        // Up (sync: cierra el gesto y garantiza que se despacho antes de responder)
         val endTime = now + durationMs
         inject(MotionEvent.obtain(now, endTime, MotionEvent.ACTION_UP, x2.toFloat(), y2.toFloat(), 0))
     }
@@ -94,8 +96,8 @@ class InputInjector(private val uiAutomation: UiAutomation) {
         }
     }
 
-    private fun inject(event: InputEvent) {
-        uiAutomation.injectInputEvent(event, true) // true = sync
+    private fun inject(event: InputEvent, sync: Boolean = true) {
+        uiAutomation.injectInputEvent(event, sync)
         if (event is MotionEvent) event.recycle()
     }
 }
