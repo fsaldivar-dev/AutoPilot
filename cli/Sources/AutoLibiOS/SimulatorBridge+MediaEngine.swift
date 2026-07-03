@@ -52,43 +52,68 @@ extension SimulatorBridge {
         }
     }
 
-    // MARK: - Screen Recording
+    // MARK: - Screen Recording (issue #125: estado persistido en /tmp, no en memoria)
+    //
+    // `startRecording`/`stopRecording` funcionan como comandos CLI sueltos:
+    // el proceso `simctl recordVideo` se lanza detached (sobrevive al CLI) y su
+    // PID + path temporal se persisten vía RecordingStateStore. `stop` en otra
+    // invocación (u otro proceso) lee el archivo, manda SIGINT y mueve el mp4.
 
     public func startRecording() throws {
         let deviceId = try getBootedDeviceId()
-        let tempPath = NSTemporaryDirectory() + "autopilot-recording-\(ProcessInfo.processInfo.globallyUniqueString).mp4"
-        recordingTempPath = tempPath
+        let store = RecordingStateStore()
 
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
-        process.arguments = ["simctl", "io", deviceId, "recordVideo", "--codec=h264", tempPath]
-        process.standardOutput = Pipe()
-        process.standardError = Pipe()
-        try process.run()
-        recordingProcess = process
+        if let existing = store.load(deviceId: deviceId) {
+            if RecordingStateStore.isProcessAlive(existing.pid) {
+                throw BridgeError.recordingAlreadyInProgress(deviceId)
+            }
+            // Estado huérfano (el grabador murió sin stop): limpiar y continuar.
+            try? FileManager.default.removeItem(atPath: existing.tempPath)
+            store.clear(deviceId: deviceId)
+        }
+
+        let tempPath = NSTemporaryDirectory() + "autopilot-recording-\(UUID().uuidString).mp4"
+        let command = "/usr/bin/xcrun simctl io \(DetachedProcess.shellQuote(deviceId)) "
+            + "recordVideo --codec=h264 \(DetachedProcess.shellQuote(tempPath))"
+        let pid = try DetachedProcess.launch(command)
+
+        // Sanity check: si recordVideo murió al instante (device apagándose,
+        // path no escribible), reportarlo ya en vez de fallar en el stop.
+        usleep(300_000)
+        guard RecordingStateStore.isProcessAlive(pid) else {
+            throw BridgeError.simctlFailed("recordVideo exited immediately — is the simulator booted?")
+        }
+
+        try store.save(RecordingState(pid: pid, deviceId: deviceId, tempPath: tempPath))
     }
 
     public func stopRecording(outputPath: String) throws {
-        guard let process = recordingProcess else {
-            throw BridgeError.unknown("No recording in progress")
+        let deviceId = try getBootedDeviceId()
+        let store = RecordingStateStore()
+        guard let state = store.load(deviceId: deviceId) else {
+            throw BridgeError.noRecordingInProgress
         }
 
-        // Send SIGINT to stop recording gracefully
-        process.interrupt()
-        process.waitUntilExit()
-
-        guard let tempPath = recordingTempPath else {
-            throw BridgeError.unknown("No recording temp path found")
+        if RecordingStateStore.isProcessAlive(state.pid) {
+            // SIGINT: simctl recordVideo finaliza el mp4 (moov atom) y sale.
+            kill(state.pid, SIGINT)
+            // Esperar el flush — el proceso muere cuando terminó de escribir.
+            let deadline = Date().addingTimeInterval(15)
+            while RecordingStateStore.isProcessAlive(state.pid) && Date() < deadline {
+                usleep(100_000)
+            }
         }
 
         let fm = FileManager.default
+        guard fm.fileExists(atPath: state.tempPath) else {
+            store.clear(deviceId: deviceId)
+            throw BridgeError.simctlFailed("Recording produced no video file (\(state.tempPath))")
+        }
         if fm.fileExists(atPath: outputPath) {
             try fm.removeItem(atPath: outputPath)
         }
-        try fm.moveItem(atPath: tempPath, toPath: outputPath)
-
-        recordingProcess = nil
-        recordingTempPath = nil
+        try fm.moveItem(atPath: state.tempPath, toPath: outputPath)
+        store.clear(deviceId: deviceId)
     }
 
     // MARK: - Virtual Camera (feed + signal files)

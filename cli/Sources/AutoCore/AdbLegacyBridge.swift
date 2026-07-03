@@ -7,7 +7,8 @@ public final class AdbLegacyBridge: DeviceBridge {
 
     private var selectedDeviceId: String?
     private var cachedAdbPath: String?
-    private var recordingProcess: Process?
+    // Estado de grabación: persistido en /tmp vía RecordingStateStore (issue #125),
+    // ya no vive en memoria — ver la sección Screen Recording.
 
     public init(deviceId: String? = nil) {
         self.selectedDeviceId = deviceId
@@ -829,44 +830,84 @@ public final class AdbLegacyBridge: DeviceBridge {
         return CGRect(x: 0, y: 0, width: screen.width, height: screen.height)
     }
 
-    // MARK: - Screen Recording
+    // MARK: - Screen Recording (issue #125: estado persistido en /tmp, no en memoria)
+    //
+    // `startRecording`/`stopRecording` funcionan como comandos CLI sueltos:
+    // el cliente `adb shell screenrecord` se lanza detached (sobrevive al CLI)
+    // y su PID + path remoto del video se persisten vía RecordingStateStore.
+    // `stop` manda SIGINT al screenrecord DEL DEVICE (matar solo el cliente adb
+    // local dejaría el screenrecord remoto huérfano), espera el flush, hace
+    // pull del mp4 y limpia device + archivo de estado.
+
+    /// Serial del device para la clave del archivo de estado: el seleccionado
+    /// explícitamente o el default que resuelva adb.
+    private func recordingDeviceId() throws -> String {
+        if let deviceId = selectedDeviceId { return deviceId }
+        let serial = try runAdb(["get-serialno"]).trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !serial.isEmpty, serial != "unknown" else {
+            throw BridgeError.adbFailed("No device detected (adb get-serialno)")
+        }
+        return serial
+    }
 
     public func startRecording() throws {
-        if recordingProcess != nil {
-            throw BridgeError.adbFailed("Recording already in progress")
+        let deviceId = try recordingDeviceId()
+        let store = RecordingStateStore()
+
+        if let existing = store.load(deviceId: deviceId) {
+            if RecordingStateStore.isProcessAlive(existing.pid) {
+                throw BridgeError.recordingAlreadyInProgress(deviceId)
+            }
+            // Estado huérfano: el CLI murió pero el screenrecord remoto puede
+            // seguir grabando en el device. Matarlo y limpiar antes de reiniciar.
+            try? runAdb(["shell", "pkill", "-2", "screenrecord"])
+            usleep(500_000)
+            try? runAdb(["shell", "rm", "-f", existing.tempPath])
+            store.clear(deviceId: deviceId)
         }
 
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: try adbPath())
+        let remotePath = "/sdcard/autopilot-recording-\(UUID().uuidString).mp4"
+        let command = "\(DetachedProcess.shellQuote(try adbPath())) -s \(DetachedProcess.shellQuote(deviceId)) "
+            + "shell screenrecord \(DetachedProcess.shellQuote(remotePath))"
+        let pid = try DetachedProcess.launch(command)
 
-        var args = ["shell", "screenrecord", "/sdcard/autopilot-recording.mp4"]
-        if let deviceId = selectedDeviceId {
-            args = ["-s", deviceId] + args
+        // Sanity check: si el cliente adb murió al instante (device offline,
+        // screenrecord inexistente), reportarlo ya en vez de fallar en el stop.
+        usleep(300_000)
+        guard RecordingStateStore.isProcessAlive(pid) else {
+            throw BridgeError.adbFailed("screenrecord exited immediately — is the device online?")
         }
-        process.arguments = args
-        process.standardOutput = Pipe()
-        process.standardError = Pipe()
 
-        try process.run()
-        recordingProcess = process
+        try store.save(RecordingState(pid: pid, deviceId: deviceId, tempPath: remotePath))
     }
 
     public func stopRecording(outputPath: String) throws {
-        guard let process = recordingProcess else {
-            throw BridgeError.adbFailed("No recording in progress")
+        let deviceId = try recordingDeviceId()
+        let store = RecordingStateStore()
+        guard let state = store.load(deviceId: deviceId) else {
+            throw BridgeError.noRecordingInProgress
         }
 
-        // Send SIGINT to stop recording gracefully
-        process.interrupt()
-        process.waitUntilExit()
-        recordingProcess = nil
+        // SIGINT al screenrecord en el device (finaliza el mp4). pkill también
+        // barre cualquier screenrecord huérfano de sesiones anteriores. Best
+        // effort: si ya terminó solo (límite de 3 min), pkill no matchea nada.
+        try? runAdb(["shell", "pkill", "-2", "screenrecord"])
 
-        // Wait for file to be finalized
-        usleep(1_000_000)
+        // Esperar el flush: el cliente adb local muere cuando el screenrecord
+        // remoto termina de escribir.
+        let deadline = Date().addingTimeInterval(10)
+        while RecordingStateStore.isProcessAlive(state.pid) && Date() < deadline {
+            usleep(100_000)
+        }
+        if RecordingStateStore.isProcessAlive(state.pid) {
+            kill(state.pid, SIGTERM) // no dejar clientes adb colgados
+        }
+        usleep(500_000) // margen extra para finalizar el mp4 en el device
 
-        // Pull the recording file
-        try runAdb(["pull", "/sdcard/autopilot-recording.mp4", outputPath])
-        try runAdb(["shell", "rm", "/sdcard/autopilot-recording.mp4"])
+        // Pull del video y limpieza del device + estado
+        try runAdb(["pull", state.tempPath, outputPath])
+        try? runAdb(["shell", "rm", "-f", state.tempPath])
+        store.clear(deviceId: deviceId)
     }
 
     // MARK: - Device Environment
