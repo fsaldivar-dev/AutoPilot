@@ -11,6 +11,7 @@ public struct ResolvedAction {
     public let identifier: String?    // accessibility identifier (when available)
     public let fragile: Bool          // true if no identifier and needs occurrence
     public let coordinate: CGPoint    // original touch coordinate (fallback)
+    public let argsSuffix: String?    // trailing args, e.g. "1.5" for longPress duration (#91)
 
     public init(
         command: String,
@@ -20,7 +21,8 @@ public struct ResolvedAction {
         occurrence: Int?,
         identifier: String?,
         fragile: Bool,
-        coordinate: CGPoint
+        coordinate: CGPoint,
+        argsSuffix: String? = nil
     ) {
         self.command = command
         self.selector = selector
@@ -30,5 +32,6 @@ public struct ResolvedAction {
         self.identifier = identifier
         self.fragile = fragile
         self.coordinate = coordinate
+        self.argsSuffix = argsSuffix
     }
 }
