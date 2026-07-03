@@ -29,6 +29,9 @@ public enum AndroidUsage {
           install <path/to/app.apk>        Install APK
           elementAt <x> <y>                 Element at coordinate
           screenshot [filename.png]         Screenshot
+          assertScreen <baseline.png> [tol] Visual diff vs baseline (dHash 64 bits)
+                                            tol: max bits distintos, default 10
+                                            --create: guarda baseline si no existe
           biometric <enroll|match|fail|status> Biometric control
           paste [text]                      Set/get clipboard
           camera start <image.jpg> [--package <pkg>]  Inject mock camera (JVMTI)
