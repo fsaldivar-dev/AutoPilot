@@ -19,6 +19,8 @@ public enum BridgeError: Error, CustomStringConvertible {
     case avdNotFound(String, [String])
     case eventTapFailed
     case timeout(String)
+    case recordingAlreadyInProgress(String)
+    case noRecordingInProgress
     case unknown(String)
 
     public var description: String {
@@ -45,6 +47,8 @@ public enum BridgeError: Error, CustomStringConvertible {
             return "AVD not found: '\(name)'. Available AVDs: \(list)"
         case .eventTapFailed: return "CGEventTap creation failed. Grant Accessibility permissions in: System Settings > Privacy & Security > Accessibility."
         case .timeout(let msg): return msg
+        case .recordingAlreadyInProgress(let device): return "Recording already in progress on '\(device)'. Run stopRecording first."
+        case .noRecordingInProgress: return "No recording in progress. Run startRecording first."
         case .unknown(let msg): return msg
         }
     }
