@@ -21,6 +21,11 @@
   --amber: #fbbf24;
   --blue: #60a5fa;
   --ink: #0b0c14;
+  /* Aliases: varios componentes usan --text-* — mapear a los tokens reales
+   * para que no caigan al color heredado (antes eran variables indefinidas). */
+  --text: var(--fg);
+  --text-mute: var(--fg-mute);
+  --text-dim: var(--fg-dim);
 }
 
 * { box-sizing: border-box; }
@@ -55,8 +60,11 @@ body {
 .app-shell {
   display: grid;
   grid-template-columns: 260px 1fr 320px;
-  grid-template-rows: 52px 1fr 28px;
+  /* minmax(0, 1fr): la fila central nunca crece más allá del viewport aunque
+   * el contenido de un panel sea más alto — cada panel contiene su scroll. */
+  grid-template-rows: 52px minmax(0, 1fr) 28px;
   height: 100vh;
+  overflow: hidden;
 }
 
 .toolbar {
@@ -127,18 +135,36 @@ body {
 .panel-left,
 .panel-right {
   padding: 14px;
-  overflow-y: auto;
+  min-height: 0;
   background: rgba(20, 22, 36, 0.4);
   backdrop-filter: blur(24px);
 }
 
-.panel-left { border-right: 1px solid var(--border); }
-.panel-right { border-left: 1px solid var(--border); }
+.panel-left {
+  border-right: 1px solid var(--border);
+  overflow-y: auto;
+}
+
+/* El panel derecho NO scrollea como un todo (#179): es una columna flex donde
+ * cada sección (lista de elementos, timeline/replay, propiedades) contiene su
+ * propio overflow. isolation + z-index crean un stacking context propio para
+ * que nada del panel pueda pintarse sobre el canvas central. */
+.panel-right {
+  border-left: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+  z-index: 1;
+  isolation: isolate;
+}
 
 .panel-main {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  min-width: 0;
+  min-height: 0;
   position: relative;
   background:
     radial-gradient(circle at 1px 1px, rgba(255, 255, 255, 0.025) 1px, transparent 0) 0 0 / 28px 28px,
@@ -498,7 +524,9 @@ body {
   border: 1px solid rgba(255, 255, 255, 0.08);
   border-radius: 12px;
   padding: 4px;
-  max-height: 360px;
+  /* Cap relativo al viewport: en ventanas chicas el dropdown de sugerencias
+   * no tapa todo el canvas de bloques (#179). */
+  max-height: min(360px, 45vh);
   overflow-y: auto;
   z-index: 20;
   box-shadow: 0 30px 70px -15px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(139, 92, 246, 0.08);
@@ -818,16 +846,51 @@ body {
 
 /* ============ DEVICE PREVIEW ============ */
 
+/* Sección del panel derecho: no crece ni encoge — el espacio flexible es del
+ * timeline/replay. La lista de elementos scrollea dentro de su propio max-height. */
+.device-panel {
+  flex-shrink: 0;
+  min-height: 0;
+}
+
 .device-preview {
   margin: 0 auto;
-  width: 220px;
-  height: 440px;
+  /* Altura relativa al viewport: en ventanas chicas (800px) el mockup se
+   * encoge para que la lista de elementos y los tabs Timeline/Replay queden
+   * siempre visibles sin scroll (#177). */
+  height: min(440px, 44vh);
+  aspect-ratio: 1 / 2;
+  width: auto;
+  max-width: 100%;
   border-radius: 40px;
   border: 7px solid #1e293b;
   background: #000;
   position: relative;
   overflow: hidden;
   box-shadow: 0 20px 50px rgba(0, 0, 0, 0.6);
+}
+
+.element-section {
+  margin-top: 12px;
+  flex-shrink: 0;
+  min-height: 0;
+}
+
+/* La lista de elementos contiene su propio scroll (#179): max-height fija y
+ * overflow-y auto — el resto del panel no se mueve al scrollear aquí. */
+.element-list {
+  max-height: 132px;
+  overflow-y: auto;
+  font-size: 11px;
+  color: var(--fg-dim);
+  font-family: "JetBrains Mono", ui-monospace, Menlo, monospace;
+}
+
+.element-row {
+  padding: 2px 0;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
 
 .device-preview .screen {
@@ -878,6 +941,16 @@ body {
   display: flex;
   gap: 4px;
   margin: 12px 0 4px;
+  flex-shrink: 0;
+}
+
+/* Contenido del tab activo (Timeline/Replay) y panel de propiedades: ocupan
+ * el espacio restante del panel derecho con su propio scroll. */
+.right-tab-content,
+.panel-right-detail {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
 }
 
 .right-tab {
@@ -887,7 +960,7 @@ body {
   background: transparent;
   border: 1px solid var(--border);
   border-radius: 6px;
-  color: var(--text-mute);
+  color: var(--fg-mute);
   cursor: pointer;
 }
 

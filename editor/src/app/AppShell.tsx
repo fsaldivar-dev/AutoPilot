@@ -24,6 +24,7 @@ export function AppShell() {
   const dismissToast = useStore((s) => s.dismissToast);
   const selectedIds = useStore((s) => s.selectedBlockIds);
   const viewMode = useStore((s) => s.viewMode);
+  const sessionId = useStore((s) => s.sessionId);
   const [rightTab, setRightTab] = useState<"timeline" | "replay">("timeline");
 
   useEffect(() => {
@@ -56,7 +57,9 @@ export function AppShell() {
       <aside className="panel-right">
         <DevicePreview platform={platform} />
         {selectedIds.length === 1 ? (
-          <BlockProperties />
+          <div className="panel-right-detail">
+            <BlockProperties />
+          </div>
         ) : (
           <>
             <div className="right-tabs" data-testid="right-tabs">
@@ -75,14 +78,22 @@ export function AppShell() {
                 Replay
               </button>
             </div>
-            {rightTab === "timeline" ? <Timeline /> : <ReplayPanel />}
+            <div className="right-tab-content">
+              {rightTab === "timeline" ? <Timeline /> : <ReplayPanel />}
+            </div>
           </>
         )}
       </aside>
       <footer className="status-bar">
         <span data-testid="status-text">
-          {platform === "ios" ? "iPhone 15 Pro" : "Android emulator"} ·{" "}
-          <span style={{ color: "var(--mint)" }}>conectado</span>
+          {/* Runtime real, sin inventar modelo: el CLI no reporta el nombre
+           * del device de forma barata, así que mostramos el tipo de runtime. */}
+          {platform === "ios" ? "iOS Simulator" : "Android Emulator"} ·{" "}
+          {sessionId ? (
+            <span style={{ color: "var(--mint)" }}>conectado</span>
+          ) : (
+            <span style={{ color: "var(--text-dim)" }}>sin sesión</span>
+          )}
         </span>
         <span style={{ flex: 1 }} />
         <span style={{ color: "var(--text-mute)" }}>Composer v0.2</span>
