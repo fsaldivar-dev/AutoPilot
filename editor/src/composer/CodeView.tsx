@@ -1,10 +1,24 @@
-import Editor from "@monaco-editor/react";
+import Editor, { type OnMount } from "@monaco-editor/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { selectCurrentFlow, useStore } from "../state/store";
 import { parseAuto, serializeFlow } from "../domain/autoSerializer";
+import { ensureMonacoSetup, monaco } from "./monaco/setupMonaco";
+import {
+  AUTO_LANGUAGE_ID,
+  AUTO_THEME_ID,
+  parseErrorsToMarkers,
+} from "./monaco/autoLanguage";
 
 // CodeView usa el serializer/parser `.auto` completo (con control flow).
 // Roundtrip estable serialize→parse→serialize (ver autoSerializer.test.ts).
+//
+// Monaco viene bundleado (setupMonaco) con lenguaje `.auto` (Monarch), tema
+// "autopilot" (Tokyo Night), autocomplete del catálogo + labels del device,
+// y markers de error del parser (#176/#181).
+
+ensureMonacoSetup();
+
+const MARKER_OWNER = "auto-parse";
 
 export function CodeView() {
   const flow = useStore(selectCurrentFlow);
@@ -18,6 +32,7 @@ export function CodeView() {
   );
   const [buffer, setBuffer] = useState(initial);
   const dirtyRef = useRef(false);
+  const editorRef = useRef<Parameters<OnMount>[0] | null>(null);
 
   useEffect(() => {
     // Refresca el buffer solo si el usuario no está editando localmente —
@@ -32,10 +47,41 @@ export function CodeView() {
     [buffer],
   );
 
+  // #176: errores del parser → squiggles de Monaco con línea/columna.
+  useEffect(() => {
+    const model = editorRef.current?.getModel();
+    if (!model) return;
+    monaco.editor.setModelMarkers(
+      model,
+      MARKER_OWNER,
+      parseErrorsToMarkers(parseErrors, buffer),
+    );
+  }, [parseErrors, buffer]);
+
+  const onMount: OnMount = (editor) => {
+    editorRef.current = editor;
+    const model = editor.getModel();
+    if (model) {
+      monaco.editor.setModelMarkers(
+        model,
+        MARKER_OWNER,
+        parseErrorsToMarkers(parseErrors, buffer),
+      );
+    }
+  };
+
   function onApply() {
     if (!flow) return;
     if (parseErrors.length > 0) {
-      showToast("err", `✗ línea ${parseErrors[0].line}: ${parseErrors[0].message}`);
+      // #176: feedback explícito — nada de silencio con errores.
+      const first = parseErrors[0];
+      showToast("err", `✗ línea ${first.line}: ${first.message}`);
+      const ed = editorRef.current;
+      if (ed) {
+        ed.revealLineInCenterIfOutsideViewport(first.line);
+        ed.setPosition({ lineNumber: first.line, column: 1 });
+        ed.focus();
+      }
       return;
     }
     // Regeneramos IDs al aplicar — se pierde meta.status/ms del run previo.
@@ -67,7 +113,7 @@ export function CodeView() {
           {flow.name} · <span className="mono">{parsedBlocks.length} bloque(s)</span>
           {parseErrors.length > 0 && (
             <span className="code-errors" style={{ color: "var(--coral)", marginLeft: 8 }}>
-              ⚠ {parseErrors.length} error(es)
+              ⚠ {parseErrors.length} error(es) · línea {parseErrors[0].line}
             </span>
           )}
         </span>
@@ -78,7 +124,11 @@ export function CodeView() {
         <button
           className="btn btn-primary"
           onClick={onApply}
-          disabled={parseErrors.length > 0}
+          title={
+            parseErrors.length > 0
+              ? `Corrige ${parseErrors.length} error(es) antes de aplicar`
+              : "Aplicar cambios al flow"
+          }
           data-testid="code-apply"
         >
           Aplicar
@@ -87,9 +137,10 @@ export function CodeView() {
       <div className="code-view-editor">
         <Editor
           height="100%"
-          defaultLanguage="plaintext"
-          theme="vs-dark"
+          language={AUTO_LANGUAGE_ID}
+          theme={AUTO_THEME_ID}
           value={buffer}
+          onMount={onMount}
           onChange={(v) => {
             setBuffer(v ?? "");
             dirtyRef.current = true;
@@ -103,9 +154,14 @@ export function CodeView() {
             lineNumbers: "on",
             renderLineHighlight: "all",
             padding: { top: 12 },
+            quickSuggestions: { other: true, comments: false, strings: true },
+            suggestOnTriggerCharacters: true,
+            fixedOverflowWidgets: true,
           }}
         />
       </div>
     </div>
   );
 }
+
+export default CodeView;
