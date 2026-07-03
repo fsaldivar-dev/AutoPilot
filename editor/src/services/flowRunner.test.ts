@@ -60,8 +60,8 @@ function mkCb() {
   const ended: { id: string; ok: boolean }[] = [];
   return {
     started, ended,
-    onBlockStart: (id: string) => started.push(id),
-    onBlockEnd: (id: string, ok: boolean) => ended.push({ id, ok }),
+    onBlockStart: (id: string) => { started.push(id); },
+    onBlockEnd: (id: string, ok: boolean) => { ended.push({ id, ok }); },
     shouldAbortOnError: () => true,
   };
 }
@@ -217,5 +217,37 @@ describe("flowRunner honestidad (#170/#171)", () => {
     expect(r.ok).toBe(false);
     // se corrió 'a', se pidió stop, 'b'/'c' no corren
     expect(sendMock.mock.calls.filter(c => String(c[1]).startsWith("tap ")).length).toBe(1);
+  });
+});
+
+describe("flowRunner replay capture (#172)", () => {
+  it("espera la promise de onBlockEnd antes de mandar el siguiente comando", async () => {
+    // Simula la captura del RunRecorder: onBlockEnd devuelve una promise que
+    // resuelve más tarde. El runner DEBE esperarla — si no, el screenshot del
+    // paso N se encola en paralelo con el comando N+1 (FIFO desalineado,
+    // tabla screenshots vacía).
+    const order: string[] = [];
+    sendMock.mockImplementation(async (sid, line) => {
+      order.push(`send:${line}`);
+      return { frame: okFrame(), sessionId: sid ?? "s1" };
+    });
+    const flow = makeFlow([cmd("a", 'tap "A"'), cmd("b", 'tap "B"')]);
+    await runFlow("s1", "ios", flow, [], {
+      onBlockStart: () => {},
+      onBlockEnd: async (id) => {
+        order.push(`capture-start:${id}`);
+        await new Promise((r) => setTimeout(r, 10));
+        order.push(`capture-end:${id}`);
+      },
+      shouldAbortOnError: () => true,
+    });
+    expect(order).toEqual([
+      'send:tap "A"',
+      "capture-start:a",
+      "capture-end:a",
+      'send:tap "B"',
+      "capture-start:b",
+      "capture-end:b",
+    ]);
   });
 });
