@@ -70,6 +70,8 @@ public enum AndroidUsage {
           run <script.auto>                 Run automation script
           doctor                            Check environment setup (adb, devices, agent)
           setup                             Full bootstrap — adb + device + apk + agent + warmup
+          agent <stop|start|status>         Agent lifecycle: stop releases UiAutomation
+                                            (required for --legacy tree/tap), start relaunches
           inject <image.jpg>                 Hot-swap mock camera image (no restart)
           build [module]                    Gradle assembleDebug wrapper (uses .autopilot)
           list <type>                       Typed UI listing via router
@@ -92,6 +94,9 @@ public enum AndroidUsage {
 
         Flags:
           --legacy                          Use slow adb bridge (for benchmarks)
+                                            Note: --legacy tree/tap need the agent stopped
+                                            first (auto-android agent stop) — Android only
+                                            allows one UiAutomation client at a time (#135)
 
         Requirements:
           - ADB installed (ANDROID_HOME or in PATH)
