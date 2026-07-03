@@ -362,8 +362,10 @@ extension SimulatorBridge {
 
     public func getLogs(bundleId: String?, lines: Int) throws -> String {
         let udid = try getBootedDeviceId()
+        // `--last` toma una DURACIÓN, no líneas ("--last 50" = 50 segundos).
+        // Ventana fija de 5m y el recorte a N líneas se hace acá abajo.
         var args = ["simctl", "spawn", udid, "log", "show",
-                    "--last", "\(lines)", "--style", "compact"]
+                    "--last", "5m", "--style", "compact"]
         if let bundleId = bundleId {
             let processName = bundleId.components(separatedBy: ".").last ?? bundleId
             args += ["--predicate", "process == \"\(processName)\" OR subsystem == \"\(bundleId)\""]
@@ -375,13 +377,21 @@ extension SimulatorBridge {
         process.standardOutput = pipe
         process.standardError = Pipe()
         try process.run()
-        process.waitUntilExit()
+        // Leer ANTES de waitUntilExit: `log show` produce cientos de KB y el
+        // buffer del pipe es de 64KB — esperar primero deja al hijo bloqueado
+        // escribiendo al pipe lleno y a este proceso colgado para siempre (#123)
         let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        process.waitUntilExit()
         let output = String(data: data, encoding: .utf8) ?? ""
         if output.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
             return bundleId != nil
                 ? "(no logs found for \(bundleId!) — app may not have run yet)"
                 : "(no logs)"
+        }
+        // Recortar a las últimas N líneas
+        let allLines = output.split(separator: "\n", omittingEmptySubsequences: false)
+        if allLines.count > lines {
+            return allLines.suffix(lines).joined(separator: "\n")
         }
         return output
     }
