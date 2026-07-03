@@ -127,6 +127,7 @@ public enum AsciiLayout {
     public static func render(tree: [[String: Any]],
                               viewport: CGRect,
                               options: Options = Options()) -> String {
+        let tree = pruneSimulatorChrome(tree)
         var vp = viewport
 
         // --region: zoom al frame del primer elemento que matchea.
@@ -191,6 +192,52 @@ public enum AsciiLayout {
             }
         }
         return box
+    }
+
+    // MARK: - Chrome del Simulator (#162)
+
+    /// Roles de macOS AX que son chrome de la ventana del Simulator cuando
+    /// aparecen como hermanos del contenido del device: controles de la
+    /// ventana (close/minimize/zoom), toolbar, título y botones hardware
+    /// (Home, Volume...).
+    static let windowChromeRoles: Set<String> = [
+        "AXButton", "AXToolbar", "AXStaticText", "AXImage",
+        "AXMenuButton", "AXPopUpButton", "AXCheckBox", "AXSlider"
+    ]
+
+    /// Poda el chrome de la ventana del Simulator de macOS (#162). En el AX
+    /// tree, el contenido real del device vive dentro de un AXGroup; sus
+    /// hermanos a nivel de ventana (Home/Volume, toolbar, window controls,
+    /// título) son chrome del host y no pertenecen al wireframe de la app.
+    /// Solo actúa cuando el tree luce como una ventana del Simulator: todos
+    /// los roles con prefijo "AX", al menos un AXGroup y al menos un hermano
+    /// de chrome. Trees XCUI/observer/Android pasan intactos.
+    static func pruneSimulatorChrome(_ tree: [[String: Any]]) -> [[String: Any]] {
+        // La raíz puede ser la ventana misma o directamente sus hijos
+        // (DeviceBridge.tree() serializa los hijos de la ventana).
+        var siblings = tree
+        var windowRoot: [String: Any]? = nil
+        if tree.count == 1, (tree[0]["role"] as? String) == "AXWindow",
+           let children = tree[0]["children"] as? [[String: Any]] {
+            siblings = children
+            windowRoot = tree[0]
+        }
+
+        let roles = siblings.map { ($0["role"] as? String) ?? "" }
+        guard roles.allSatisfy({ $0.hasPrefix("AX") }),
+              roles.contains("AXGroup"),
+              roles.contains(where: { windowChromeRoles.contains($0) }) else {
+            return tree
+        }
+
+        let content = siblings.filter {
+            !windowChromeRoles.contains(($0["role"] as? String) ?? "")
+        }
+        if var root = windowRoot {
+            root["children"] = content
+            return [root]
+        }
+        return content
     }
 
     // MARK: - Recolección

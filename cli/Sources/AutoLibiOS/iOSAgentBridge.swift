@@ -81,11 +81,11 @@ public final class iOSAgentBridge: DeviceBridge {
 
         if let error = response["error"] as? String {
             // Rethrow as elementNotFound so ActionRouter can escalate to AX/XCUI.
-            if error.lowercased().hasPrefix("element not found") {
-                let target = String(error.dropFirst("element not found: ".count))
-                throw BridgeError.elementNotFound(target)
+            if let notFound = BridgeError.unwrapElementNotFound(error) {
+                throw notFound
             }
-            throw BridgeError.adbFailed(error)
+            // El error viene del observer in-process, no de adb (#162).
+            throw BridgeError.agentFailed(error)
         }
 
         return response["result"] as Any

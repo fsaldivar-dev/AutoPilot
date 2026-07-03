@@ -1,6 +1,10 @@
 import Foundation
 import AutoCore
 
+// #162: los tips accionables de BridgeError usan el nombre del binario —
+// aquí corre `auto-android`, no `auto`.
+BridgeError.binaryName = "auto-android"
+
 let useLegacy = CommandLine.arguments.contains("--legacy")
 
 // Bootstrap de plataforma vía AndroidDeviceResolver (ARD-001).

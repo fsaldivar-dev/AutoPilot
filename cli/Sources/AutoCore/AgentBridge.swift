@@ -38,7 +38,7 @@ public final class AgentBridge: DeviceBridge {
 
         let requestData = try JSONSerialization.data(withJSONObject: request)
         guard var requestString = String(data: requestData, encoding: .utf8) else {
-            throw BridgeError.adbFailed("Failed to encode command")
+            throw BridgeError.agentFailed("Failed to encode command")
         }
         requestString += "\n"
 
@@ -59,7 +59,7 @@ public final class AgentBridge: DeviceBridge {
 
         // Send
         guard let sendData = requestString.data(using: .utf8) else {
-            throw BridgeError.adbFailed("Failed to encode request")
+            throw BridgeError.agentFailed("Failed to encode request")
         }
         let _ = sendData.withUnsafeBytes { ptr in
             send(socket, ptr.baseAddress!, sendData.count, 0)
@@ -114,12 +114,18 @@ public final class AgentBridge: DeviceBridge {
         // Parse JSON
         let json = try JSONSerialization.jsonObject(with: responseData)
         guard let response = json as? [String: Any] else {
-            throw BridgeError.adbFailed("Invalid JSON response")
+            throw BridgeError.agentFailed("Invalid JSON response")
         }
 
         // Check for error
         if let error = response["error"] as? String {
-            throw BridgeError.adbFailed(error)
+            // "Element not found: 'X'" del agente → caso tipado (sin duplicar
+            // el prefijo y para que ActionRouter pueda escalar) (#162).
+            if let notFound = BridgeError.unwrapElementNotFound(error) {
+                throw notFound
+            }
+            // El error viene del agente por socket, no de adb (#162).
+            throw BridgeError.agentFailed(error)
         }
 
         return response["result"] as Any
@@ -128,7 +134,7 @@ public final class AgentBridge: DeviceBridge {
     private func createSocket() throws -> Int32 {
         let sock = socket(AF_INET, SOCK_STREAM, 0)
         guard sock >= 0 else {
-            throw BridgeError.adbFailed("Failed to create socket")
+            throw BridgeError.agentFailed("Failed to create socket")
         }
 
         var addr = sockaddr_in()
@@ -183,7 +189,7 @@ public final class AgentBridge: DeviceBridge {
         }
 
         // Step 5: still down — propagate clear error
-        throw BridgeError.adbFailed("""
+        throw BridgeError.agentFailed("""
             Agent did not respond after recovery. Check:
               1. APK installed: adb install agent/app/build/outputs/apk/debug/app-debug.apk
               2. Manually launch: adb shell am instrument -w \(Self.agentComponent)
@@ -260,7 +266,7 @@ public final class AgentBridge: DeviceBridge {
             }
         }
 
-        throw BridgeError.adbFailed("Agent did not come up after 3s. Check that the APK is installed.")
+        throw BridgeError.agentFailed("Agent did not come up after 3s. Check that the APK is installed.")
     }
 
     // MARK: - Agent Lifecycle (#135)
@@ -296,7 +302,7 @@ public final class AgentBridge: DeviceBridge {
             }
             usleep(200_000)
         }
-        throw BridgeError.adbFailed("Agent still responding after force-stop")
+        throw BridgeError.agentFailed("Agent still responding after force-stop")
     }
 
     /// Probe del estado actual del agente: socket primero (ping real),
@@ -316,7 +322,7 @@ public final class AgentBridge: DeviceBridge {
             if let arr = result as? [Any] {
                 return arr.compactMap { $0 as? [String: Any] }
             }
-            throw BridgeError.adbFailed("Invalid tree response")
+            throw BridgeError.agentFailed("Invalid tree response")
         }
         return tree
     }
@@ -443,7 +449,7 @@ public final class AgentBridge: DeviceBridge {
         if let text = result as? String {
             return text
         }
-        throw BridgeError.adbFailed("Invalid clipboard response")
+        throw BridgeError.agentFailed("Invalid clipboard response")
     }
 
     // MARK: - Drag

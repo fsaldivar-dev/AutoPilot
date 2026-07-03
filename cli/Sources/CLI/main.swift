@@ -243,9 +243,24 @@ func executeCommand(_ args: [String]) throws {
     switch cmd {
 
     case "ping":
-        let _ = try simulatorBridge.findSimulator()
+        // #162: chequear solo el proceso Simulator.app daba falso positivo
+        // ("Simulator found" exit 0) con el device apagado. Verificar ambos
+        // estados y reportarlos con honestidad.
+        let appRunning = simulatorBridge.findSimulatorPID() != nil
+        let bootedDevice = try? simulatorBridge.getBootedDeviceId()
         let ms = elapsedMs(start)
-        print("Simulator found (\(ms)ms)")
+        switch (appRunning, bootedDevice) {
+        case (true, .some(let udid)):
+            print("Simulator app running, device booted: \(udid) (\(ms)ms)")
+        case (false, .some(let udid)):
+            print("Device booted: \(udid), but Simulator.app is not running — open it for UI commands (\(ms)ms)")
+        case (true, .none):
+            throw BridgeError.unknown(
+                "Simulator.app is running, but no device is booted. Boot one with: xcrun simctl boot <device>"
+            )
+        case (false, .none):
+            throw BridgeError.simulatorNotRunning
+        }
 
     case "index":
         let root = try simulatorBridge.findSimulatorContent()
