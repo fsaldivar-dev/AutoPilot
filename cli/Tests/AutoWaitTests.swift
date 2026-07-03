@@ -344,6 +344,21 @@ final class AutoWaitTests: XCTestCase {
         XCTAssertGreaterThanOrEqual(treeCalls, 2)
     }
 
+    /// #158: multi-tap por dispatcher — la pre-estabilización corre UNA sola vez
+    /// para toda la ráfaga, no una por dígito. Con árbol frozen y
+    /// `retryDeadline: 0` (1 fetch de verify por tap):
+    ///   1 (TapTargets) + 1 (estabilización única, seed heredado) + 2 (verify) = 4.
+    /// Con estabilización por-dígito (el bug) el 2º dígito, sin seed, pagaría
+    /// 2 fetches de estabilidad extra → total mayor.
+    func testDispatcherMultiTapStabilizesOnce() throws {
+        let bridge = MockBridge()
+        bridge.treeNodes = [["label": "1"], ["label": "2"]]
+        _ = try executeSharedCommand(["tap", "1,2"], bridge: bridge, autoWait: countable)
+        let tapped = bridge.calls.filter { $0.method == "tap" }.map { $0.args[0] }
+        XCTAssertEqual(tapped, ["1", "2"])
+        XCTAssertEqual(bridge.callCount("tree"), 4)
+    }
+
     /// Enhancement Android con backend programable y AUTO_RETRY_TAP=1: árbol
     /// congelado → re-tap por coordenada (mismo camino que el tap original).
     func testAndroidEnhancementRetapsByCoordinate() async throws {
@@ -362,6 +377,76 @@ final class AutoWaitTests: XCTestCase {
             return false
         }
         XCTAssertEqual(coordinateTaps.count, 2) // tap + re-tap, ambos por frame
+    }
+
+    // MARK: - #158: estabilización única en multi-tap
+
+    /// Config donde la verificación post-tap consume exactamente UN fetch por
+    /// tap (`retryDeadline: 0` → el poll de cambio vence tras la primera
+    /// lectura). Aísla los fetches de pre-estabilización de los de
+    /// verificación para poder contar cuántas veces se estabiliza.
+    private var countable: AutoWait.Config {
+        AutoWait.Config(
+            enabled: true,
+            stabilityDeadline: 0.25,
+            pollInterval: 0.002,
+            retryDeadline: 0, // 1 fetch de verificación por tap, determinista
+            maxFetchCost: 10
+        )
+    }
+
+    /// Cuenta cuántos `.tree` ejecutó el backend (Android).
+    private func treeFetchCount(_ backend: AndroidTapMockBackend) -> Int {
+        backend.executed.filter { if case .tree = $0 { return true }; return false }.count
+    }
+
+    /// #158: en un multi-tap `1,2,3,4` sobre un keypad de PIN (layout congelado)
+    /// la pre-estabilización debe correr UNA sola vez, no una por dígito. Con
+    /// árbol frozen y `retryDeadline: 0`:
+    ///   - TapTargets: 1 fetch (resuelve la coma)
+    ///   - pre-estabilización única: 1 fetch (el seed hereda la muestra inicial)
+    ///   - verificación post-tap: 1 fetch por dígito = 4
+    /// Total = 6. Con estabilización por-dígito (el bug) serían más: cada
+    /// dígito 2..N sin seed pagaría 2 fetches de estabilidad extra.
+    func testAndroidMultiTapStabilizesOnce() async throws {
+        let backend = AndroidTapMockBackend()
+        backend.treeNodes = [["label": "1"], ["label": "2"], ["label": "3"], ["label": "4"]]
+        let registry = CapabilityRegistry()
+        await registry.register(backend)
+        let router = ActionRouter(registry: registry)
+        try await AndroidTapEnhancement.execute(
+            args: ["tap", "1,2,3,4"], router: router,
+            start: CFAbsoluteTimeGetCurrent(), autoWait: countable)
+
+        let taps = backend.executed.filter { if case .tap = $0 { return true }; return false }
+        XCTAssertEqual(taps.count, 4)
+        // 1 (TapTargets) + 1 (estabilización única) + 4 (verify) = 6.
+        // La clave: NO escala con la estabilización por dígito.
+        XCTAssertEqual(treeFetchCount(backend), 6)
+    }
+
+    /// #158: contraste — un multi-tap de 2 dígitos debe estabilizar exactamente
+    /// las mismas veces (1) que uno de 4. El total de fetches solo crece por la
+    /// verificación post-tap (1/tap), no por re-estabilización.
+    func testAndroidMultiTapStabilizationDoesNotScaleWithDigits() async throws {
+        func fetches(forDigits raw: String, count expected: Int) async throws -> Int {
+            let backend = AndroidTapMockBackend()
+            backend.treeNodes = (1...expected).map { ["label": "\($0)"] }
+            let registry = CapabilityRegistry()
+            await registry.register(backend)
+            let router = ActionRouter(registry: registry)
+            try await AndroidTapEnhancement.execute(
+                args: ["tap", raw], router: router,
+                start: CFAbsoluteTimeGetCurrent(), autoWait: countable)
+            return treeFetchCount(backend)
+        }
+        AutoWait._resetBackoffForTesting()
+        let two = try await fetches(forDigits: "1,2", count: 2)
+        AutoWait._resetBackoffForTesting()
+        let four = try await fetches(forDigits: "1,2,3,4", count: 4)
+        // Diferencia = solo 2 verificaciones extra (2 dígitos más), NO
+        // estabilizaciones extra. Con el bug la diferencia sería mayor.
+        XCTAssertEqual(four - two, 2)
     }
 
     /// Enhancement Android con default: árbol congelado → UN solo tap.

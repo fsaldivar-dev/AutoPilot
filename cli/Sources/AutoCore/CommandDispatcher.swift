@@ -166,13 +166,37 @@ public func executeSharedCommand(
             seedTree = tree
             return tree
         }
+        // #158: en un multi-tap la estabilización pre-acción se hace UNA sola
+        // vez, antes del primer target. Para un keypad de PIN (`tap 1,2,3,4`)
+        // el layout no cambia entre dígitos: re-estabilizar en cada iteración
+        // era el grueso del costo creciente por tap que vio el QA tras #157.
+        // Estabilizamos una vez y reusamos el pre-hash para la verificación
+        // post-tap de cada dígito.
+        let isMultiTap = targets.count > 1
+        var sharedSnapshot: AutoWait.Snapshot?
+        if isMultiTap {
+            sharedSnapshot = AutoWait.stabilize(initialTree: seedTree, config: autoWait) { try bridge.tree() }
+            seedTree = nil
+        }
         for target in targets {
+            // #158: cronómetro POR target — el reporte "Tapped 'X' (Nms)" debe
+            // mostrar el tiempo real de ESE tap, no el acumulado desde el inicio
+            // del comando (antes todos los targets imprimían elapsedMs(start),
+            // dando 194→462→1829→…, números acumulados y engañosos).
+            let targetStart = CFAbsoluteTimeGetCurrent()
             // #157: pre-acción — espera a que el árbol se estabilice (2 lecturas
-            // con el mismo hash). Devuelve el pre-hash para la verificación.
+            // con el mismo hash). En multi-tap reusamos la estabilización única
+            // (#158); en tap único estabilizamos aquí. Devuelve el pre-hash
+            // para la verificación.
             let doTap = { try runAction(.tap(target: target), router: router,
                                         fallback: { try bridge.tap(target: target) }) }
-            let snapshot = AutoWait.stabilize(initialTree: seedTree, config: autoWait) { try bridge.tree() }
-            seedTree = nil // solo el primer target hereda el árbol de TapTargets
+            let snapshot: AutoWait.Snapshot?
+            if isMultiTap {
+                snapshot = sharedSnapshot
+            } else {
+                snapshot = AutoWait.stabilize(initialTree: seedTree, config: autoWait) { try bridge.tree() }
+                seedTree = nil // solo el primer target hereda el árbol de TapTargets
+            }
             try doTap()
             // #157: post-tap — retryTapIfNoChange. Sin cambio de hash → un
             // re-tap → sin cambio → warning honesto en stderr (no error duro:
@@ -181,7 +205,7 @@ public func executeSharedCommand(
                 AutoWait.verifyTapEffect(target: target, preHash: snapshot.hash, config: autoWait,
                                          fetch: { try bridge.tree() }, retap: doTap)
             }
-            print("Tapped '\(target)' (\(elapsedMs(start))ms)")
+            print("Tapped '\(target)' (\(elapsedMs(targetStart))ms)")
         }
 
     case "longPress":
