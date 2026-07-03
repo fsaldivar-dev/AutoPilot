@@ -73,14 +73,33 @@ public final class AgentBridge: DeviceBridge {
 
         outer: while true {
             let bytesRead = recv(socket, buffer, bufSize, 0)
-            if bytesRead <= 0 { break }
-            for i in 0..<bytesRead {
-                if buffer[i] == 0x0A { // newline = end of response
-                    responseData.append(buffer, count: i)
-                    break outer
+            switch SocketReadOutcome.classify(bytesRead: bytesRead, errnoValue: errno) {
+            case .data(let count):
+                for i in 0..<count {
+                    if buffer[i] == 0x0A { // newline = end of response
+                        responseData.append(buffer, count: i)
+                        break outer
+                    }
                 }
+                responseData.append(buffer, count: count)
+            case .interrupted:
+                continue
+            case .timedOut:
+                // Agente colgado a media respuesta (#156): sin este timeout el
+                // CLI (y el sidecar del editor) se congelaba para siempre.
+                // Mismo patron que Connection refused / respuesta vacia:
+                // recovery + un unico retry con recovery deshabilitado.
+                if allowRecover {
+                    try recoverAgent()
+                    return try sendCommandInternal(method, params: params, allowRecover: false)
+                }
+                throw BridgeError.timeout(
+                    "Agent did not respond within \(SocketTimeouts.agentReceiveSeconds)s (method: \(method)). " +
+                    "The agent may be hung — run: auto-android setup (or: adb shell am force-stop \(Self.agentPackage))"
+                )
+            case .closed, .failed:
+                break outer // el chequeo de respuesta vacia decide el recovery
             }
-            responseData.append(buffer, count: bytesRead)
         }
 
         guard !responseData.isEmpty else {
@@ -127,6 +146,11 @@ public final class AgentBridge: DeviceBridge {
             close(sock)
             throw BridgeError.adbFailed("Cannot connect to agent at \(host):\(port). Is the agent running?")
         }
+
+        // #156: sin SO_RCVTIMEO un agente colgado (proceso vivo que no responde)
+        // congelaba recv() para siempre. 15s >> cualquier comando normal del
+        // agente. probeSocket() lo baja a 1s para sus pings.
+        SocketTimeouts.applyReceiveTimeout(fd: sock, seconds: SocketTimeouts.agentReceiveSeconds)
 
         return sock
     }
@@ -184,10 +208,10 @@ public final class AgentBridge: DeviceBridge {
         }
         if sent <= 0 { return false }
 
-        // Read response with a 1s timeout. The agent's ping handler is
-        // sub-millisecond when alive; recv returns -1 (EAGAIN) on timeout.
-        var tv = timeval(tv_sec: 1, tv_usec: 0)
-        setsockopt(sock, SOL_SOCKET, SO_RCVTIMEO, &tv, socklen_t(MemoryLayout<timeval>.size))
+        // Read response with a 1s timeout (overrides the default 15s that
+        // createSocket applies). The agent's ping handler is sub-millisecond
+        // when alive; recv returns -1 (EAGAIN) on timeout.
+        SocketTimeouts.applyReceiveTimeout(fd: sock, seconds: 1)
 
         var buf = [UInt8](repeating: 0, count: 256)
         let bytesRead = recv(sock, &buf, buf.count, 0)
