@@ -87,7 +87,10 @@ public func executeSharedCommand(
             print("       auto tap a,b,c      (multiple)")
             return true
         }
-        let targets = args[1].split(separator: ",").map(String.init)
+        // Labels estándar pueden contener comas ("Nombre, iPhone" en celdas iOS).
+        // TapTargets decide con match exacto sobre el árbol rápido: si el label
+        // completo existe → un solo tap; si no → multi-tap por fragmentos (#124).
+        let targets = try TapTargets.resolve(args[1]) { try bridge.tree() }
         for target in targets {
             try runAction(.tap(target: target), router: router, fallback: { try bridge.tap(target: target) })
             print("Tapped '\(target)' (\(elapsedMs(start))ms)")

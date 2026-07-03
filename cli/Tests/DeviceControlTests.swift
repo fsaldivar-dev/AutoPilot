@@ -60,7 +60,16 @@ final class MockBridge: DeviceBridge {
     }
 
     // MARK: - Existing protocol methods (stubs)
-    func tree() throws -> [[String: Any]] { [] }
+    /// Árbol que devuelve `tree()` — configurable para tests de tap multi-target (#124)
+    var treeNodes: [[String: Any]] = []
+    /// Si se setea, `tree()` lanza este error (simula bridge caído)
+    var treeError: Error?
+
+    func tree() throws -> [[String: Any]] {
+        record("tree")
+        if let error = treeError { throw error }
+        return treeNodes
+    }
     func search(query: String) throws -> [[String: Any]] { [] }
     func elementAt(x: Double, y: Double) throws -> [String: Any]? { nil }
     func tap(target: String) throws { record("tap", target) }
