@@ -1,7 +1,35 @@
 use std::path::PathBuf;
 use std::process::Command;
+use std::sync::OnceLock;
 
+/// Resuelve la ruta del binario `name`, cacheada por proceso.
+///
+/// El probing (fs + `which`) es caro y este helper se llama en cada request —
+/// incluido el polling de ~200ms del mirror — así que la primera resolución
+/// se memoiza en un `OnceLock` por binario conocido.
 pub fn find_binary(name: &str) -> PathBuf {
+    static AUTO_BIN: OnceLock<PathBuf> = OnceLock::new();
+    static AUTO_ANDROID_BIN: OnceLock<PathBuf> = OnceLock::new();
+
+    let cache = match name {
+        "auto" => &AUTO_BIN,
+        "auto-android" => &AUTO_ANDROID_BIN,
+        other => return locate_binary(other),
+    };
+    if let Some(path) = cache.get() {
+        return path.clone();
+    }
+    let path = locate_binary(name);
+    // Solo cachear resoluciones reales (rutas absolutas). El fallback de
+    // nombre pelado no se memoiza: si el binario aparece después (p.ej. tras
+    // compilar el CLI), la siguiente llamada lo encuentra sin reiniciar.
+    if path.is_absolute() {
+        let _ = cache.set(path.clone());
+    }
+    path
+}
+
+fn locate_binary(name: &str) -> PathBuf {
     if let Ok(exe) = std::env::current_exe() {
         if let Some(dir) = exe.parent() {
             let candidate = dir.join(name);
