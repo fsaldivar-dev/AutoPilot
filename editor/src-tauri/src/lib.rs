@@ -33,7 +33,8 @@ pub fn run() {
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
         .manage(executor)
-        .manage(db)
+        // Arc para que los comandos db_* puedan mover el handle a spawn_blocking.
+        .manage(Arc::new(db))
         .invoke_handler(tauri::generate_handler![
             // legacy / cli-backed
             commands::run_auto,
@@ -49,7 +50,6 @@ pub fn run() {
             commands::executor_status,
             // legacy single-session wrappers
             commands::interactive_start,
-            commands::interactive_send,
             commands::interactive_stop,
             // db
             commands::db_list_projects,
