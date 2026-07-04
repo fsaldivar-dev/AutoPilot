@@ -65,6 +65,11 @@ interface ComposerSlice {
 interface ExecutorSlice {
   sessionId?: string;
   sessionPlatform?: Platform;
+  // Plataforma seleccionada en el toggle iOS/Android del toolbar. Vive en el
+  // store (no en AppShell) para que consumidores fuera del árbol React — el
+  // CompletionProvider de Monaco (#186) — lean la misma fuente.
+  uiPlatform: Platform;
+  setUiPlatform: (p: Platform) => void;
   running: boolean;
   elements: IndexedElement[];
   recentBlocks: Block[];
@@ -333,6 +338,8 @@ export const useStore = create<Store>((set) => ({
   // executor
   sessionId: undefined,
   sessionPlatform: undefined,
+  uiPlatform: "ios",
+  setUiPlatform: (uiPlatform) => set({ uiPlatform }),
   running: false,
   elements: [],
   recentBlocks: [],
