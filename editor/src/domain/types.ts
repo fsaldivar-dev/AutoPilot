@@ -102,6 +102,9 @@ export interface Project {
   // Bundle/package de la app bajo prueba (#187) — opcional, seteado en el
   // wizard. Primera fuente del predictivo de bundleId.
   bundleId?: string;
+  // Imagen para el camera mock (#193) — se materializa como `image=` en el
+  // .autopilot de la sesión: `launch` pelado y `--inject` sin path la usan.
+  cameraImage?: string;
   flows: Flow[];
   components: Component[];
   env: EnvVar[];
