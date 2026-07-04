@@ -17,6 +17,7 @@ import type {
   Block, Frame, Platform, RepeatMode, Suggestion,
 } from "../domain/types";
 import * as executor from "../services/executor";
+import { ensureFreshElements } from "../services/elements";
 
 const LOGIC_KEYWORDS = new Set(["if", "repeat", "try", "assert"]);
 
@@ -96,6 +97,12 @@ export function CommandBar({ platform }: Props) {
     expectation.kind === "param" &&
     expectation.param.type === "element" &&
     elements.length === 0;
+
+  // #189: el hint «corre tree» era pasivo — con sesión viva auto-fetcheamos
+  // los elementos en background y el popover se llena solo.
+  useEffect(() => {
+    if (needsTree && sessionId) void ensureFreshElements(runtimePlatform);
+  }, [needsTree, sessionId, runtimePlatform]);
 
   // Devuelve el nuevo value para que el caller (Enter) pueda detectar el caso
   // "la sugerencia ya está aplicada" y ejecutar en vez de re-aceptar.
@@ -394,7 +401,9 @@ export function CommandBar({ platform }: Props) {
           style={{ color: "var(--fg-faint)", fontSize: 11, fontFamily: "JetBrains Mono, monospace" }}
           data-testid="command-bar-hint"
         >
-          corre <span className="kbd">tree</span> para ver los elementos del device
+          {sessionId
+            ? "cargando elementos del device…"
+            : <>corre <span className="kbd">launch</span> para ver los elementos del device</>}
         </span>
       ) : signature && expectation.kind === "param" && !popoverVisible ? (
         <span

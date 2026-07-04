@@ -34,6 +34,7 @@ import {
 import { matchCommandLine, renderSignature } from "../catalog";
 import type { SuggestionKind } from "../../domain/types";
 import { useStore } from "../../state/store";
+import { ensureFreshElements } from "../../services/elements";
 
 let installed = false;
 
@@ -117,9 +118,23 @@ export function ensureMonacoSetup(): void {
         range: rangeFor(s.insertText),
       }));
 
+      const exp = expectationAt(line, cursor, platform);
+
+      // #189: en param `element` sin tree cargado, auto-fetch en background
+      // (igual que CommandBar). `incomplete` hace que Monaco re-pida las
+      // sugerencias al seguir tipeando, ya con los elementos frescos.
+      if (
+        exp.kind === "param" &&
+        exp.param.type === "element" &&
+        st.elements.length === 0 &&
+        st.sessionId
+      ) {
+        void ensureFreshElements(platform);
+        return { suggestions, incomplete: true };
+      }
+
       // Capa estructural (#186): snippets de control flow en región de
       // comando; end/else/catch solo con un bloque abierto arriba.
-      const exp = expectationAt(line, cursor, platform);
       if (exp.kind === "command") {
         const linesAbove: string[] = [];
         for (let n = 1; n < position.lineNumber; n++) {

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { useStore } from "../state/store";
 import type { Platform } from "../domain/types";
+import { ensureFreshElements } from "../services/elements";
 
 interface Props {
   platform: Platform;
@@ -68,24 +69,38 @@ export function DevicePreview({ platform }: Props) {
     finally { inFlightRef.current = false; }
   }, [platform, sessionId]);
 
+  // Mount (#189): SOLO screenshot (simctl, sin foco) + índice via sesión si
+  // hay una viva. El inspect completo (tree AX frío — roba el foco y lista
+  // el chrome del Simulator) queda para el botón ↻ manual.
   useEffect(() => {
-    void refresh();
-  }, [refresh]);
+    void refreshScreenshotOnly();
+    if (useStore.getState().sessionId) {
+      void ensureFreshElements(platform === "android" ? "android" : "ios", 0);
+    }
+  }, [refreshScreenshotOnly, platform]);
 
   useEffect(() => {
     setDetectedApp(null);
   }, [platform, setDetectedApp]);
 
   // Refresh reactivo post-acción: 100ms para dejar que la UI asiente sin
-  // perder fluidez. Usa screenshot-only (rápido) — el tree se actualiza solo
-  // en refresh manual.
+  // perder fluidez. Usa screenshot-only (rápido). El tree/index se refresca
+  // aparte con debounce (#189) para que el predictivo de elementos siga a
+  // las acciones — antes solo se actualizaba al montar o con ↻ manual y el
+  // autocomplete operaba sobre un tree stale.
   useEffect(() => {
     if (refreshTick === 0) return;
     const id = setTimeout(() => {
       if (!inFlightRef.current) void refreshScreenshotOnly();
     }, 100);
-    return () => clearTimeout(id);
-  }, [refreshTick, refreshScreenshotOnly]);
+    const treeId = setTimeout(() => {
+      void ensureFreshElements(platform === "android" ? "android" : "ios");
+    }, 700);
+    return () => {
+      clearTimeout(id);
+      clearTimeout(treeId);
+    };
+  }, [refreshTick, refreshScreenshotOnly, platform]);
 
   // Polling continuo mientras running=true: 200ms per-frame → ~5fps mirror.
   // Con el sidecar reusado (no cold-start simctl) cada frame tarda 100-200ms,
