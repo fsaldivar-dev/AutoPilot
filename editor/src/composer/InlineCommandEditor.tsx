@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   applySuggestion,
+  appSuggestionSources,
   expectationAt,
   signatureHelpAt,
   suggest,
@@ -40,8 +41,15 @@ export function InlineCommandEditor({ initial, platform, onSave, onCancel }: Pro
   const project = useStore(selectCurrentProject);
   const elements = useStore((s) => s.elements);
   const recents = useStore((s) => s.recentBlocks);
+  const detectedApp = useStore((s) => s.detectedApp);
+  const installedApps = useStore((s) => s.installedApps);
   const components = project?.components ?? [];
   const envVars = project?.env ?? [];
+
+  const apps = useMemo(
+    () => appSuggestionSources(project, detectedApp, installedApps),
+    [project, detectedApp, installedApps]
+  );
 
   useEffect(() => {
     inputRef.current?.focus();
@@ -49,8 +57,8 @@ export function InlineCommandEditor({ initial, platform, onSave, onCancel }: Pro
   }, []);
 
   const suggestions: Suggestion[] = useMemo(
-    () => suggest({ input: value, cursor, platform, elements, components, envVars, recents }),
-    [value, cursor, platform, elements, components, envVars, recents]
+    () => suggest({ input: value, cursor, platform, elements, components, envVars, recents, apps }),
+    [value, cursor, platform, elements, components, envVars, recents, apps]
   );
 
   useEffect(() => { setActiveIndex(0); }, [value]);

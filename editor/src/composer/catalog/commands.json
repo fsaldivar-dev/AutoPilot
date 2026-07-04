@@ -3,6 +3,7 @@
   "commands": [
     { "name": "ping", "group": "connection", "platform": "both", "description": "Verificar conexion con dispositivo", "params": [], "example": "ping", "returns": "void" },
     { "name": "list", "group": "connection", "platform": "both", "description": "Listar dispositivos disponibles", "params": [], "example": "list", "returns": "text" },
+    { "name": "apps", "group": "app", "platform": "both", "description": "Apps instaladas en el device (bundleId + nombre)", "params": [], "example": "apps", "returns": "text" },
     { "name": "boot", "group": "connection", "platform": "ios", "description": "Arrancar simulador", "params": [{ "name": "device", "type": "string" }], "example": "boot \"iPhone 15 Pro\"", "returns": "void" },
     { "name": "shutdown", "group": "connection", "platform": "ios", "description": "Apagar simulador", "params": [{ "name": "device", "type": "string", "required": false }], "example": "shutdown", "returns": "void" },
 

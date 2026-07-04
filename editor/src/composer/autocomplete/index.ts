@@ -15,6 +15,7 @@ import { suggestRecents } from "./providers/RecentProvider";
 import { expectationAt } from "./expectation";
 import { rankSuggestions } from "./rank";
 import { tokenize } from "./tokenize";
+import type { AppSource } from "./appsSources";
 
 export interface SuggestInput {
   input: string;
@@ -24,6 +25,9 @@ export interface SuggestInput {
   components: Component[];
   envVars: EnvVar[];
   recents: Block[];
+  // Fuentes de bundleId (#187): proyecto/en pantalla/instaladas — ver
+  // appSuggestionSources().
+  apps?: AppSource[];
 }
 
 export function suggest(inp: SuggestInput & { predicateMode?: boolean }): Suggestion[] {
@@ -43,7 +47,7 @@ export function suggest(inp: SuggestInput & { predicateMode?: boolean }): Sugges
     ...suggestCommands(ctx, inp.platform),
     ...suggestPredicates(ctx),
     ...suggestElements(ctx, inp.elements),
-    ...suggestParamValues(ctx, inp.recents),
+    ...suggestParamValues(ctx, inp.recents, inp.apps),
     ...suggestComponents(ctx, inp.components),
     ...suggestEnvVars(ctx, inp.envVars),
     ...suggestRecents(ctx, inp.recents),
@@ -57,3 +61,5 @@ export { rankSuggestions } from "./rank";
 export { applySuggestion } from "./apply";
 export { expectationAt, signatureHelpAt } from "./expectation";
 export type { Expectation, SignatureParts } from "./expectation";
+export { appSuggestionSources, parseAppsOutput } from "./appsSources";
+export type { AppSource } from "./appsSources";
