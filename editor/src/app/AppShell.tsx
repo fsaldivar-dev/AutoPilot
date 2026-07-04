@@ -17,11 +17,12 @@ import { ReplayPanel } from "../replay/ReplayPanel";
 import { Toolbar } from "../toolbar/Toolbar";
 import { EnvChips } from "../toolbar/EnvChips";
 import { useStore } from "../state/store";
-import type { Platform } from "../domain/types";
 import { hydrateFromDisk, startAutoSave } from "../services/persistence";
 
 export function AppShell() {
-  const [platform, setPlatform] = useState<Platform>("ios");
+  // Plataforma en el store (#186): Monaco (fuera del árbol React) la lee.
+  const platform = useStore((s) => s.uiPlatform);
+  const setPlatform = useStore((s) => s.setUiPlatform);
   const [showNewProject, setShowNewProject] = useState(false);
   const toast = useStore((s) => s.toast);
   const dismissToast = useStore((s) => s.dismissToast);

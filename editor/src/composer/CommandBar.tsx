@@ -1,6 +1,12 @@
 import { nanoid } from "nanoid";
 import { useEffect, useMemo, useRef, useState } from "react";
-import { applySuggestion, suggest, tokenize } from "./autocomplete";
+import {
+  applySuggestion,
+  expectationAt,
+  signatureHelpAt,
+  suggest,
+  tokenize,
+} from "./autocomplete";
 import { AutocompletePopover } from "./AutocompletePopover";
 import { matchCommandLine } from "./catalog";
 import { parsePredicate } from "./predicateText";
@@ -67,6 +73,20 @@ export function CommandBar({ platform }: Props) {
     // Any typing clears the dismissed flag so the popover can re-appear.
     if (value.length > 0) setDismissed(false);
   }, [value]);
+
+  // Signature help + hints contextuales (#185).
+  const signature = useMemo(
+    () => signatureHelpAt(value, cursor, runtimePlatform),
+    [value, cursor, runtimePlatform]
+  );
+  const expectation = useMemo(
+    () => expectationAt(value, cursor, runtimePlatform),
+    [value, cursor, runtimePlatform]
+  );
+  const needsTree =
+    expectation.kind === "param" &&
+    expectation.param.type === "element" &&
+    elements.length === 0;
 
   // Devuelve el nuevo value para que el caller (Enter) pueda detectar el caso
   // "la sugerencia ya está aplicada" y ejecutar en vez de re-aceptar.
@@ -360,6 +380,23 @@ export function CommandBar({ platform }: Props) {
         <span className="command-bar-error" data-testid="command-bar-error" role="alert">
           ✗ {inputError}
         </span>
+      ) : needsTree ? (
+        <span
+          style={{ color: "var(--fg-faint)", fontSize: 11, fontFamily: "JetBrains Mono, monospace" }}
+          data-testid="command-bar-hint"
+        >
+          corre <span className="kbd">tree</span> para ver los elementos del device
+        </span>
+      ) : signature && expectation.kind === "param" && !popoverVisible ? (
+        <span
+          style={{ color: "var(--fg-faint)", fontSize: 11, fontFamily: "JetBrains Mono, monospace" }}
+          data-testid="command-bar-hint"
+        >
+          {signature.name}
+          {signature.pre && ` ${signature.pre}`}{" "}
+          <u style={{ color: "var(--violet-2)", textUnderlineOffset: 3 }}>{signature.active}</u>
+          {signature.post && ` ${signature.post}`} → {signature.returns}
+        </span>
       ) : (
         <span style={{ color: "var(--fg-faint)", fontSize: 11, fontFamily: "JetBrains Mono, monospace" }}>
           <span className="kbd">⏎</span> run <span style={{ color: "var(--fg-mute)", margin: "0 6px" }}>·</span>{" "}
@@ -375,6 +412,7 @@ export function CommandBar({ platform }: Props) {
             setDismissed(false);
           }}
           onHover={setActiveIndex}
+          signature={signature}
         />
       )}
     </div>

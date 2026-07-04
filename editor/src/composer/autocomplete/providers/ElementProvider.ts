@@ -4,6 +4,7 @@ import type {
   Suggestion,
 } from "../../../domain/types";
 import { isActionKeyword } from "../tokenize";
+import type { Expectation } from "../expectation";
 
 const CONTAINER_HINTS = [
   "group",
@@ -16,18 +17,24 @@ const CONTAINER_HINTS = [
 ];
 
 export function suggestElements(
-  ctx: CursorContext,
+  ctx: CursorContext & { expectation?: Expectation },
   elements: IndexedElement[]
 ): Suggestion[] {
-  // Elements are proposed in three situations:
-  // 1. After an action keyword (tap, type, waitFor …)
-  // 2. After `within ` (filtered to containers)
-  // 3. Inside `[...]` brackets — we'll filter by role in RoleProvider
-  // elsewhere; here we contribute element labels that match the role.
-  const wantsElement =
-    (ctx.commandWord && isActionKeyword(ctx.commandWord)) ||
-    ctx.afterWithin ||
-    ctx.insideBrackets;
+  // Elementos cuando (#185):
+  // 1. La expectativa dice param tipo `element` o posición de predicado
+  //    (exists "x" / visible "x")
+  // 2. Tras `within ` (filtrados a contenedores)
+  // 3. Dentro de `[...]`
+  // 4. Sin expectativa (PredicateEditor): tras un action keyword — legacy
+  const exp = ctx.expectation;
+  const wantsElement = exp
+    ? (exp.kind === "param" && exp.param.type === "element") ||
+      exp.kind === "predicate" ||
+      ctx.afterWithin ||
+      ctx.insideBrackets
+    : (ctx.commandWord && isActionKeyword(ctx.commandWord)) ||
+      ctx.afterWithin ||
+      ctx.insideBrackets;
   if (!wantsElement) return [];
 
   let filtered = elements;

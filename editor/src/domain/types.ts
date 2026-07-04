@@ -198,7 +198,8 @@ export type SuggestionKind =
   | "variable"
   | "recent"
   | "role"
-  | "container";
+  | "container"
+  | "value";
 
 export interface Suggestion {
   id: string;

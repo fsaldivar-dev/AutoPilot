@@ -1,7 +1,10 @@
 import type { CursorContext, Suggestion } from "../../../domain/types";
+import type { Expectation } from "../expectation";
 
-// Sugiere predicados + operadores cuando el popover está sobre un PredicateEditor
-// (ctx.predicateMode === true). En el CommandBar normal NO aparece.
+// Sugiere predicados + operadores cuando el popover está sobre un
+// PredicateEditor (ctx.predicateMode === true) o cuando la expectativa (#185)
+// detecta posición de predicado en una línea normal (`if `, `assert `,
+// `repeat while/until `).
 
 const PREDICATES: Array<{ label: string; insert: string; detail: string }> = [
   { label: "exists",        insert: 'exists "',      detail: "elemento existe" },
@@ -17,8 +20,10 @@ const OPERATORS: Array<{ label: string; insert: string; detail: string }> = [
   { label: "not", insert: "not ",  detail: "NOT lógico" },
 ];
 
-export function suggestPredicates(ctx: CursorContext): Suggestion[] {
-  if (!ctx.predicateMode) return [];
+export function suggestPredicates(
+  ctx: CursorContext & { expectation?: Expectation }
+): Suggestion[] {
+  if (!ctx.predicateMode && ctx.expectation?.kind !== "predicate") return [];
   if (ctx.insideBrackets) return [];
 
   const token = ctx.token.toLowerCase();
