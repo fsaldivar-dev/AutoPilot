@@ -1,14 +1,18 @@
 import type { Block, CursorContext, Suggestion } from "../../../domain/types";
 import { tokenizeLine } from "../../../domain/autoTokenize";
 import type { Expectation } from "../expectation";
+import type { AppSource } from "../appsSources";
 
 // Valores para el parámetro activo según su tipo en el catálogo (#185):
-// enum → sus enumValues; boolean → true/false; string → valores recientes del
-// mismo comando en la misma posición. number no sugiere nada (el signature
-// help muestra el default). element lo cubre ElementProvider.
+// enum → sus enumValues; boolean → true/false; string → apps del contexto
+// (#187: proyecto/en pantalla/instaladas, solo para params bundleId) +
+// valores recientes del mismo comando en la misma posición. number no
+// sugiere nada (el signature help muestra el default). element lo cubre
+// ElementProvider.
 export function suggestParamValues(
   ctx: CursorContext & { expectation?: Expectation },
-  recents: Block[]
+  recents: Block[],
+  apps: AppSource[] = []
 ): Suggestion[] {
   const exp = ctx.expectation;
   if (!exp || exp.kind !== "param") return [];
@@ -42,6 +46,29 @@ export function suggestParamValues(
     const nameWords = command.name.split(" ").length;
     const seen = new Set<string>();
     const out: Suggestion[] = [];
+
+    // #187 — bundleId con fuentes reales: proyecto > en pantalla > instaladas.
+    if (param.name === "bundleId") {
+      const scoreFor: Record<AppSource["source"], number> = {
+        proyecto: 1.4,
+        "en pantalla": 1.3,
+        instalada: 1.15,
+      };
+      for (const a of apps) {
+        if (seen.has(a.bundle)) continue;
+        seen.add(a.bundle);
+        out.push({
+          id: `val:app:${a.bundle}`,
+          kind: "value" as const,
+          label: `"${a.bundle}"`,
+          detail: `${a.name} · ${a.source}`,
+          insertText: `"${a.bundle}"`,
+          score: scoreFor[a.source],
+          icon: "📱",
+        });
+      }
+    }
+
     for (const b of recents) {
       if (b.kind !== "command" || !b.command) continue;
       if (

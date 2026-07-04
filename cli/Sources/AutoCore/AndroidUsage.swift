@@ -31,6 +31,7 @@ public enum AndroidUsage {
                                             (Vision.framework corre en el Mac sobre el
                                             screenshot; region en pixeles, origen arriba-izq)
           list                              List devices
+          apps [--all]                      Installed packages on device (user apps by default)
           install <path/to/app.apk>        Install APK
           elementAt <x> <y>                 Element at coordinate
           screenshot [filename.png]         Screenshot

@@ -99,12 +99,21 @@ export interface Project {
   id: string;
   name: string;
   platform: Platform;
+  // Bundle/package de la app bajo prueba (#187) — opcional, seteado en el
+  // wizard. Primera fuente del predictivo de bundleId.
+  bundleId?: string;
   flows: Flow[];
   components: Component[];
   env: EnvVar[];
   devices: DeviceRef[];
   createdAt: number;
   updatedAt: number;
+}
+
+// App instalada en el device/simulador (#187) — de `auto apps`.
+export interface InstalledApp {
+  bundle: string;
+  name: string;
 }
 
 // Run records — the execution history of a flow.

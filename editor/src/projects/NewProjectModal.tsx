@@ -10,6 +10,7 @@ interface Props {
 export function NewProjectModal({ onClose }: Props) {
   const [name, setName] = useState("");
   const [platform, setPlatform] = useState<Platform>("ios");
+  const [bundleId, setBundleId] = useState("");
   const addProject = useStore((s) => s.addProject);
   const setCurrentProject = useStore((s) => s.setCurrentProject);
   const setCurrentFlow = useStore((s) => s.setCurrentFlow);
@@ -23,6 +24,7 @@ export function NewProjectModal({ onClose }: Props) {
       id,
       name: name.trim(),
       platform,
+      bundleId: bundleId.trim() || undefined,
       flows: [
         {
           id: flowId,
@@ -67,6 +69,18 @@ export function NewProjectModal({ onClose }: Props) {
             <option value="android">Android</option>
             <option value="both">Ambas</option>
           </select>
+        </div>
+        <div className="field">
+          <label>Bundle ID (opcional)</label>
+          <input
+            value={bundleId}
+            onChange={(e) => setBundleId(e.target.value)}
+            placeholder="com.banco.app"
+            data-testid="new-project-bundle"
+            onKeyDown={(e) => {
+              if (e.key === "Enter") create();
+            }}
+          />
         </div>
         <div className="modal-actions">
           <button className="btn" onClick={onClose}>
