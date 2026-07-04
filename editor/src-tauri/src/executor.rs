@@ -244,7 +244,11 @@ impl ExecutorRegistry {
         }
     }
 
-    pub async fn spawn(&self, platform: &str) -> Result<SessionId, String> {
+    pub async fn spawn(
+        &self,
+        platform: &str,
+        config: Option<HashMap<String, String>>,
+    ) -> Result<SessionId, String> {
         let bin = auto_binary(platform);
         if !bin.exists() {
             return Err(format!(
@@ -254,8 +258,36 @@ impl ExecutorRegistry {
             ));
         }
 
+        // Sugar del proyecto (#193): materializa la config del proyecto del
+        // editor (bundle, image) como `.autopilot` en un cwd por sesión — el
+        // CLI ya sabe leerla, así `launch` pelado y `--inject` sin path
+        // funcionan igual que en terminal.
+        let session_dir = std::env::temp_dir()
+            .join("autopilot-editor-sessions")
+            .join(uuid::Uuid::new_v4().to_string());
+        std::fs::create_dir_all(&session_dir)
+            .map_err(|e| format!("session dir: {}", e))?;
+        if let Some(cfg) = config.as_ref().filter(|c| !c.is_empty()) {
+            let order = ["project", "scheme", "device", "bundle", "image"];
+            let mut lines: Vec<String> = Vec::new();
+            for key in order {
+                if let Some(v) = cfg.get(key) {
+                    lines.push(format!("{}={}", key, v));
+                }
+            }
+            for (k, v) in cfg.iter() {
+                if !order.contains(&k.as_str()) {
+                    lines.push(format!("{}={}", k, v));
+                }
+            }
+            let content = lines.join("\n") + "\n";
+            std::fs::write(session_dir.join(".autopilot"), content)
+                .map_err(|e| format!(".autopilot write: {}", e))?;
+        }
+
         let child = Command::new(&bin)
             .arg("interactive")
+            .current_dir(&session_dir)
             .env("PATH", extended_path())
             .env("ANDROID_HOME", android_home())
             .stdin(Stdio::piped())
