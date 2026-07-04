@@ -181,6 +181,37 @@ describe("suggest", () => {
       expect(s.some((x) => x.kind === "recent")).toBe(false);
     });
 
+    it("launch sugiere bundleIds del proyecto/pantalla/instaladas (#187)", () => {
+      const s = suggest({
+        ...base,
+        apps: [
+          { bundle: "com.proyecto.app", name: "Demo", source: "proyecto" },
+          { bundle: "com.pantalla.app", name: "Visible", source: "en pantalla" },
+          { bundle: "com.instalada.app", name: "Otra", source: "instalada" },
+        ],
+        input: "launch ",
+        cursor: 7,
+      });
+      const vals = s.filter((x) => x.kind === "value");
+      expect(vals.map((x) => x.label)).toEqual([
+        '"com.proyecto.app"',
+        '"com.pantalla.app"',
+        '"com.instalada.app"',
+      ]);
+      expect(vals[0].detail).toContain("proyecto");
+      expect(s.some((x) => x.kind === "command")).toBe(false);
+    });
+
+    it("las apps NO aparecen en params string que no son bundleId", () => {
+      const s = suggest({
+        ...base,
+        apps: [{ bundle: "com.proyecto.app", name: "Demo", source: "proyecto" }],
+        input: "screenshot ",
+        cursor: 11,
+      });
+      expect(s.some((x) => x.label.includes("com.proyecto.app"))).toBe(false);
+    });
+
     it("launch sugiere valores recientes del mismo comando", () => {
       const s = suggest({
         ...base,

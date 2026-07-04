@@ -2,6 +2,7 @@ import { nanoid } from "nanoid";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   applySuggestion,
+  appSuggestionSources,
   expectationAt,
   signatureHelpAt,
   suggest,
@@ -52,8 +53,15 @@ export function CommandBar({ platform }: Props) {
 
   const components = project?.components ?? [];
   const envVars = project?.env ?? [];
+  const detectedApp = useStore((s) => s.detectedApp);
+  const installedApps = useStore((s) => s.installedApps);
 
   const runtimePlatform: "ios" | "android" = platform === "android" ? "android" : "ios";
+
+  const apps = useMemo(
+    () => appSuggestionSources(project, detectedApp, installedApps),
+    [project, detectedApp, installedApps]
+  );
 
   const suggestions: Suggestion[] = useMemo(() => {
     return suggest({
@@ -64,8 +72,9 @@ export function CommandBar({ platform }: Props) {
       components,
       envVars,
       recents,
+      apps,
     });
-  }, [value, cursor, runtimePlatform, elements, components, envVars, recents]);
+  }, [value, cursor, runtimePlatform, elements, components, envVars, recents, apps]);
 
   useEffect(() => {
     setActiveIndex(0);

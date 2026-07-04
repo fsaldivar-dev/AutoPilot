@@ -18,6 +18,8 @@ import { Toolbar } from "../toolbar/Toolbar";
 import { EnvChips } from "../toolbar/EnvChips";
 import { useStore } from "../state/store";
 import { hydrateFromDisk, startAutoSave } from "../services/persistence";
+import { parseAppsOutput } from "../composer/autocomplete";
+import * as executor from "../services/executor";
 
 export function AppShell() {
   // Plataforma en el store (#186): Monaco (fuera del árbol React) la lee.
@@ -36,6 +38,28 @@ export function AppShell() {
     const unsub = startAutoSave(500);
     return () => unsub();
   }, []);
+
+  // #187 — al abrir sesión, poblar las apps instaladas del device para el
+  // predictivo de bundleId. Best-effort: si `apps` falla (sim sin bootear,
+  // CLI viejo) el predictivo simplemente se queda con proyecto/recientes.
+  const setInstalledApps = useStore((s) => s.setInstalledApps);
+  useEffect(() => {
+    if (!sessionId) {
+      setInstalledApps([]);
+      return;
+    }
+    let cancelled = false;
+    executor
+      .send(sessionId, "apps", 15_000)
+      .then((frame) => {
+        if (cancelled || !frame.ok) return;
+        setInstalledApps(parseAppsOutput(frame.out ?? ""));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, [sessionId, setInstalledApps]);
 
   useEffect(() => {
     if (toast) {
