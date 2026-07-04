@@ -317,57 +317,60 @@ extension SimulatorBridge {
         }
     }
 
-    // MARK: - Biometric (Face ID / Touch ID via Simulator menus)
+    // MARK: - Biometric (Face ID / Touch ID via BiometricKit notifications)
+    //
+    // #184: antes esto clickeaba los menús del Simulator con AppleScript —
+    // el path AX que roba el foco y que retiramos del default en #164 (por
+    // eso quedó sin backend vivo). Ahora usa el mecanismo headless de idb:
+    // darwin notifications de BiometricKit DENTRO del sim via
+    // `simctl spawn booted notifyutil`. Cero UI del host, cero foco.
 
-    /// Idempotente: enrolla solo si no está enrollado.
+    @discardableResult
+    private func notifyutil(_ args: [String]) throws -> String {
+        let process = Process()
+        let pipe = Pipe()
+        process.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
+        process.arguments = ["simctl", "spawn", "booted", "notifyutil"] + args
+        process.standardOutput = pipe
+        process.standardError = FileHandle.nullDevice
+        try process.run()
+        process.waitUntilExit()
+        guard process.terminationStatus == 0 else {
+            throw BridgeError.simctlFailed("notifyutil \(args.joined(separator: " "))")
+        }
+        let data = pipe.fileHandleForReading.readDataToEndOfFile()
+        return String(data: data, encoding: .utf8) ?? ""
+    }
+
+    private static let enrollmentKey = "com.apple.BiometricKit.enrollmentChanged"
+
     public func biometricEnroll() throws {
-        if try biometricIsEnrolled() { return }
-        try toggleBiometricEnrollment()
+        try notifyutil(["-s", Self.enrollmentKey, "1"])
+        try notifyutil(["-p", Self.enrollmentKey])
     }
 
-    /// Idempotente: des-enrolla solo si está enrollado.
     public func biometricUnenroll() throws {
-        if try !biometricIsEnrolled() { return }
-        try toggleBiometricEnrollment()
-    }
-
-    /// Toggle interno — click en "Enrolled" del menú.
-    private func toggleBiometricEnrollment() throws {
-        try clickSimulatorMenu("""
-        tell application "System Events" to tell process "Simulator" to click menu item "Enrolled" of menu "Face ID" of menu item "Face ID" of menu "Features" of menu bar 1
-        """)
+        try notifyutil(["-s", Self.enrollmentKey, "0"])
+        try notifyutil(["-p", Self.enrollmentKey])
     }
 
     public func biometricIsEnrolled() throws -> Bool {
-        activateSimulatorApp()
-        let process = Process()
-        let pipe = Pipe()
-        process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
-        process.arguments = ["-e", """
-        tell application "System Events" to tell process "Simulator"
-            set enrolledItem to menu item "Enrolled" of menu "Face ID" of menu item "Face ID" of menu "Features" of menu bar 1
-            set m to value of attribute "AXMenuItemMarkChar" of enrolledItem
-            if m is missing value then return "false"
-            return "true"
-        end tell
-        """]
-        process.standardOutput = pipe
-        try process.run()
-        process.waitUntilExit()
-        let data = pipe.fileHandleForReading.readDataToEndOfFile()
-        return String(data: data, encoding: .utf8)?.trimmingCharacters(in: .whitespacesAndNewlines) == "true"
+        // `-g` imprime `com.apple.BiometricKit.enrollmentChanged 1`.
+        let out = try notifyutil(["-g", Self.enrollmentKey])
+        return out.split(separator: " ").last?
+            .trimmingCharacters(in: .whitespacesAndNewlines) == "1"
     }
 
     public func biometricMatch() throws {
-        try clickSimulatorMenu("""
-        tell application "System Events" to tell process "Simulator" to click menu item "Matching Face" of menu "Face ID" of menu item "Face ID" of menu "Features" of menu bar 1
-        """)
+        // Face ID (pearl) y Touch ID (fingerTouch): postear ambas es inocuo —
+        // el sim solo escucha la que corresponde a su hardware.
+        try notifyutil(["-p", "com.apple.BiometricKit_Sim.pearl.match"])
+        try notifyutil(["-p", "com.apple.BiometricKit_Sim.fingerTouch.match"])
     }
 
     public func biometricFail() throws {
-        try clickSimulatorMenu("""
-        tell application "System Events" to tell process "Simulator" to click menu item "Non-matching Face" of menu "Face ID" of menu item "Face ID" of menu "Features" of menu bar 1
-        """)
+        try notifyutil(["-p", "com.apple.BiometricKit_Sim.pearl.nomatch"])
+        try notifyutil(["-p", "com.apple.BiometricKit_Sim.fingerTouch.nomatch"])
     }
 
     // Legacy aliases
