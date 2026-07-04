@@ -1,15 +1,17 @@
 import type { CursorContext, Suggestion } from "../../../domain/types";
 import { commandsForPlatform, renderSignature } from "../../catalog";
+import type { Expectation } from "../expectation";
 
 export function suggestCommands(
-  ctx: CursorContext,
+  ctx: CursorContext & { expectation?: Expectation },
   platform: "ios" | "android"
 ): Suggestion[] {
-  // If the cursor is clearly in an argument (we already identified a command
-  // word and it's an action keyword), skip suggesting commands.
   if (ctx.afterDollar) return [];
   if (ctx.insideBrackets) return [];
   if (ctx.afterWithin) return [];
+  // #185: comandos SOLO en la región del nombre — jamás en posición de
+  // argumento (antes: `launch ` ofrecía ping/list/boot…).
+  if (ctx.expectation && ctx.expectation.kind !== "command") return [];
 
   return commandsForPlatform(platform).map((c) => ({
     id: `cmd:${c.name}`,
