@@ -3,16 +3,14 @@ import { CATALOG } from "../catalog";
 import { parseAuto } from "../../domain/autoSerializer";
 import {
   AUTO_THEME,
-  buildCommandCompletions,
-  buildElementCompletions,
   buildMonarchLanguage,
   catalogHeadWords,
   catalogSubWords,
   CONTROL_KEYWORDS,
-  lineExpectsElement,
+  logicSnippets,
   MARKER_SEVERITY_ERROR,
+  openBlockStack,
   parseErrorsToMarkers,
-  targetCommands,
 } from "./autoLanguage";
 
 describe("tokenizer Monarch .auto", () => {
@@ -111,41 +109,65 @@ describe("parseErrorsToMarkers (#176)", () => {
   });
 });
 
-describe("completions", () => {
-  it("ofrece los 69 comandos con firma como detail", () => {
-    const items = buildCommandCompletions();
-    expect(items).toHaveLength(69);
-    const tap = items.find((i) => i.label === "tap");
-    expect(tap).toBeDefined();
-    expect(tap!.detail).toContain("tap");
-    expect(tap!.detail).toContain("→"); // firma renderizada
-    expect(tap!.documentation).toContain("Ejemplo");
+// #186 — capa estructural de la vista Código.
+describe("openBlockStack", () => {
+  it("sin bloques abiertos → pila vacía", () => {
+    expect(openBlockStack([])).toEqual([]);
+    expect(openBlockStack(["tap OK", "ping"])).toEqual([]);
   });
 
-  it("mapea elementos del device a labels quoted", () => {
-    const items = buildElementCompletions([
-      { index: 1, role: "AXButton", label: "Confirmar", frame: "10,20 100x44" },
-      { index: 2, role: "AXButton", label: "  ", frame: "0,0 0x0" }, // sin label — fuera
-    ]);
-    expect(items).toHaveLength(1);
-    expect(items[0].insertText).toBe('"Confirmar"');
-    expect(items[0].detail).toContain("AXButton");
+  it("if abierto queda en la pila", () => {
+    expect(openBlockStack(['if platform == "ios"', "  tap OK"])).toEqual(["if"]);
   });
 
-  it("targetCommands deriva del catálogo los comandos con param element", () => {
-    const t = targetCommands();
-    for (const c of ["tap", "waitFor", "waitUntilGone", "type", "scrollTo"]) {
-      expect(t.has(c)).toBe(true);
+  it("end cierra el bloque más interno", () => {
+    expect(openBlockStack(["if x", "  tap A", "end"])).toEqual([]);
+    expect(openBlockStack(["repeat 3 times", "  if x", "  end"])).toEqual(["repeat"]);
+  });
+
+  it("anidamiento: el tope es el bloque más interno", () => {
+    const stack = openBlockStack(["repeat 3 times", "  try", "    tap A"]);
+    expect(stack).toEqual(["repeat", "try"]);
+  });
+
+  it("ignora comentarios y líneas vacías", () => {
+    expect(openBlockStack(["# if comentado", "", "if x"])).toEqual(["if"]);
+  });
+});
+
+describe("logicSnippets", () => {
+  it("sin bloque abierto NO ofrece end/else/catch", () => {
+    const labels = logicSnippets(undefined).map((s) => s.label);
+    expect(labels).not.toContain("end");
+    expect(labels).not.toContain("else");
+    expect(labels).not.toContain("catch");
+    expect(labels).toContain("if");
+    expect(labels).toContain("repeat");
+    expect(labels).toContain("try");
+  });
+
+  it("con if abierto ofrece end y else como closers", () => {
+    const snips = logicSnippets("if");
+    const end = snips.find((s) => s.label === "end");
+    const else_ = snips.find((s) => s.label === "else");
+    expect(end?.closer).toBe(true);
+    expect(else_?.closer).toBe(true);
+    expect(snips.find((s) => s.label === "catch")).toBeUndefined();
+  });
+
+  it("catch solo dentro de try; repeat abierto solo ofrece end", () => {
+    expect(logicSnippets("try").some((s) => s.label === "catch")).toBe(true);
+    const rep = logicSnippets("repeat");
+    expect(rep.some((s) => s.label === "end")).toBe(true);
+    expect(rep.some((s) => s.label === "else")).toBe(false);
+    expect(rep.some((s) => s.label === "catch")).toBe(false);
+  });
+
+  it("los snippets de bloque cierran con end y usan placeholders de Monaco", () => {
+    for (const label of ["if", "repeat", "try"]) {
+      const s = logicSnippets(undefined).find((x) => x.label === label)!;
+      expect(s.insertText).toMatch(/\nend$/);
+      expect(s.insertText).toContain("$");
     }
-    expect(t.has("ping")).toBe(false);
-    expect(t.has("screenshot")).toBe(false);
-  });
-
-  it("lineExpectsElement detecta cursor tras comando con target", () => {
-    expect(lineExpectsElement("tap ")).toBe(true);
-    expect(lineExpectsElement("  waitFor Conf")).toBe(true);
-    expect(lineExpectsElement("tap")).toBe(false); // aún escribiendo el comando
-    expect(lineExpectsElement("ping ")).toBe(false); // no lleva target
-    expect(lineExpectsElement("")).toBe(false);
   });
 });

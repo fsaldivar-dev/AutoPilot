@@ -170,6 +170,64 @@ describe("suggest", () => {
     expect(s.some((x) => x.label.startsWith("camera"))).toBe(false);
   });
 
+  // #185 — expectativa por tipo de parámetro: nunca comandos en posición de
+  // argumento; enums/booleans/strings-recientes según el catálogo.
+  describe("expectativa por posición (#185)", () => {
+    const base = { platform: "ios" as const, elements, components, envVars, recents };
+
+    it("launch NO ofrece comandos en posición de bundleId", () => {
+      const s = suggest({ ...base, input: "launch ", cursor: 7 });
+      expect(s.some((x) => x.kind === "command")).toBe(false);
+      expect(s.some((x) => x.kind === "recent")).toBe(false);
+    });
+
+    it("launch sugiere valores recientes del mismo comando", () => {
+      const s = suggest({
+        ...base,
+        recents: [
+          ...recents,
+          { id: "b2", kind: "command", command: 'launch "com.sajaru.explorea"', args: {}, meta: { status: "ok" } },
+        ],
+        input: "launch ",
+        cursor: 7,
+      });
+      const vals = s.filter((x) => x.kind === "value");
+      expect(vals.some((x) => x.label === '"com.sajaru.explorea"')).toBe(true);
+    });
+
+    it("scroll en el segundo param sugiere SOLO los enumValues", () => {
+      const s = suggest({ ...base, input: 'scroll "Lista" ', cursor: 15 });
+      const labels = s.map((x) => x.label);
+      expect(labels).toContain("down");
+      expect(labels).toContain("up");
+      expect(s.some((x) => x.kind === "command")).toBe(false);
+      expect(s.some((x) => x.kind === "element")).toBe(false);
+    });
+
+    it("waitFor en el param number no sugiere nada (solo firma)", () => {
+      const s = suggest({ ...base, input: 'waitFor "Home" ', cursor: 15 });
+      expect(s).toHaveLength(0);
+    });
+
+    it("tap sugiere elementos pero NO comandos ni recientes", () => {
+      const s = suggest({ ...base, input: "tap ", cursor: 4 });
+      expect(s.some((x) => x.kind === "element")).toBe(true);
+      expect(s.some((x) => x.kind === "command")).toBe(false);
+      expect(s.some((x) => x.kind === "recent")).toBe(false);
+    });
+
+    it("if sugiere predicados y elementos en el CommandBar", () => {
+      const s = suggest({ ...base, input: "if ", cursor: 3 });
+      expect(s.some((x) => x.label === "exists")).toBe(true);
+      expect(s.some((x) => x.label === "platform is")).toBe(true);
+    });
+
+    it("tras el último param declarado no sugiere nada", () => {
+      const s = suggest({ ...base, input: "ping ", cursor: 5 });
+      expect(s).toHaveLength(0);
+    });
+  });
+
   it("returns response under 50ms for 100 suggestions", () => {
     const start = performance.now();
     for (let i = 0; i < 100; i++) {
