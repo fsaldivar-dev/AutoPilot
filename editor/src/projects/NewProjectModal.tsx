@@ -11,6 +11,7 @@ export function NewProjectModal({ onClose }: Props) {
   const [name, setName] = useState("");
   const [platform, setPlatform] = useState<Platform>("ios");
   const [bundleId, setBundleId] = useState("");
+  const [cameraImage, setCameraImage] = useState("");
   const addProject = useStore((s) => s.addProject);
   const setCurrentProject = useStore((s) => s.setCurrentProject);
   const setCurrentFlow = useStore((s) => s.setCurrentFlow);
@@ -25,6 +26,7 @@ export function NewProjectModal({ onClose }: Props) {
       name: name.trim(),
       platform,
       bundleId: bundleId.trim() || undefined,
+      cameraImage: cameraImage.trim() || undefined,
       flows: [
         {
           id: flowId,
@@ -77,6 +79,18 @@ export function NewProjectModal({ onClose }: Props) {
             onChange={(e) => setBundleId(e.target.value)}
             placeholder="com.banco.app"
             data-testid="new-project-bundle"
+            onKeyDown={(e) => {
+              if (e.key === "Enter") create();
+            }}
+          />
+        </div>
+        <div className="field">
+          <label>Imagen de cámara — mock (opcional)</label>
+          <input
+            value={cameraImage}
+            onChange={(e) => setCameraImage(e.target.value)}
+            placeholder="/ruta/a/foto.jpg"
+            data-testid="new-project-camera"
             onKeyDown={(e) => {
               if (e.key === "Enter") create();
             }}

@@ -30,7 +30,7 @@
     { "name": "drag", "group": "interaction", "platform": "both", "description": "Arrastra de un elemento a otro", "params": [{ "name": "from", "type": "element" }, { "name": "to", "type": "element" }, { "name": "duration", "type": "number", "required": false }], "example": "drag \"A\" \"B\"", "returns": "void" },
     { "name": "rotate", "group": "interaction", "platform": "both", "description": "Rota el dispositivo", "params": [{ "name": "orientation", "type": "enum", "enumValues": ["left", "right", "portrait", "landscape"] }], "example": "rotate left", "returns": "void" },
 
-    { "name": "launch", "group": "app", "platform": "both", "description": "Abre una aplicacion", "params": [{ "name": "bundleId", "type": "string" }], "example": "launch \"com.banco.app\"", "returns": "void" },
+    { "name": "launch", "group": "app", "platform": "both", "description": "Abre una aplicacion (sin args usa el bundle del proyecto)", "params": [{ "name": "bundleId", "type": "string", "required": false }], "example": "launch", "returns": "void" },
     { "name": "terminate", "group": "app", "platform": "both", "description": "Mata la aplicacion", "params": [{ "name": "bundleId", "type": "string" }], "example": "terminate \"com.banco.app\"", "returns": "void" },
     { "name": "install", "group": "app", "platform": "both", "description": "Instala app (.app / .apk)", "params": [{ "name": "path", "type": "string" }], "example": "install \"./App.app\"", "returns": "void" },
     { "name": "uninstall", "group": "app", "platform": "both", "description": "Desinstala app", "params": [{ "name": "bundleId", "type": "string" }], "example": "uninstall \"com.banco.app\"", "returns": "void" },
@@ -52,7 +52,7 @@
     { "name": "camera feed", "group": "camera", "platform": "ios", "description": "Hot-swap de imagen", "params": [{ "name": "image", "type": "string" }], "example": "camera feed \"nueva.jpg\"", "returns": "void" },
     { "name": "camera stop", "group": "camera", "platform": "ios", "description": "Detiene mock de camara", "params": [], "example": "camera stop", "returns": "void" },
     { "name": "camera status", "group": "camera", "platform": "ios", "description": "Estado de la camara mock", "params": [], "example": "camera status", "returns": "text" },
-    { "name": "inject", "group": "camera", "platform": "ios", "description": "Hot-swap sin restart", "params": [{ "name": "image", "type": "string" }], "example": "inject \"foto.jpg\"", "returns": "void" },
+    { "name": "inject", "group": "camera", "platform": "ios", "description": "Hot-swap sin restart (sin args usa la imagen del proyecto)", "params": [{ "name": "image", "type": "string", "required": false }], "example": "inject", "returns": "void" },
 
     { "name": "setLocation", "group": "env", "platform": "both", "description": "Fija ubicacion GPS", "params": [{ "name": "lat", "type": "number" }, { "name": "lon", "type": "number" }], "example": "setLocation 19.4326 -99.1332", "returns": "void" },
     { "name": "setAppearance", "group": "env", "platform": "both", "description": "Cambia a tema oscuro o claro", "params": [{ "name": "mode", "type": "enum", "enumValues": ["dark", "light"] }], "example": "setAppearance dark", "returns": "void" },

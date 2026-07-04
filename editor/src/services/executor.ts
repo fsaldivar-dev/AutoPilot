@@ -2,9 +2,23 @@
 
 import { invoke } from "@tauri-apps/api/core";
 import type { Frame } from "../domain/types";
+import { useStore } from "../state/store";
+
+// Sugar del proyecto (#193): la config del proyecto activo (bundle, imagen
+// de cámara) viaja al spawn y el backend la escribe como `.autopilot` en el
+// cwd de la sesión — así `launch` pelado y `--inject` sin path funcionan
+// igual que en terminal.
+export function projectConfig(): Record<string, string> | null {
+  const st = useStore.getState();
+  const project = st.projects.find((p) => p.id === st.currentProjectId);
+  const cfg: Record<string, string> = {};
+  if (project?.bundleId) cfg.bundle = project.bundleId;
+  if (project?.cameraImage) cfg.image = project.cameraImage;
+  return Object.keys(cfg).length > 0 ? cfg : null;
+}
 
 export async function spawn(platform: "ios" | "android"): Promise<string> {
-  return invoke<string>("executor_spawn", { platform });
+  return invoke<string>("executor_spawn", { platform, config: projectConfig() });
 }
 
 export async function send(

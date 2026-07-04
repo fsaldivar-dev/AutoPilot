@@ -181,9 +181,10 @@ pub async fn screenshot_only(
 #[tauri::command]
 pub async fn executor_spawn(
     platform: String,
+    config: Option<std::collections::HashMap<String, String>>,
     registry: State<'_, Arc<ExecutorRegistry>>,
 ) -> Result<String, String> {
-    registry.spawn(&platform).await
+    registry.spawn(&platform, config).await
 }
 
 #[tauri::command]
@@ -220,7 +221,7 @@ pub async fn interactive_start(
     registry: State<'_, Arc<ExecutorRegistry>>,
 ) -> Result<String, String> {
     registry.kill_all().await;
-    registry.spawn(&platform).await
+    registry.spawn(&platform, None).await
 }
 
 #[tauri::command]
