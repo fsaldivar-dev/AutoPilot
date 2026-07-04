@@ -755,26 +755,34 @@ public func executeSharedCommand(
             print("Usage: auto biometric <enroll|unenroll|match|fail|status>")
             return true
         }
+        // Via router (ARD-001) → SimCtlBackend headless (#184). El bridge
+        // legacy default es observer/XCUI y NO implementa biometric — sin el
+        // router esto moría con «not supported by iOSAgentBridge».
         let ms: Int
         switch args[1] {
         case "enroll":
-            try bridge.biometricEnroll()
+            try runAction(.biometricEnroll, router: router, fallback: { try bridge.biometricEnroll() })
             ms = elapsedMs(start)
             print("Biometric enrolled (\(ms)ms)")
         case "unenroll":
-            try bridge.biometricUnenroll()
+            try runAction(.biometricUnenroll, router: router, fallback: { try bridge.biometricUnenroll() })
             ms = elapsedMs(start)
             print("Biometric unenrolled (\(ms)ms)")
         case "match":
-            try bridge.biometricMatch()
+            try runAction(.biometricMatch, router: router, fallback: { try bridge.biometricMatch() })
             ms = elapsedMs(start)
             print("Biometric match sent (\(ms)ms)")
         case "fail":
-            try bridge.biometricFail()
+            try runAction(.biometricFail, router: router, fallback: { try bridge.biometricFail() })
             ms = elapsedMs(start)
             print("Biometric non-match sent (\(ms)ms)")
         case "status":
-            let enrolled = try bridge.biometricIsEnrolled()
+            let enrolled = try runActionReturning(
+                .biometricIsEnrolled,
+                router: router,
+                fallback: { try bridge.biometricIsEnrolled() },
+                extract: { if case .bool(let b) = $0 { return b } else { return nil } }
+            )
             ms = elapsedMs(start)
             print("Enrolled: \(enrolled ? "YES" : "NO") (\(ms)ms)")
         default:
