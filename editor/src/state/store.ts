@@ -8,6 +8,7 @@ import type {
   EnvVar,
   Flow,
   IndexedElement,
+  InstalledApp,
   Platform,
   Predicate,
   Project,
@@ -72,6 +73,9 @@ interface ExecutorSlice {
   setUiPlatform: (p: Platform) => void;
   running: boolean;
   elements: IndexedElement[];
+  // Apps instaladas del device (#187) — pobladas con `apps` al abrir sesión.
+  installedApps: InstalledApp[];
+  setInstalledApps: (apps: InstalledApp[]) => void;
   recentBlocks: Block[];
   autoRefresh: boolean;
   detectedApp: { name: string; bundle: string } | null;
@@ -342,6 +346,8 @@ export const useStore = create<Store>((set) => ({
   setUiPlatform: (uiPlatform) => set({ uiPlatform }),
   running: false,
   elements: [],
+  installedApps: [],
+  setInstalledApps: (installedApps) => set({ installedApps }),
   recentBlocks: [],
   autoRefresh: false,
   detectedApp: null,

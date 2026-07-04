@@ -52,6 +52,7 @@ func run() throws {
 let androidCommandCatalogExtras: [String] = [
     "ping", "index", "inspect", "launch", "camera", "inject", "build",
     "record", "agent", "setup", "doctor", "help", "run", "interactive",
+    "apps",
 ]
 
 func runScript(path: String) throws {
@@ -248,6 +249,11 @@ func executeCommand(_ args: [String]) throws {
 
     case "build":
         try AndroidBuildCommand.execute(args: args, start: start)
+
+    case "apps":
+        // `auto-android apps` (#187) — paquetes instalados del emulador.
+        // Fuente del predictivo de bundleId del editor.
+        try AndroidAppsCommand.execute(args: Array(args.dropFirst()), deviceId: nil)
 
     case "list":
         // `list <type>` → AndroidListCommand via router (ARD-001).

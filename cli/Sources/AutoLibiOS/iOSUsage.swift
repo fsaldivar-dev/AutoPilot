@@ -37,6 +37,7 @@ public enum iOSUsage {
                                             (Vision.framework — sirve para canvas/webviews/
                                             imagenes sin AX; region en pixeles, origen arriba-izq)
           list                              List simulators
+          apps [--all]                      Installed apps on booted simulator (bundleId + name)
           boot <name|udid>                  Boot simulator
           shutdown <name|udid>              Shutdown simulator
           install <path/to/app.app>        Install app on simulator

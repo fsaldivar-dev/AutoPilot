@@ -435,6 +435,12 @@ func executeCommand(_ args: [String]) throws {
         // Pump run loop for AX events
         dispatchMain()
 
+    case "apps":
+        // `auto apps` (#187) — apps instaladas del simulador booteado.
+        // Fuente del predictivo de bundleId del editor (una línea por app,
+        // `bundleId<TAB>nombre`).
+        try iOSAppsCommand.execute(args: Array(args.dropFirst()))
+
     case "list":
         // `auto list`                     → legacy: list simulators (via shared dispatcher)
         // `auto list <type>`              → NEW: fast typed UI listing via XCUI

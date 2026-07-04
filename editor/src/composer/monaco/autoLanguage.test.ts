@@ -14,8 +14,8 @@ import {
 } from "./autoLanguage";
 
 describe("tokenizer Monarch .auto", () => {
-  it("incluye el head word de los 69 comandos del catálogo", () => {
-    expect(CATALOG.length).toBe(69);
+  it("incluye el head word de los 70 comandos del catálogo", () => {
+    expect(CATALOG.length).toBe(70);
     const lang = buildMonarchLanguage() as unknown as { commands: string[] };
     for (const cmd of CATALOG) {
       expect(lang.commands).toContain(cmd.name.split(" ")[0]);

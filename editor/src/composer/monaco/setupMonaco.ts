@@ -25,7 +25,12 @@ import {
   logicSnippets,
   openBlockStack,
 } from "./autoLanguage";
-import { expectationAt, suggest, tokenize } from "../autocomplete";
+import {
+  appSuggestionSources,
+  expectationAt,
+  suggest,
+  tokenize,
+} from "../autocomplete";
 import { matchCommandLine, renderSignature } from "../catalog";
 import type { SuggestionKind } from "../../domain/types";
 import { useStore } from "../../state/store";
@@ -100,6 +105,7 @@ export function ensureMonacoSetup(): void {
         components: project?.components ?? [],
         envVars: project?.env ?? [],
         recents: st.recentBlocks,
+        apps: appSuggestionSources(project, st.detectedApp, st.installedApps),
       });
 
       const suggestions: monaco.languages.CompletionItem[] = shared.map((s, i) => ({
