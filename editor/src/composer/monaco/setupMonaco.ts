@@ -5,6 +5,11 @@
 // (textarea de fallback sin ninguna feature). Aquí apuntamos el loader al
 // monaco-editor BUNDLEADO por Vite y registramos el worker local.
 //
+// El autocomplete consume el MISMO motor que los Bloques (#185/#186):
+// suggest() + expectationAt() — elementos del device, enums del catálogo,
+// plataforma del toggle. Monaco solo agrega la capa estructural multilínea
+// (snippets de control flow, end/else/catch conscientes del bloque abierto).
+//
 // Este módulo se importa solo desde CodeView (que AppShell carga lazy), así
 // el chunk de Monaco no engorda el bundle inicial del composer.
 
@@ -16,14 +21,31 @@ import {
   AUTO_LANGUAGE_ID,
   AUTO_THEME,
   AUTO_THEME_ID,
-  buildCommandCompletions,
-  buildElementCompletions,
   buildMonarchLanguage,
-  lineExpectsElement,
+  logicSnippets,
+  openBlockStack,
 } from "./autoLanguage";
+import { expectationAt, suggest, tokenize } from "../autocomplete";
+import { matchCommandLine, renderSignature } from "../catalog";
+import type { SuggestionKind } from "../../domain/types";
 import { useStore } from "../../state/store";
 
 let installed = false;
+
+const KIND_MAP: Record<SuggestionKind, monaco.languages.CompletionItemKind> = {
+  command: monaco.languages.CompletionItemKind.Function,
+  element: monaco.languages.CompletionItemKind.Value,
+  component: monaco.languages.CompletionItemKind.Module,
+  variable: monaco.languages.CompletionItemKind.Variable,
+  recent: monaco.languages.CompletionItemKind.Reference,
+  role: monaco.languages.CompletionItemKind.Class,
+  container: monaco.languages.CompletionItemKind.Folder,
+  value: monaco.languages.CompletionItemKind.EnumMember,
+};
+
+function currentPlatform(): "ios" | "android" {
+  return useStore.getState().uiPlatform === "android" ? "android" : "ios";
+}
 
 export function ensureMonacoSetup(): void {
   if (installed) return;
@@ -46,44 +68,94 @@ export function ensureMonacoSetup(): void {
   monaco.languages.registerCompletionItemProvider(AUTO_LANGUAGE_ID, {
     triggerCharacters: [" ", '"', "$"],
     provideCompletionItems(model, position) {
-      const lineUntilCursor = model
-        .getLineContent(position.lineNumber)
-        .slice(0, position.column - 1);
-      const word = model.getWordUntilPosition(position);
-      const range = new monaco.Range(
-        position.lineNumber,
-        word.startColumn,
-        position.lineNumber,
-        word.endColumn,
-      );
+      const line = model.getLineContent(position.lineNumber);
+      const cursor = position.column - 1;
+      const platform = currentPlatform();
+      const st = useStore.getState();
+      const project = st.projects.find((p) => p.id === st.currentProjectId);
 
-      // Tras un comando que espera target (tap, waitFor, …): labels reales
-      // del device conectado — la misma data que usa el composer (store.elements).
-      if (lineExpectsElement(lineUntilCursor)) {
-        const elements = useStore.getState().elements;
-        const suggestions = buildElementCompletions(elements).map((s) => ({
-          label: s.label,
-          kind: monaco.languages.CompletionItemKind.Value,
-          detail: s.detail,
-          documentation: s.documentation,
-          insertText: s.insertText,
-          sortText: s.sortText,
-          range,
-        }));
-        return { suggestions };
+      // Rango a reemplazar: el token actual según el MISMO tokenizer que los
+      // Bloques, extendido a la comilla/$ previa cuando el insertText la trae
+      // (si no, `tap "Inic` + aceptar produciría comilla doble).
+      const token = tokenize(line, cursor).token;
+      const tokenStartColumn = position.column - token.length;
+      const rangeFor = (insertText: string): monaco.Range => {
+        let start = tokenStartColumn;
+        const prev = line[start - 2];
+        if (insertText.startsWith('"') && prev === '"') start -= 1;
+        if (insertText.startsWith("$") && prev === "$") start -= 1;
+        return new monaco.Range(
+          position.lineNumber,
+          start,
+          position.lineNumber,
+          position.column,
+        );
+      };
+
+      const shared = suggest({
+        input: line,
+        cursor,
+        platform,
+        elements: st.elements,
+        components: project?.components ?? [],
+        envVars: project?.env ?? [],
+        recents: st.recentBlocks,
+      });
+
+      const suggestions: monaco.languages.CompletionItem[] = shared.map((s, i) => ({
+        label: s.label,
+        kind: KIND_MAP[s.kind] ?? monaco.languages.CompletionItemKind.Text,
+        detail: s.signature ?? s.detail,
+        insertText: s.insertText,
+        sortText: `1_${String(i).padStart(3, "0")}`,
+        range: rangeFor(s.insertText),
+      }));
+
+      // Capa estructural (#186): snippets de control flow en región de
+      // comando; end/else/catch solo con un bloque abierto arriba.
+      const exp = expectationAt(line, cursor, platform);
+      if (exp.kind === "command") {
+        const linesAbove: string[] = [];
+        for (let n = 1; n < position.lineNumber; n++) {
+          linesAbove.push(model.getLineContent(n));
+        }
+        const stack = openBlockStack(linesAbove);
+        logicSnippets(stack[stack.length - 1]).forEach((sn, i) => {
+          suggestions.push({
+            label: sn.label,
+            kind: monaco.languages.CompletionItemKind.Snippet,
+            detail: sn.detail,
+            insertText: sn.insertText,
+            insertTextRules:
+              monaco.languages.CompletionItemInsertTextRule.InsertAsSnippet,
+            // Cierres del bloque abierto arriba de todo; el resto de snippets
+            // después de comandos/elementos.
+            sortText: sn.closer
+              ? `0_${String(i).padStart(3, "0")}`
+              : `2_${String(i).padStart(3, "0")}`,
+            range: rangeFor(sn.insertText),
+          });
+        });
       }
 
-      // Primer token de la línea: los 69 comandos del catálogo con firma.
-      const suggestions = buildCommandCompletions().map((s) => ({
-        label: s.label,
-        kind: monaco.languages.CompletionItemKind.Function,
-        detail: s.detail,
-        documentation: s.documentation,
-        insertText: s.insertText,
-        sortText: s.sortText,
-        range,
-      }));
       return { suggestions };
+    },
+  });
+
+  // Hover: doc del catálogo sobre la línea del comando.
+  monaco.languages.registerHoverProvider(AUTO_LANGUAGE_ID, {
+    provideHover(model, position) {
+      const line = model.getLineContent(position.lineNumber).trim();
+      const cmd = matchCommandLine(line, currentPlatform());
+      if (!cmd) return null;
+      return {
+        contents: [
+          { value: "```\n" + renderSignature(cmd) + "\n```" },
+          {
+            value: `${cmd.description}\n\nEjemplo: \`${cmd.example}\` · plataforma: ${cmd.platform}`,
+          },
+        ],
+      };
     },
   });
 }

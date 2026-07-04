@@ -7,9 +7,8 @@
 // sin levantar el editor. El wiring con Monaco vive en `setupMonaco.ts`.
 
 import type * as monaco from "monaco-editor";
-import { CATALOG, renderSignature, type CatalogCommand } from "../catalog";
+import { CATALOG, type CatalogCommand } from "../catalog";
 import type { ParseError } from "../../domain/autoSerializer";
-import type { IndexedElement } from "../../domain/types";
 
 export const AUTO_LANGUAGE_ID = "autopilot-auto";
 export const AUTO_THEME_ID = "autopilot";
@@ -218,62 +217,61 @@ export function parseErrorsToMarkers(
   });
 }
 
-// ── Autocomplete: builders puros de sugerencias ──────────────────────────────
+// ── #186: capa estructural (solo vista Código) ──────────────────────────────
+//
+// El autocomplete de comandos/elementos/params vive en el motor compartido
+// (autocomplete/expectation.ts, #185) — setupMonaco consume suggest() igual
+// que los Bloques. Aquí queda lo exclusivo del editor multilínea: la pila de
+// bloques abiertos y los snippets de control flow.
 
-export interface AutoCompletionSpec {
-  label: string;
-  kind: "command" | "element";
-  detail: string;
-  documentation?: string;
-  insertText: string;
-  sortText: string;
-}
+const BLOCK_OPENERS = new Set(["if", "repeat", "try"]);
 
-export function buildCommandCompletions(
-  catalog: CatalogCommand[] = CATALOG,
-): AutoCompletionSpec[] {
-  return catalog.map((c, i) => ({
-    label: c.name,
-    kind: "command" as const,
-    detail: renderSignature(c),
-    documentation: `${c.description}\n\nEjemplo: ${c.example}\nPlataforma: ${c.platform}`,
-    insertText: c.name,
-    sortText: `1_${String(i).padStart(3, "0")}`,
-  }));
-}
-
-export function buildElementCompletions(
-  elements: IndexedElement[],
-): AutoCompletionSpec[] {
-  return elements
-    .filter((e) => e.label.trim().length > 0)
-    .map((e) => ({
-      label: `"${e.label}"`,
-      kind: "element" as const,
-      detail: `${e.role} · ${e.frame}`,
-      documentation: `Elemento $${e.index} del device conectado`,
-      insertText: `"${e.label}"`,
-      sortText: `0_${String(e.index).padStart(3, "0")}`,
-    }));
-}
-
-// Comandos cuyo primer parámetro es un target de UI (type: "element" en el
-// catálogo) — tras ellos sugerimos labels reales del device.
-export function targetCommands(catalog: CatalogCommand[] = CATALOG): Set<string> {
-  const out = new Set<string>();
-  for (const c of catalog) {
-    if (c.params.some((p) => p.type === "element")) out.add(c.name.split(" ")[0]);
+// Pila de bloques abiertos por encima del cursor (anidamiento incluido:
+// repeat > if → ["repeat", "if"]). Suficiente para decidir si sugerir
+// end/else/catch — el parser real (autoSerializer) valida el resto.
+export function openBlockStack(linesAbove: string[]): string[] {
+  const stack: string[] = [];
+  for (const raw of linesAbove) {
+    const trimmed = raw.trim();
+    if (trimmed.length === 0 || trimmed.startsWith("#")) continue;
+    const head = trimmed.split(/\s+/)[0];
+    if (BLOCK_OPENERS.has(head)) stack.push(head);
+    else if (head === "end") stack.pop();
   }
-  return out;
+  return stack;
 }
 
-// ¿El texto de la línea hasta el cursor espera un target de elemento?
-// (primer token es un comando con param element y ya hay un separador después)
-export function lineExpectsElement(
-  lineUntilCursor: string,
-  catalog: CatalogCommand[] = CATALOG,
-): boolean {
-  const match = lineUntilCursor.match(/^\s*([A-Za-z][\w.-]*)(\s.*)?$/);
-  if (!match || match[2] === undefined) return false;
-  return targetCommands(catalog).has(match[1]);
+export interface SnippetSpec {
+  label: string;
+  detail: string;
+  // Sintaxis de snippet de Monaco: ${1:placeholder} navegable con Tab, $0 final.
+  insertText: string;
+  // true → cierra el bloque abierto (end/else/catch): va arriba de todo.
+  closer?: boolean;
+}
+
+// Snippets de control flow para la región de comando. end/else/catch SOLO se
+// ofrecen con un bloque abierto arriba (y catch solo dentro de try, else solo
+// dentro de if).
+export function logicSnippets(openBlock: string | undefined): SnippetSpec[] {
+  const out: SnippetSpec[] = [];
+  if (openBlock) {
+    out.push({ label: "end", detail: `cierra ${openBlock}`, insertText: "end", closer: true });
+    if (openBlock === "if") {
+      out.push({ label: "else", detail: "rama else del if abierto", insertText: "else", closer: true });
+    }
+    if (openBlock === "try") {
+      out.push({ label: "catch", detail: "rama catch del try abierto", insertText: "catch", closer: true });
+    }
+  }
+  out.push(
+    { label: "if", detail: "if … end", insertText: 'if ${1:platform == "ios"}\n  $0\nend' },
+    { label: "if/else", detail: "if … else … end", insertText: 'if ${1:platform == "ios"}\n  $2\nelse\n  $0\nend' },
+    { label: "repeat", detail: "repeat N times … end", insertText: "repeat ${1:3} times\n  $0\nend" },
+    { label: "repeat while", detail: "repeat while … end", insertText: 'repeat while ${1:exists "Loading"}\n  $0\nend' },
+    { label: "repeat for", detail: "repeat for $x in $lista … end", insertText: "repeat for \\$${1:item} in \\$${2:lista}\n  $0\nend" },
+    { label: "try", detail: "try … catch … end", insertText: "try\n  $1\ncatch\n  $0\nend" },
+    { label: "assert", detail: "assert <predicado>", insertText: 'assert ${1:exists ""}' },
+  );
+  return out;
 }
