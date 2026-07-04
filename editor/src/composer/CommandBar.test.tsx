@@ -5,6 +5,7 @@ import { useStore } from "../state/store";
 import { CommandBar } from "./CommandBar";
 import type { Frame } from "../domain/types";
 import { invoke } from "@tauri-apps/api/core";
+import { resetElementsThrottleForTests } from "../services/elements";
 
 const mockedInvoke = vi.mocked(invoke);
 
@@ -45,6 +46,7 @@ describe("CommandBar", () => {
   beforeEach(() => {
     seedProjectAndFlow();
     mockedInvoke.mockReset();
+    resetElementsThrottleForTests();
   });
 
   it("shows autocomplete suggestions when typing", async () => {
@@ -277,6 +279,35 @@ describe("CommandBar", () => {
         expect(blocks).toHaveLength(1);
         expect(blocks[0].command).toBe("biometric enroll");
       });
+    });
+
+    // #189 — el flujo del screenshot: tap "desblo sin tree cargado. Con
+    // sesión viva el índice viene de la SESIÓN (observer, sin robo de foco),
+    // jamás del inspect frío (path AX → chrome del Simulator).
+    it("auto-fetchea los elementos via la sesión al pedir un target sin tree", async () => {
+      useStore.setState({ sessionId: "sess_live" });
+      mockedInvoke.mockImplementation(async (cmd: string, args?: unknown) => {
+        if (cmd === "executor_send" && (args as { line?: string })?.line === "tree") {
+          return {
+            ok: true,
+            ms: 120,
+            out: 'AXWindow  [0,0 402x874]\n  AXButton  label="Desbloquear con biometría"  [10,20 100x40]\n  AXStaticText  "Mis Viajes"  [20,60 200x30]',
+          } satisfies Frame;
+        }
+        return null;
+      });
+      const user = userEvent.setup();
+      render(<CommandBar platform="ios" />);
+      const input = screen.getByTestId("command-bar-input");
+      await user.type(input, 'tap "desblo');
+
+      await vi.waitFor(() => {
+        expect(useStore.getState().elements).toHaveLength(2);
+      });
+      expect(mockedInvoke).not.toHaveBeenCalledWith("inspect", expect.anything());
+      // El popover se llena solo con el elemento real (match case-insensitive).
+      const popover = await screen.findByTestId("autocomplete-popover");
+      expect(popover.textContent).toContain("Desbloquear con biometría");
     });
 
     it("Escape cierra el popover sin borrar el texto", async () => {

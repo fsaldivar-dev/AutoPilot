@@ -157,6 +157,9 @@ export function CodeView() {
             quickSuggestions: { other: true, comments: false, strings: true },
             suggestOnTriggerCharacters: true,
             fixedOverflowWidgets: true,
+            // #189: sin sugerencias word-based del buffer — tapaban a los
+            // providers compartidos (elementos/comandos) dentro de comillas.
+            wordBasedSuggestions: "off",
           }}
         />
       </div>

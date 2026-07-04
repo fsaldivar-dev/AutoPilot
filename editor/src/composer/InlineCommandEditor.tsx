@@ -10,6 +10,7 @@ import {
 import { AutocompletePopover } from "./AutocompletePopover";
 import { matchCommandLine } from "./catalog";
 import { selectCurrentProject, useStore } from "../state/store";
+import { ensureFreshElements } from "../services/elements";
 import type { Suggestion } from "../domain/types";
 
 // Keywords de control flow: la edición inline puede convertir la línea en
@@ -76,6 +77,12 @@ export function InlineCommandEditor({ initial, platform, onSave, onCancel }: Pro
     expectation.kind === "param" &&
     expectation.param.type === "element" &&
     elements.length === 0;
+
+  const sessionId = useStore((s) => s.sessionId);
+  // #189: auto-fetch de elementos con sesión viva — hint pasivo fuera.
+  useEffect(() => {
+    if (needsTree && sessionId) void ensureFreshElements(platform);
+  }, [needsTree, sessionId, platform]);
 
   // Devuelve el nuevo value para que el caller (Enter) detecte si la
   // sugerencia ya estaba aplicada (aceptar sería no-op → guardar).
@@ -175,7 +182,9 @@ export function InlineCommandEditor({ initial, platform, onSave, onCancel }: Pro
         </span>
       ) : needsTree ? (
         <span className="inline-editor-hint" data-testid="inline-editor-hint">
-          corre <span className="kbd">tree</span> para ver los elementos del device
+          {sessionId
+            ? "cargando elementos del device…"
+            : <>corre <span className="kbd">launch</span> para ver los elementos del device</>}
         </span>
       ) : signature && expectation.kind === "param" && !popoverVisible ? (
         <span className="inline-editor-hint" data-testid="inline-editor-hint">
