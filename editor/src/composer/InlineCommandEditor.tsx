@@ -1,5 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { applySuggestion, suggest, tokenize } from "./autocomplete";
+import {
+  applySuggestion,
+  expectationAt,
+  signatureHelpAt,
+  suggest,
+  tokenize,
+} from "./autocomplete";
 import { AutocompletePopover } from "./AutocompletePopover";
 import { matchCommandLine } from "./catalog";
 import { selectCurrentProject, useStore } from "../state/store";
@@ -48,6 +54,20 @@ export function InlineCommandEditor({ initial, platform, onSave, onCancel }: Pro
   );
 
   useEffect(() => { setActiveIndex(0); }, [value]);
+
+  // Signature help + hints contextuales (#185).
+  const signature = useMemo(
+    () => signatureHelpAt(value, cursor, platform),
+    [value, cursor, platform]
+  );
+  const expectation = useMemo(
+    () => expectationAt(value, cursor, platform),
+    [value, cursor, platform]
+  );
+  const needsTree =
+    expectation.kind === "param" &&
+    expectation.param.type === "element" &&
+    elements.length === 0;
 
   // Devuelve el nuevo value para que el caller (Enter) detecte si la
   // sugerencia ya estaba aplicada (aceptar sería no-op → guardar).
@@ -145,6 +165,17 @@ export function InlineCommandEditor({ initial, platform, onSave, onCancel }: Pro
         <span className="command-bar-error" data-testid="inline-editor-error" role="alert">
           {inputError}
         </span>
+      ) : needsTree ? (
+        <span className="inline-editor-hint" data-testid="inline-editor-hint">
+          corre <span className="kbd">tree</span> para ver los elementos del device
+        </span>
+      ) : signature && expectation.kind === "param" && !popoverVisible ? (
+        <span className="inline-editor-hint" data-testid="inline-editor-hint">
+          {signature.name}
+          {signature.pre && ` ${signature.pre}`}{" "}
+          <u style={{ color: "var(--violet-2)", textUnderlineOffset: 3 }}>{signature.active}</u>
+          {signature.post && ` ${signature.post}`} → {signature.returns}
+        </span>
       ) : (
         <span className="inline-editor-hint">
           <span className="kbd">⏎</span> guardar · <span className="kbd">⎋</span> cancelar
@@ -156,6 +187,7 @@ export function InlineCommandEditor({ initial, platform, onSave, onCancel }: Pro
           activeIndex={activeIndex}
           onPick={pick}
           onHover={setActiveIndex}
+          signature={signature}
         />
       )}
     </div>

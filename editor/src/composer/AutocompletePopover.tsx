@@ -1,10 +1,14 @@
 import type { Suggestion } from "../domain/types";
+import type { SignatureParts } from "./autocomplete";
 
 interface Props {
   suggestions: Suggestion[];
   activeIndex: number;
   onPick: (s: Suggestion) => void;
   onHover: (index: number) => void;
+  // Signature help (#185): firma del comando activo con el parámetro actual
+  // subrayado, mostrada en el footer en lugar del conteo de matches.
+  signature?: SignatureParts | null;
 }
 
 const SECTION_LABELS: Record<string, string> = {
@@ -15,6 +19,7 @@ const SECTION_LABELS: Record<string, string> = {
   command: "Commands",
   role: "Roles",
   container: "Containers",
+  value: "Values",
 };
 
 export function AutocompletePopover({
@@ -22,6 +27,7 @@ export function AutocompletePopover({
   activeIndex,
   onPick,
   onHover,
+  signature,
 }: Props) {
   if (suggestions.length === 0) return null;
 
@@ -120,8 +126,21 @@ export function AutocompletePopover({
           </span>
           cerrar
         </span>
-        <span style={{ marginLeft: "auto", color: "var(--fg-dim)" }}>
-          {suggestions.length} matches
+        <span style={{ marginLeft: "auto", color: "var(--fg-dim)" }} data-testid="popover-signature">
+          {signature ? (
+            <>
+              {signature.name}
+              {signature.pre && ` ${signature.pre}`}{" "}
+              {signature.active && (
+                <u style={{ color: "var(--violet-2)", textUnderlineOffset: 3 }}>
+                  {signature.active}
+                </u>
+              )}
+              {signature.post && ` ${signature.post}`} → {signature.returns}
+            </>
+          ) : (
+            `${suggestions.length} matches`
+          )}
         </span>
       </div>
     </div>
