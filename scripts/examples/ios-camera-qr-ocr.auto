@@ -1,0 +1,28 @@
+# ios-camera-qr-ocr.auto
+# Test E2E de cámara iOS: QR + OCR con imágenes mock inyectadas.
+# Verifica que Vision.framework decodifica el QR y reconoce el texto
+# de las imágenes inyectadas vía el camera mock (observer + dylib).
+#
+# Requiere: CameraTestApp instalada, simulador booteado.
+# Uso: auto run scripts/examples/ios-camera-qr-ocr.auto
+#   (o desde el editor: proyecto CameraTest, imágenes como assets $qr/$ocr)
+
+$qr = scripts/demo-images/qr-autopilot.png
+$ocr = scripts/demo-images/ocr-test.png
+
+# --- SETUP: abrir la app con el QR mock ---
+launch dev.autopilot.test.CameraTestApp --inject $qr
+waitFor "Camara lista" 15
+
+# --- TEST QR: ML/Vision decodifica el QR mock ---
+tap "QR"
+waitFor "Escanear QR" 8
+tap "Escanear QR"
+waitFor "QR detectado" 12
+
+# --- TEST OCR: hot-swap a imagen con texto, Vision lo reconoce ---
+inject $ocr
+tap "OCR"
+waitFor "Reconocer Texto" 8
+tap "Reconocer Texto"
+waitFor "Texto detectado" 12
