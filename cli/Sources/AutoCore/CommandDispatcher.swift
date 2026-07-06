@@ -800,7 +800,13 @@ public func executeSharedCommand(
         let action = args[1]
         let service = args[2]
         let bundleId = args[3]
-        try bridge.setPermission(action: action, service: service, bundleId: bundleId)
+        // Via router → SimCtlBackend (simctl privacy). #191, misma clase que
+        // clearState/biometric: el bridge legacy no lo implementa.
+        try runAction(
+            .setPermission(action: action, service: service, bundleId: bundleId),
+            router: router,
+            fallback: { try bridge.setPermission(action: action, service: service, bundleId: bundleId) }
+        )
         let ms = elapsedMs(start)
         print("Permission \(action) \(service) → \(bundleId) (\(ms)ms)")
 
@@ -862,12 +868,18 @@ public func executeSharedCommand(
 
     // MARK: - App Data
 
+    // clearState/uninstall/keychain van via router (ARD-001) → SimCtlBackend,
+    // que declara las capabilities (simctl). El bridge legacy default es
+    // observer/XCUI y NO las implementa — sin el router morían con «not
+    // implemented in XCUI bridge» (misma clase que #184 biometric / #191
+    // permission).
     case "clearState":
         guard args.count >= 2 else {
             print("Usage: auto clearState <bundleId>")
             return true
         }
-        try bridge.clearState(bundleId: args[1])
+        try runAction(.clearState(bundleId: args[1]), router: router,
+                      fallback: { try bridge.clearState(bundleId: args[1]) })
         let ms = elapsedMs(start)
         print("Cleared state for \(args[1]) (\(ms)ms)")
 
@@ -876,7 +888,8 @@ public func executeSharedCommand(
             print("Usage: auto uninstall <bundleId>")
             return true
         }
-        try bridge.uninstallApp(bundleId: args[1])
+        try runAction(.uninstallApp(bundleId: args[1]), router: router,
+                      fallback: { try bridge.uninstallApp(bundleId: args[1]) })
         let ms = elapsedMs(start)
         print("Uninstalled \(args[1]) (\(ms)ms)")
 
@@ -890,7 +903,8 @@ public func executeSharedCommand(
         }
         switch args[1] {
         case "reset":
-            try bridge.resetKeychain()
+            try runAction(.resetKeychain, router: router,
+                          fallback: { try bridge.resetKeychain() })
             let ms = elapsedMs(start)
             print("Keychain reset (\(ms)ms)")
         default:
