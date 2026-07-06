@@ -79,6 +79,13 @@ public enum AutoWait {
             enabled: Bool = true,
             stabilityDeadline: TimeInterval = 1.5,
             pollInterval: TimeInterval = 0.05,
+            // #197: se probó bajar a 0.4 pero rompe el patrón tap→biometric:
+            // el post-verify de 0.8 le daba (accidentalmente) tiempo al Face
+            // ID sheet de sistema a aparecer antes del `biometric match`.
+            // Bajarlo hacía que el match se posteara sobre un sheet inexistente
+            // y se perdiera → login fallaba. La aceleración del post-verify
+            // requiere un settle propio en biometric (ver #197) — hasta
+            // entonces, 0.8 preserva correctitud. Configurable por env.
             retryDeadline: TimeInterval = 0.8,
             maxFetchCost: TimeInterval = 0.25,
             retryTap: Bool = false

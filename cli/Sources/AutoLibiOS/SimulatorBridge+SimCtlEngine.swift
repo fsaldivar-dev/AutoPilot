@@ -345,13 +345,13 @@ extension SimulatorBridge {
     private static let enrollmentKey = "com.apple.BiometricKit.enrollmentChanged"
 
     public func biometricEnroll() throws {
-        try notifyutil(["-s", Self.enrollmentKey, "1"])
-        try notifyutil(["-p", Self.enrollmentKey])
+        // #197: set + post en UN solo spawn de notifyutil (antes eran 2,
+        // ~350ms c/u). notifyutil aplica los flags en orden.
+        try notifyutil(["-s", Self.enrollmentKey, "1", "-p", Self.enrollmentKey])
     }
 
     public func biometricUnenroll() throws {
-        try notifyutil(["-s", Self.enrollmentKey, "0"])
-        try notifyutil(["-p", Self.enrollmentKey])
+        try notifyutil(["-s", Self.enrollmentKey, "0", "-p", Self.enrollmentKey])
     }
 
     public func biometricIsEnrolled() throws -> Bool {
@@ -364,13 +364,14 @@ extension SimulatorBridge {
     public func biometricMatch() throws {
         // Face ID (pearl) y Touch ID (fingerTouch): postear ambas es inocuo —
         // el sim solo escucha la que corresponde a su hardware.
-        try notifyutil(["-p", "com.apple.BiometricKit_Sim.pearl.match"])
-        try notifyutil(["-p", "com.apple.BiometricKit_Sim.fingerTouch.match"])
+        // #197: pearl (Face ID) + fingerTouch (Touch ID) posteadas en 1 spawn.
+        try notifyutil(["-p", "com.apple.BiometricKit_Sim.pearl.match",
+                        "-p", "com.apple.BiometricKit_Sim.fingerTouch.match"])
     }
 
     public func biometricFail() throws {
-        try notifyutil(["-p", "com.apple.BiometricKit_Sim.pearl.nomatch"])
-        try notifyutil(["-p", "com.apple.BiometricKit_Sim.fingerTouch.nomatch"])
+        try notifyutil(["-p", "com.apple.BiometricKit_Sim.pearl.nomatch",
+                        "-p", "com.apple.BiometricKit_Sim.fingerTouch.nomatch"])
     }
 
     // Legacy aliases
