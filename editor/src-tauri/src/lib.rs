@@ -32,6 +32,7 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_opener::init())
         .plugin(tauri_plugin_shell::init())
+        .plugin(tauri_plugin_dialog::init())
         .manage(executor)
         // Arc para que los comandos db_* puedan mover el handle a spawn_blocking.
         .manage(Arc::new(db))
@@ -71,6 +72,8 @@ pub fn run() {
             commands::db_get_screenshot,
             // utility
             commands::bundle_cli_path,
+            commands::project_ensure,
+            commands::project_import_asset,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

@@ -40,6 +40,7 @@ interface ProjectSlice {
   addComponent: (projectId: string, c: Component) => void;
   incrementComponentUsage: (projectId: string, componentId: string) => void;
   upsertEnvVar: (projectId: string, ev: EnvVar) => void;
+  setProjectRootDir: (projectId: string, rootDir: string) => void;
   removeEnvVar: (projectId: string, scope: string, key: string) => void;
 }
 
@@ -181,6 +182,13 @@ export const useStore = create<Store>((set) => ({
         );
         return { ...p, env: [...without, ev] };
       }),
+    })),
+
+  setProjectRootDir: (projectId, rootDir) =>
+    set((s) => ({
+      projects: s.projects.map((p) =>
+        p.id === projectId ? { ...p, rootDir } : p
+      ),
     })),
 
   removeEnvVar: (projectId, scope, key) =>

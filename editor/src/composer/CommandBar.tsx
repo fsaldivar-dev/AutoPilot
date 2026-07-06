@@ -18,6 +18,7 @@ import type {
 } from "../domain/types";
 import * as executor from "../services/executor";
 import { ensureFreshElements } from "../services/elements";
+import { BINDING_RE, substituteVars } from "../services/flowRunner";
 
 const LOGIC_KEYWORDS = new Set(["if", "repeat", "try", "assert"]);
 
@@ -48,6 +49,7 @@ export function CommandBar({ platform }: Props) {
   const appendBlock = useStore((s) => s.appendBlock);
   const updateBlock = useStore((s) => s.updateBlock);
   const pushRecent = useStore((s) => s.pushRecent);
+  const upsertEnvVar = useStore((s) => s.upsertEnvVar);
   const setRunning = useStore((s) => s.setRunning);
   const showToast = useStore((s) => s.showToast);
   const bumpRefreshTick = useStore((s) => s.bumpRefreshTick);
@@ -228,6 +230,31 @@ export function CommandBar({ platform }: Props) {
     // Keyword de control flow → no va al CLI; crea logic block estructural.
     if (handleLogicKeyword(line)) return;
 
+    // Binding de variable de script (#195): `$ocr = images/ocr.png` — crea
+    // el bloque (para que el flow lo conserve), registra la variable del
+    // proyecto (scope "script") y NO va al CLI.
+    const bind = BINDING_RE.exec(line);
+    if (bind && project) {
+      upsertEnvVar(project.id, {
+        projectId: project.id,
+        scope: "script",
+        key: bind[1],
+        value: bind[2].trim(),
+        secret: false,
+      });
+      appendBlock(flow.id, {
+        id: `blk_${nanoid(8)}`,
+        kind: "command",
+        command: line,
+        args: {},
+        meta: { status: "ok", ms: 0, ranAt: Date.now() },
+      });
+      setValue("");
+      setCursor(0);
+      showToast("ok", `$${bind[1]} = ${bind[2].trim()}`);
+      return;
+    }
+
     // Validación contra el catálogo (#180): texto que no empieza con un
     // comando conocido NO se inserta como bloque ni se ejecuta — feedback
     // inline y el texto queda intacto para corregir.
@@ -271,7 +298,9 @@ export function CommandBar({ platform }: Props) {
 
     let frame: Frame;
     try {
-      frame = await executor.send(sess, line, 30_000);
+      // El bloque conserva la línea RAW (legible: `camera feed $ocr`); al
+      // CLI viaja la sustitución contra las vars del proyecto (#194/#195).
+      frame = await executor.send(sess, substituteVars(line, project?.env ?? []), 30_000);
     } catch (e) {
       updateBlock(flow.id, blockId, {
         meta: { status: "err", error: (e as Error).message ?? String(e) },

@@ -182,9 +182,10 @@ pub async fn screenshot_only(
 pub async fn executor_spawn(
     platform: String,
     config: Option<std::collections::HashMap<String, String>>,
+    cwd: Option<String>,
     registry: State<'_, Arc<ExecutorRegistry>>,
 ) -> Result<String, String> {
-    registry.spawn(&platform, config).await
+    registry.spawn(&platform, config, cwd).await
 }
 
 #[tauri::command]
@@ -221,7 +222,7 @@ pub async fn interactive_start(
     registry: State<'_, Arc<ExecutorRegistry>>,
 ) -> Result<String, String> {
     registry.kill_all().await;
-    registry.spawn(&platform, None).await
+    registry.spawn(&platform, None, None).await
 }
 
 #[tauri::command]
@@ -409,4 +410,64 @@ pub fn open_screenshots() -> Result<String, String> {
         .spawn()
         .map_err(|e| format!("Failed to open: {}", e))?;
     Ok(dir.to_string_lossy().to_string())
+}
+
+// ---- Proyecto como carpeta real (#194) ----
+
+fn sanitize_project_name(name: &str) -> String {
+    let cleaned: String = name
+        .chars()
+        .map(|c| if c.is_alphanumeric() || c == ' ' || c == '-' || c == '_' { c } else { '_' })
+        .collect();
+    let trimmed = cleaned.trim();
+    if trimmed.is_empty() { "Proyecto".to_string() } else { trimmed.to_string() }
+}
+
+/// Crea (idempotente) la carpeta del proyecto con su estructura estilo
+/// xcodeproj: `~/AutoPilot Projects/<nombre>/{images,screenshots}`.
+/// Devuelve la ruta raíz. La sesión spawnea con este cwd, así las rutas
+/// relativas (`images/foto.jpg`) y la evidencia viven junto al proyecto.
+#[tauri::command]
+pub fn project_ensure(name: String) -> Result<String, String> {
+    let home = std::env::var("HOME").map_err(|_| "sin HOME".to_string())?;
+    let root = std::path::PathBuf::from(home)
+        .join("AutoPilot Projects")
+        .join(sanitize_project_name(&name));
+    std::fs::create_dir_all(root.join("images")).map_err(|e| format!("images/: {}", e))?;
+    std::fs::create_dir_all(root.join("screenshots")).map_err(|e| format!("screenshots/: {}", e))?;
+    Ok(root.to_string_lossy().to_string())
+}
+
+/// Importa un asset al proyecto: COPIA el archivo a `images/` (estilo
+/// «Copy items if needed» de Xcode) y devuelve la ruta relativa
+/// `images/<archivo>`. Si ya existe uno con ese nombre, agrega sufijo -N.
+#[tauri::command]
+pub fn project_import_asset(project_dir: String, src_path: String) -> Result<String, String> {
+    let src = std::path::PathBuf::from(&src_path);
+    let file_name = src
+        .file_name()
+        .ok_or_else(|| "ruta sin nombre de archivo".to_string())?
+        .to_string_lossy()
+        .to_string();
+    let images = std::path::PathBuf::from(&project_dir).join("images");
+    std::fs::create_dir_all(&images).map_err(|e| format!("images/: {}", e))?;
+
+    let (stem, ext) = match file_name.rsplit_once('.') {
+        Some((s, e)) => (s.to_string(), format!(".{}", e)),
+        None => (file_name.clone(), String::new()),
+    };
+    let mut candidate = file_name.clone();
+    let mut n = 1;
+    while images.join(&candidate).exists() {
+        // Mismo contenido ya importado → reusar en vez de duplicar.
+        let existing = std::fs::read(images.join(&candidate)).unwrap_or_default();
+        let incoming = std::fs::read(&src).unwrap_or_default();
+        if !existing.is_empty() && existing == incoming {
+            return Ok(format!("images/{}", candidate));
+        }
+        candidate = format!("{}-{}{}", stem, n, ext);
+        n += 1;
+    }
+    std::fs::copy(&src, images.join(&candidate)).map_err(|e| format!("copy: {}", e))?;
+    Ok(format!("images/{}", candidate))
 }
