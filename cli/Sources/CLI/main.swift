@@ -59,7 +59,9 @@ let iosCommandCatalogExtras: [String] = [
 ]
 
 func runScript(path: String) throws {
-    let content = try String(contentsOfFile: path, encoding: .utf8)
+    // #195: variables de script — consume `$x = valor` y sustituye antes
+    // del parse estructural.
+    let content = VarTable.preprocess(try String(contentsOfFile: path, encoding: .utf8))
 
     // Attach stabilizer for auto-wait between steps
     if let pid = simulatorBridge.findSimulatorPID() {
@@ -158,6 +160,9 @@ func runInteractive() {
     print(InteractiveJSON.ready(platform: "ios"))
     fflush(stdout)
 
+    // #195: variables de script por sesión ($x = valor → sustitución).
+    let interactiveVars = VarTable()
+
     while let rawLine = readLine(strippingNewline: true) {
         let trimmed = rawLine.trimmingCharacters(in: .whitespaces)
 
@@ -176,8 +181,17 @@ func runInteractive() {
             break
         }
 
+        // #195: binding de variable → frame ok sin tocar el dispatcher;
+        // el resto de líneas se sustituyen contra la tabla de la sesión.
+        if let bound = interactiveVars.consumeBinding(trimmed) {
+            print(InteractiveJSON.ok(ms: 0, out: bound))
+            fflush(stdout)
+            continue
+        }
+        let effective = interactiveVars.substitute(trimmed)
+
         let start = CFAbsoluteTimeGetCurrent()
-        let tokens = tokenize(trimmed)
+        let tokens = tokenize(effective)
         if tokens.isEmpty {
             print(InteractiveJSON.skipped())
             fflush(stdout)

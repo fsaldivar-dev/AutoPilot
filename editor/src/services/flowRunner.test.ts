@@ -251,3 +251,47 @@ describe("flowRunner replay capture (#172)", () => {
     ]);
   });
 });
+
+// #195 — variables de script: $nombre = valor + sustitución local.
+describe("variables de script (#195)", () => {
+  it("el binding no viaja al CLI y camera feed $ocr va sustituido", async () => {
+    sendMock.mockImplementation(async (sid, _line) => ({
+      frame: okFrame(), sessionId: sid ?? "s1",
+    }));
+    const flow = makeFlow([
+      cmd("b1", "$ocr = images/ocr-test.png"),
+      cmd("b2", "camera feed $ocr"),
+    ]);
+    const cb = mkCb();
+    const r = await runFlow("s1", "ios", flow, [], cb);
+    expect(r.ok).toBe(true);
+    expect(r.ran).toBe(2);
+    expect(cb.ended).toEqual([{ id: "b1", ok: true }, { id: "b2", ok: true }]);
+    expect(sendMock).toHaveBeenCalledTimes(1);
+    expect(sendMock).toHaveBeenCalledWith("s1", "camera feed images/ocr-test.png");
+  });
+
+  it("el binding shadowea el env del proyecto sin mutarlo; la última asignación gana", async () => {
+    sendMock.mockImplementation(async (sid, _line) => ({
+      frame: okFrame(), sessionId: sid ?? "s1",
+    }));
+    const projectEnv = [
+      { projectId: "p1", scope: "asset", key: "img", value: "images/proyecto.png", secret: false },
+    ];
+    const flow = makeFlow([
+      cmd("b1", "inject $img"),
+      cmd("b2", "$img = images/local.png"),
+      cmd("b3", "inject $img"),
+      cmd("b4", "$img = images/otra.png"),
+      cmd("b5", "inject $img"),
+    ]);
+    await runFlow("s1", "ios", flow, projectEnv, mkCb());
+    const lines = sendMock.mock.calls.map((c) => c[1]);
+    expect(lines).toEqual([
+      "inject images/proyecto.png",
+      "inject images/local.png",
+      "inject images/otra.png",
+    ]);
+    expect(projectEnv).toHaveLength(1);
+  });
+});

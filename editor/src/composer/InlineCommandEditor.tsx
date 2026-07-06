@@ -11,6 +11,7 @@ import { AutocompletePopover } from "./AutocompletePopover";
 import { matchCommandLine } from "./catalog";
 import { selectCurrentProject, useStore } from "../state/store";
 import { ensureFreshElements } from "../services/elements";
+import { BINDING_RE } from "../services/flowRunner";
 import type { Suggestion } from "../domain/types";
 
 // Keywords de control flow: la edición inline puede convertir la línea en
@@ -108,7 +109,11 @@ export function InlineCommandEditor({ initial, platform, onSave, onCancel }: Pro
       return;
     }
     const head = trimmed.split(/\s+/)[0];
-    if (!LOGIC_KEYWORDS.has(head) && !matchCommandLine(trimmed, platform)) {
+    if (
+      !LOGIC_KEYWORDS.has(head) &&
+      !BINDING_RE.test(trimmed) &&
+      !matchCommandLine(trimmed, platform)
+    ) {
       setInputError(`comando desconocido: «${head}» — no está en el catálogo (${platform})`);
       return;
     }

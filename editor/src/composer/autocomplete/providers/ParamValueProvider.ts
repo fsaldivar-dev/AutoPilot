@@ -1,4 +1,4 @@
-import type { Block, CursorContext, Suggestion } from "../../../domain/types";
+import type { Block, CursorContext, EnvVar, Suggestion } from "../../../domain/types";
 import { tokenizeLine } from "../../../domain/autoTokenize";
 import type { Expectation } from "../expectation";
 import type { AppSource } from "../appsSources";
@@ -12,11 +12,28 @@ import type { AppSource } from "../appsSources";
 export function suggestParamValues(
   ctx: CursorContext & { expectation?: Expectation },
   recents: Block[],
-  apps: AppSource[] = []
+  apps: AppSource[] = [],
+  envVars: EnvVar[] = []
 ): Suggestion[] {
   const exp = ctx.expectation;
   if (!exp || exp.kind !== "param") return [];
   const { command, param, paramIndex } = exp;
+
+  // #194 — param de imagen: los assets del proyecto (variables scope
+  // "asset") se ofrecen como $nombre; flowRunner los sustituye al correr.
+  if (param.type === "image") {
+    return envVars
+      .filter((v) => v.scope === "asset")
+      .map((v, i) => ({
+        id: `val:asset:${v.key}`,
+        kind: "value" as const,
+        label: `$${v.key}`,
+        detail: `${v.value} · asset`,
+        insertText: `$${v.key}`,
+        score: 1.2 - i * 0.02,
+        icon: "🖼",
+      }));
+  }
 
   if (param.type === "enum") {
     return (param.enumValues ?? []).map((v, i) => ({

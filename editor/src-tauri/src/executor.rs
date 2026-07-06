@@ -248,6 +248,7 @@ impl ExecutorRegistry {
         &self,
         platform: &str,
         config: Option<HashMap<String, String>>,
+        cwd: Option<String>,
     ) -> Result<SessionId, String> {
         let bin = auto_binary(platform);
         if !bin.exists() {
@@ -258,13 +259,17 @@ impl ExecutorRegistry {
             ));
         }
 
-        // Sugar del proyecto (#193): materializa la config del proyecto del
-        // editor (bundle, image) como `.autopilot` en un cwd por sesión — el
-        // CLI ya sabe leerla, así `launch` pelado y `--inject` sin path
-        // funcionan igual que en terminal.
-        let session_dir = std::env::temp_dir()
-            .join("autopilot-editor-sessions")
-            .join(uuid::Uuid::new_v4().to_string());
+        // Sugar del proyecto (#193/#194): la sesión corre con cwd = carpeta
+        // del proyecto (~/AutoPilot Projects/<nombre>) cuando existe — rutas
+        // relativas (`images/foto.jpg`), screenshots junto al proyecto — y la
+        // config (bundle, image) se materializa como `.autopilot` ahí, que el
+        // CLI ya sabe leer. Sin proyecto-carpeta: tmp por sesión (legacy).
+        let session_dir = match cwd {
+            Some(dir) if !dir.is_empty() => std::path::PathBuf::from(dir),
+            _ => std::env::temp_dir()
+                .join("autopilot-editor-sessions")
+                .join(uuid::Uuid::new_v4().to_string()),
+        };
         std::fs::create_dir_all(&session_dir)
             .map_err(|e| format!("session dir: {}", e))?;
         if let Some(cfg) = config.as_ref().filter(|c| !c.is_empty()) {
