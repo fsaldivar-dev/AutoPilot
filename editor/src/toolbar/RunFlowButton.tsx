@@ -28,7 +28,6 @@ export function RunFlowButton({ platform }: Props) {
   const flow = useStore(selectCurrentFlow);
   const project = useStore(selectCurrentProject);
   const running = useStore((s) => s.running);
-  const sessionId = useStore((s) => s.sessionId);
   const setSession = useStore((s) => s.setSession);
   const setRunning = useStore((s) => s.setRunning);
   const updateBlock = useStore((s) => s.updateBlock);
@@ -52,16 +51,15 @@ export function RunFlowButton({ platform }: Props) {
       updateBlock(flow.id, b.id, { meta: { status: "idle" } });
     }
 
-    // Ensure session.
-    let sess = sessionId;
-    if (!sess) {
-      try {
-        sess = await executor.spawn(runtime);
-        setSession(sess, runtime);
-      } catch (e) {
-        showToast("err", `Sin CLI: ${(e as Error).message ?? e}`);
-        return;
-      }
+    // Sesión de la plataforma correcta (#198): si la sesión viva es de otra
+    // plataforma, ensureSessionForPlatform la mata y respawnea la correcta —
+    // antes reusaba la sesión iOS al correr Android y viceversa.
+    let sess: string;
+    try {
+      sess = await executor.ensureSessionForPlatform(runtime);
+    } catch (e) {
+      showToast("err", `Sin CLI: ${(e as Error).message ?? e}`);
+      return;
     }
 
     setRunning(true);
