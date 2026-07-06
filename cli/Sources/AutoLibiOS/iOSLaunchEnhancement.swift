@@ -159,11 +159,16 @@ public enum iOSLaunchEnhancement {
 
     /// Poll del árbol del observer hasta que exponga algún elemento con label
     /// (no solo AXWindow/AXGroup contenedores) o venza el deadline. Best-effort.
+    /// #197: poll a 50ms (antes 100ms) + deadline de reloj de pared real —
+    /// el tree() del observer es ~ms, así que en el caso normal (app ya lista)
+    /// sale en el primer poll; el poll fino recorta el tiempo hasta detectar
+    /// que la app pintó su árbol. El deadline se mide contra CFAbsoluteTime
+    /// para no depender de que tree() sea instantáneo.
     private static func settleObserverTree(agent: iOSAgentBridge, deadlineMs: Int) {
-        let steps = max(1, deadlineMs / 100)
-        for _ in 0..<steps {
+        let deadline = CFAbsoluteTimeGetCurrent() + Double(deadlineMs) / 1000.0
+        while CFAbsoluteTimeGetCurrent() < deadline {
             if let tree = try? agent.tree(), treeHasLabeledContent(tree) { return }
-            usleep(100_000)
+            usleep(50_000)
         }
     }
 
