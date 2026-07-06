@@ -34,6 +34,32 @@ export async function spawn(platform: "ios" | "android"): Promise<string> {
   return invoke<string>("executor_spawn", { platform, config: projectConfig(), cwd });
 }
 
+// Sesión válida para la plataforma pedida (#198). Antes cada punto de
+// ejecución reusaba `sessionId` del store SIN verificar su plataforma: correr
+// iOS y luego Android reusaba la sesión iOS (`auto interactive`), así que los
+// comandos Android iban al CLI de iOS — «corre iOS después Android y
+// viceversa». Aquí, si la sesión viva es de OTRA plataforma, se mata y se
+// respawnea con la correcta. Actualiza el store y devuelve el sessionId.
+export async function ensureSessionForPlatform(
+  platform: "ios" | "android"
+): Promise<string> {
+  const st = useStore.getState();
+  if (st.sessionId && st.sessionPlatform === platform) {
+    return st.sessionId;
+  }
+  // Plataforma distinta (o sin plataforma registrada) → cerrar la vieja.
+  if (st.sessionId) {
+    try {
+      await kill(st.sessionId);
+    } catch {
+      /* best-effort */
+    }
+  }
+  const id = await spawn(platform);
+  useStore.getState().setSession(id, platform);
+  return id;
+}
+
 export async function send(
   sessionId: string,
   line: string,

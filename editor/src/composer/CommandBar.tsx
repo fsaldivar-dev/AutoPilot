@@ -45,7 +45,6 @@ export function CommandBar({ platform }: Props) {
   const elements = useStore((s) => s.elements);
   const recents = useStore((s) => s.recentBlocks);
   const sessionId = useStore((s) => s.sessionId);
-  const setSession = useStore((s) => s.setSession);
   const appendBlock = useStore((s) => s.appendBlock);
   const updateBlock = useStore((s) => s.updateBlock);
   const pushRecent = useStore((s) => s.pushRecent);
@@ -120,11 +119,9 @@ export function CommandBar({ platform }: Props) {
   }
 
   async function ensureSession(): Promise<string | null> {
-    if (sessionId) return sessionId;
+    // #198: sesión de la plataforma actual — si el toggle cambió, respawnea.
     try {
-      const id = await executor.spawn(runtimePlatform);
-      setSession(id, runtimePlatform);
-      return id;
+      return await executor.ensureSessionForPlatform(runtimePlatform);
     } catch (e) {
       showToast("err", `No se pudo iniciar el CLI: ${(e as Error).message ?? e}`);
       return null;
