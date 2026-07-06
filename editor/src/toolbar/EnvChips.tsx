@@ -1,10 +1,12 @@
 import { useState } from "react";
 import { selectCurrentProject, useStore } from "../state/store";
+import { importAssetViaDialog } from "../services/assets";
 
 export function EnvChips() {
   const project = useStore(selectCurrentProject);
   const upsertEnvVar = useStore((s) => s.upsertEnvVar);
   const removeEnvVar = useStore((s) => s.removeEnvVar);
+  const showToast = useStore((s) => s.showToast);
   const [showAdd, setShowAdd] = useState(false);
   const [key, setKey] = useState("");
   const [value, setValue] = useState("");
@@ -34,13 +36,32 @@ export function EnvChips() {
     <div data-testid="env-chips">
       <div className="section-title" style={{ display: "flex", justifyContent: "space-between" }}>
         <span>Variables</span>
-        <button
-          className="btn btn-icon"
-          onClick={() => setShowAdd((v) => !v)}
-          data-testid="env-add-btn"
-        >
-          +
-        </button>
+        <span style={{ display: "flex", gap: 4 }}>
+          <button
+            className="btn btn-icon"
+            title="Importar imagen al proyecto (se copia a images/)"
+            data-testid="asset-add-btn"
+            onClick={() => {
+              if (!project) return;
+              void importAssetViaDialog(project)
+                .then((key) => {
+                  if (key) showToast("ok", `$${key} → asset importado`);
+                })
+                .catch((e) =>
+                  showToast("err", `import falló: ${(e as Error).message ?? e}`)
+                );
+            }}
+          >
+            📁
+          </button>
+          <button
+            className="btn btn-icon"
+            onClick={() => setShowAdd((v) => !v)}
+            data-testid="env-add-btn"
+          >
+            +
+          </button>
+        </span>
       </div>
       <div style={{ display: "flex", flexWrap: "wrap", gap: 4 }}>
         {vars.map((v) => (

@@ -54,6 +54,11 @@ function isUIMutator(command: string): boolean {
   return UI_MUTATORS.has(first);
 }
 
+// #195 — binding de variable de script: `$ocr = images/ocr.png`. La línea es
+// válida en .auto (el CLI tiene su propia VarTable); en el editor se resuelve
+// localmente sin ir al CLI.
+export const BINDING_RE = /^\$([A-Za-z_][A-Za-z0-9_.]*)\s*=\s*(.+)$/;
+
 export function substituteVars(command: string, vars: EnvVar[]): string {
   if (!command || vars.length === 0) return command;
   return command.replace(/\$([A-Za-z_][A-Za-z0-9_.]*)/g, (whole, key) => {
@@ -71,7 +76,9 @@ export async function runFlow(
 ): Promise<{ ok: boolean; ran: number; errored?: string; sessionId: string }> {
   const state: RunState = { sid: sessionId, ran: 0, errored: undefined };
   try {
-    await runBlocksSeq(flow.blocks, platform, envVars, state, cb);
+    // Clon: los bindings del script (#195) se unshift-ean como locals que
+    // shadowean el env del proyecto sin mutar el store.
+    await runBlocksSeq(flow.blocks, platform, [...envVars], state, cb);
     return { ok: !state.errored, ran: state.ran, errored: state.errored, sessionId: state.sid };
   } catch (e) {
     // AbortedError → normal early-exit, no-op.
@@ -162,6 +169,24 @@ async function runCommandBlock(
   cb: RunnerCallbacks,
 ): Promise<void> {
   if (!block.command) return;
+
+  // Binding (#195): define/actualiza la variable local y reporta ok sin
+  // tocar el CLI — substituteVars la ve primero (unshift shadowea).
+  const bind = BINDING_RE.exec(block.command.trim());
+  if (bind) {
+    cb.onBlockStart(block.id);
+    envVars.unshift({
+      projectId: "",
+      scope: "script",
+      key: bind[1],
+      value: bind[2].trim(),
+      secret: false,
+    });
+    state.ran++;
+    cb.onBlockEnd(block.id, true, 0, undefined);
+    return;
+  }
+
   const line = substituteVars(block.command, envVars);
   cb.onBlockStart(block.id);
   try {

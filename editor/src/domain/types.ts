@@ -105,6 +105,10 @@ export interface Project {
   // Imagen para el camera mock (#193) — se materializa como `image=` en el
   // .autopilot de la sesión: `launch` pelado y `--inject` sin path la usan.
   cameraImage?: string;
+  // Carpeta real del proyecto (#194, estilo xcodeproj):
+  // ~/AutoPilot Projects/<nombre>/ con images/ y screenshots/. La sesión
+  // spawnea con este cwd → rutas relativas y evidencia junto al proyecto.
+  rootDir?: string;
   flows: Flow[];
   components: Component[];
   env: EnvVar[];

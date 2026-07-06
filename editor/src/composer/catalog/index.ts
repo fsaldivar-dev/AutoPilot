@@ -2,7 +2,9 @@ import raw from "./commands.json";
 
 export interface CatalogParam {
   name: string;
-  type: "string" | "number" | "element" | "enum" | "boolean";
+  // "image" (#194): param de imagen — el predictivo ofrece los assets del
+  // proyecto ($nombre) y la UI muestra el picker de archivos.
+  type: "string" | "number" | "element" | "enum" | "boolean" | "image";
   required?: boolean;
   default?: string;
   enumValues?: string[];
