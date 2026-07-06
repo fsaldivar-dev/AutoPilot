@@ -47,7 +47,7 @@ export function suggest(inp: SuggestInput & { predicateMode?: boolean }): Sugges
     ...suggestCommands(ctx, inp.platform),
     ...suggestPredicates(ctx),
     ...suggestElements(ctx, inp.elements),
-    ...suggestParamValues(ctx, inp.recents, inp.apps),
+    ...suggestParamValues(ctx, inp.recents, inp.apps, inp.envVars),
     ...suggestComponents(ctx, inp.components),
     ...suggestEnvVars(ctx, inp.envVars),
     ...suggestRecents(ctx, inp.recents),

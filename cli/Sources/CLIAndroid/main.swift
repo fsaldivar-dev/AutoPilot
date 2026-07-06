@@ -56,7 +56,9 @@ let androidCommandCatalogExtras: [String] = [
 ]
 
 func runScript(path: String) throws {
-    let content = try String(contentsOfFile: path, encoding: .utf8)
+    // #195: variables de script — consume `$x = valor` y sustituye antes
+    // del parse estructural.
+    let content = VarTable.preprocess(try String(contentsOfFile: path, encoding: .utf8))
 
     let totalStart = CFAbsoluteTimeGetCurrent()
 
@@ -112,6 +114,9 @@ func runInteractive() {
     print(InteractiveJSON.ready(platform: "android"))
     fflush(stdout)
 
+    // #195: variables de script por sesión ($x = valor → sustitución).
+    let interactiveVars = VarTable()
+
     while let rawLine = readLine(strippingNewline: true) {
         let trimmed = rawLine.trimmingCharacters(in: .whitespaces)
 
@@ -127,8 +132,16 @@ func runInteractive() {
             break
         }
 
+        // #195: binding de variable → frame ok; el resto se sustituye.
+        if let bound = interactiveVars.consumeBinding(trimmed) {
+            print(InteractiveJSON.ok(ms: 0, out: bound))
+            fflush(stdout)
+            continue
+        }
+        let effective = interactiveVars.substitute(trimmed)
+
         let start = CFAbsoluteTimeGetCurrent()
-        let tokens = tokenize(trimmed)
+        let tokens = tokenize(effective)
         if tokens.isEmpty {
             print(InteractiveJSON.skipped())
             fflush(stdout)

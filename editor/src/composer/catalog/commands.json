@@ -48,11 +48,11 @@
     { "name": "biometric fail", "group": "biometric", "platform": "both", "description": "Simula match fallido", "params": [], "example": "biometric fail", "returns": "void" },
     { "name": "biometric status", "group": "biometric", "platform": "both", "description": "Estado de biometria", "params": [], "example": "biometric status", "returns": "text" },
 
-    { "name": "camera start", "group": "camera", "platform": "ios", "description": "Activa mock de camara", "params": [{ "name": "image", "type": "string" }], "example": "camera start \"foto.jpg\"", "returns": "void" },
-    { "name": "camera feed", "group": "camera", "platform": "ios", "description": "Hot-swap de imagen", "params": [{ "name": "image", "type": "string" }], "example": "camera feed \"nueva.jpg\"", "returns": "void" },
+    { "name": "camera start", "group": "camera", "platform": "ios", "description": "Activa mock de camara", "params": [{ "name": "image", "type": "image" }], "example": "camera start \"foto.jpg\"", "returns": "void" },
+    { "name": "camera feed", "group": "camera", "platform": "ios", "description": "Hot-swap de imagen", "params": [{ "name": "image", "type": "image" }], "example": "camera feed \"nueva.jpg\"", "returns": "void" },
     { "name": "camera stop", "group": "camera", "platform": "ios", "description": "Detiene mock de camara", "params": [], "example": "camera stop", "returns": "void" },
     { "name": "camera status", "group": "camera", "platform": "ios", "description": "Estado de la camara mock", "params": [], "example": "camera status", "returns": "text" },
-    { "name": "inject", "group": "camera", "platform": "ios", "description": "Hot-swap sin restart (sin args usa la imagen del proyecto)", "params": [{ "name": "image", "type": "string", "required": false }], "example": "inject", "returns": "void" },
+    { "name": "inject", "group": "camera", "platform": "ios", "description": "Hot-swap sin restart (sin args usa la imagen del proyecto)", "params": [{ "name": "image", "type": "image", "required": false }], "example": "inject", "returns": "void" },
 
     { "name": "setLocation", "group": "env", "platform": "both", "description": "Fija ubicacion GPS", "params": [{ "name": "lat", "type": "number" }, { "name": "lon", "type": "number" }], "example": "setLocation 19.4326 -99.1332", "returns": "void" },
     { "name": "setAppearance", "group": "env", "platform": "both", "description": "Cambia a tema oscuro o claro", "params": [{ "name": "mode", "type": "enum", "enumValues": ["dark", "light"] }], "example": "setAppearance dark", "returns": "void" },

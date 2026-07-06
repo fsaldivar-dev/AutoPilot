@@ -3,6 +3,7 @@
 import { invoke } from "@tauri-apps/api/core";
 import type { Frame } from "../domain/types";
 import { useStore } from "../state/store";
+import { ensureProjectDir } from "./assets";
 
 // Sugar del proyecto (#193): la config del proyecto activo (bundle, imagen
 // de cámara) viaja al spawn y el backend la escribe como `.autopilot` en el
@@ -18,7 +19,19 @@ export function projectConfig(): Record<string, string> | null {
 }
 
 export async function spawn(platform: "ios" | "android"): Promise<string> {
-  return invoke<string>("executor_spawn", { platform, config: projectConfig() });
+  // #194: cwd = carpeta real del proyecto (se crea al vuelo) — rutas
+  // relativas tipo images/foto.jpg y screenshots junto al proyecto.
+  const st = useStore.getState();
+  const project = st.projects.find((p) => p.id === st.currentProjectId);
+  let cwd: string | null = null;
+  if (project) {
+    try {
+      cwd = await ensureProjectDir(project);
+    } catch {
+      cwd = null; // best-effort: sin carpeta cae al tmp por sesión
+    }
+  }
+  return invoke<string>("executor_spawn", { platform, config: projectConfig(), cwd });
 }
 
 export async function send(
