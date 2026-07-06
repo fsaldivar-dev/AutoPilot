@@ -4,6 +4,10 @@ import ApplicationServices
 import AutoCore
 import AutoLibiOS
 
+// #197: exporta DEVELOPER_DIR una vez → todos los `xcrun simctl` hijos lo
+// heredan y no re-resuelven xcode-select (~30-80ms/invocación en el hot path).
+DeveloperDir.ensureExported()
+
 // Bootstrap de plataforma vía iOSDeviceResolver (ARD-001).
 // El resolver construye el ActionRouter con los 4 backends nativos registrados,
 // y expone los bridges iOS-específicos (simulatorBridge, xcuiBridge) que aún
@@ -207,14 +211,13 @@ func runInteractive() {
             cmdName = rawCmd
         }
 
-        if interactiveMutators.contains(cmdName) {
-            // Wait for the previous frame's animation to settle. The event-
-            // driven stabilizer exits early as soon as `quietPeriod` seconds
-            // pass without any AX change, so this is free when the UI is
-            // already idle (the typical case after the user waits a beat
-            // between script edits). 0.15s tuned empirically — long enough
-            // to let an animation finish, short enough to not over-pay on
-            // apps with continuous AX event traffic.
+        // #197: el stabilizer AX de macOS es DOBLE estabilización cuando el
+        // observer está vivo — AutoWait ya estabiliza pre-acción con el hash
+        // del árbol del observer (in-process, sin robo de foco). Este gate
+        // pagaba ~150ms por mutador (incluidos waitFor/biometric que no lo
+        // necesitan). Con observer → saltar; es además el último uso de AX en
+        // el hot path. Solo se usa como red de seguridad cuando NO hay observer.
+        if deviceResolver.agentBridge == nil && interactiveMutators.contains(cmdName) {
             stabilizer.waitForStable(quietPeriod: 0.15, timeout: 3.0)
             stabilizer.resetCounter()
         }
