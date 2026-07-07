@@ -11,9 +11,26 @@ struct QrScanTab: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
 
+                // Result — ARRIBA del preview: el payload decodificado visible
+                // en el mirror sin scrollear. Es lo que el test verifica.
+                if let result = viewModel.qrResult {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("QR detectado:")
+                            .font(.subheadline.bold())
+                        Text(result)
+                            .font(.body)
+                            .foregroundStyle(Color(red: 0.180, green: 0.490, blue: 0.196))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding()
+                    .background(Color(red: 0.910, green: 0.961, blue: 0.914), in: RoundedRectangle(cornerRadius: 12))
+                    .padding(.horizontal)
+                }
+
                 // Camera preview
                 CameraPreview(session: viewModel.session)
-                    .frame(height: 280)
+                    .frame(height: 220)
                     .clipShape(RoundedRectangle(cornerRadius: 16))
                     .padding(.horizontal)
 
@@ -32,21 +49,6 @@ struct QrScanTab: View {
                     .background(Color(red: 0.612, green: 0.153, blue: 0.690), in: RoundedRectangle(cornerRadius: 12))
                 }
                 .padding(.horizontal)
-
-                // Result
-                if let result = viewModel.qrResult {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("QR detectado:")
-                            .font(.subheadline.bold())
-                        Text(result)
-                            .font(.body)
-                            .foregroundStyle(Color(red: 0.180, green: 0.490, blue: 0.196))
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding()
-                    .background(Color(red: 0.910, green: 0.961, blue: 0.914), in: RoundedRectangle(cornerRadius: 12))
-                    .padding(.horizontal)
-                }
             }
             .padding(.vertical)
         }

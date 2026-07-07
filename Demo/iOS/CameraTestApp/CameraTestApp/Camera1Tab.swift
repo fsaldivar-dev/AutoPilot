@@ -43,11 +43,15 @@ struct Camera1Tab: View {
                 .disabled(!viewModel.isReady)
                 .padding(.horizontal)
 
-                // Result
-                if let data = viewModel.photoData {
-                    Text("Camera1 capturada (\(data.count) bytes)")
-                        .font(.caption)
-                        .foregroundStyle(Color(red: 0.298, green: 0.686, blue: 0.314))
+                // Result — fingerprint verificable (dimensiones + hash).
+                if let data = viewModel.photoData, let image = viewModel.capturedImage {
+                    VStack(spacing: 2) {
+                        Text("Camera1 capturada:")
+                            .font(.caption).foregroundStyle(.secondary)
+                        Text(ImageFingerprint.of(image, data: data))
+                            .font(.caption.monospaced().bold())
+                            .foregroundStyle(Color(red: 0.298, green: 0.686, blue: 0.314))
+                    }
                 }
             }
             .padding(.vertical)

@@ -9,24 +9,26 @@
 /* Begin PBXBuildFile section */
 		029D5D73550E8A4B083DB8E7 /* CameraTestApp.swift in Sources */ = {isa = PBXBuildFile; fileRef = FC49076B15E1EE3B46900F66 /* CameraTestApp.swift */; };
 		0E0686F9EA963C1C30E5623F /* ContentView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 63471613E35AA8CD614CF1F5 /* ContentView.swift */; };
-		A1B2C3D4E5F60001 /* CameraXTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F61001 /* CameraXTab.swift */; };
-		A1B2C3D4E5F60002 /* QrScanTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F61002 /* QrScanTab.swift */; };
-		A1B2C3D4E5F60003 /* OcrTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F61003 /* OcrTab.swift */; };
-		A1B2C3D4E5F60004 /* IntentCaptureTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F61004 /* IntentCaptureTab.swift */; };
-		A1B2C3D4E5F60005 /* Camera1Tab.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F61005 /* Camera1Tab.swift */; };
-		A1B2C3D4E5F60006 /* IdCaptureTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D4E5F61006 /* IdCaptureTab.swift */; };
+		11577A532CBD58A91A81FB97 /* ImageFingerprint.swift in Sources */ = {isa = PBXBuildFile; fileRef = 943E60A76D450F87823A6706 /* ImageFingerprint.swift */; };
+		3F19EADE6FAA2B22C398E256 /* CameraXTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0BC0FF2874445930ADF24FE2 /* CameraXTab.swift */; };
+		42E42DEB3B93C1AA43C7D60E /* Camera1Tab.swift in Sources */ = {isa = PBXBuildFile; fileRef = ED0488F9C840C3627F21E823 /* Camera1Tab.swift */; };
+		72611E58BE22425217706036 /* IntentCaptureTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 574A847218F39189F15EAA16 /* IntentCaptureTab.swift */; };
+		78935791B369FAC79FD96DDF /* OcrTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 619AF3BCBE03E5DE69B7D0C7 /* OcrTab.swift */; };
+		87D533B22C36936269F0E1A4 /* QrScanTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = D125CC995B4CF6DA7BC71F50 /* QrScanTab.swift */; };
+		CDEDF563FD7AEF9BA6D03671 /* IdCaptureTab.swift in Sources */ = {isa = PBXBuildFile; fileRef = 5703FBE3F7CF5FA6E95ECCA0 /* IdCaptureTab.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXFileReference section */
 		04777FCB607FCB684963BC08 /* CameraTestApp.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = CameraTestApp.app; sourceTree = BUILT_PRODUCTS_DIR; };
+		0BC0FF2874445930ADF24FE2 /* CameraXTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraXTab.swift; sourceTree = "<group>"; };
+		5703FBE3F7CF5FA6E95ECCA0 /* IdCaptureTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IdCaptureTab.swift; sourceTree = "<group>"; };
+		574A847218F39189F15EAA16 /* IntentCaptureTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntentCaptureTab.swift; sourceTree = "<group>"; };
+		619AF3BCBE03E5DE69B7D0C7 /* OcrTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OcrTab.swift; sourceTree = "<group>"; };
 		63471613E35AA8CD614CF1F5 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
+		943E60A76D450F87823A6706 /* ImageFingerprint.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageFingerprint.swift; sourceTree = "<group>"; };
+		D125CC995B4CF6DA7BC71F50 /* QrScanTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QrScanTab.swift; sourceTree = "<group>"; };
+		ED0488F9C840C3627F21E823 /* Camera1Tab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Camera1Tab.swift; sourceTree = "<group>"; };
 		FC49076B15E1EE3B46900F66 /* CameraTestApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraTestApp.swift; sourceTree = "<group>"; };
-		A1B2C3D4E5F61001 /* CameraXTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CameraXTab.swift; sourceTree = "<group>"; };
-		A1B2C3D4E5F61002 /* QrScanTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = QrScanTab.swift; sourceTree = "<group>"; };
-		A1B2C3D4E5F61003 /* OcrTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = OcrTab.swift; sourceTree = "<group>"; };
-		A1B2C3D4E5F61004 /* IntentCaptureTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IntentCaptureTab.swift; sourceTree = "<group>"; };
-		A1B2C3D4E5F61005 /* Camera1Tab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = Camera1Tab.swift; sourceTree = "<group>"; };
-		A1B2C3D4E5F61006 /* IdCaptureTab.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = IdCaptureTab.swift; sourceTree = "<group>"; };
 /* End PBXFileReference section */
 
 /* Begin PBXGroup section */
@@ -41,14 +43,15 @@
 		78EFABA7273FA4C65E7CCFCD /* CameraTestApp */ = {
 			isa = PBXGroup;
 			children = (
+				ED0488F9C840C3627F21E823 /* Camera1Tab.swift */,
 				FC49076B15E1EE3B46900F66 /* CameraTestApp.swift */,
+				0BC0FF2874445930ADF24FE2 /* CameraXTab.swift */,
 				63471613E35AA8CD614CF1F5 /* ContentView.swift */,
-				A1B2C3D4E5F61001 /* CameraXTab.swift */,
-				A1B2C3D4E5F61002 /* QrScanTab.swift */,
-				A1B2C3D4E5F61003 /* OcrTab.swift */,
-				A1B2C3D4E5F61004 /* IntentCaptureTab.swift */,
-				A1B2C3D4E5F61005 /* Camera1Tab.swift */,
-				A1B2C3D4E5F61006 /* IdCaptureTab.swift */,
+				5703FBE3F7CF5FA6E95ECCA0 /* IdCaptureTab.swift */,
+				943E60A76D450F87823A6706 /* ImageFingerprint.swift */,
+				574A847218F39189F15EAA16 /* IntentCaptureTab.swift */,
+				619AF3BCBE03E5DE69B7D0C7 /* OcrTab.swift */,
+				D125CC995B4CF6DA7BC71F50 /* QrScanTab.swift */,
 			);
 			path = CameraTestApp;
 			sourceTree = "<group>";
@@ -116,14 +119,15 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				42E42DEB3B93C1AA43C7D60E /* Camera1Tab.swift in Sources */,
 				029D5D73550E8A4B083DB8E7 /* CameraTestApp.swift in Sources */,
+				3F19EADE6FAA2B22C398E256 /* CameraXTab.swift in Sources */,
 				0E0686F9EA963C1C30E5623F /* ContentView.swift in Sources */,
-				A1B2C3D4E5F60001 /* CameraXTab.swift in Sources */,
-				A1B2C3D4E5F60002 /* QrScanTab.swift in Sources */,
-				A1B2C3D4E5F60003 /* OcrTab.swift in Sources */,
-				A1B2C3D4E5F60004 /* IntentCaptureTab.swift in Sources */,
-				A1B2C3D4E5F60005 /* Camera1Tab.swift in Sources */,
-				A1B2C3D4E5F60006 /* IdCaptureTab.swift in Sources */,
+				CDEDF563FD7AEF9BA6D03671 /* IdCaptureTab.swift in Sources */,
+				11577A532CBD58A91A81FB97 /* ImageFingerprint.swift in Sources */,
+				72611E58BE22425217706036 /* IntentCaptureTab.swift in Sources */,
+				78935791B369FAC79FD96DDF /* OcrTab.swift in Sources */,
+				87D533B22C36936269F0E1A4 /* QrScanTab.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

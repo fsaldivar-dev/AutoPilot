@@ -50,15 +50,14 @@ struct IntentCaptureTab: View {
                 }
                 .padding(.horizontal)
 
-                // Result card
-                if let image = capturedImage, let size = imageSize {
+                // Result card — fingerprint verificable (dimensiones + hash).
+                if let image = capturedImage,
+                   let jpeg = image.jpegData(compressionQuality: 0.8) {
                     VStack(alignment: .leading, spacing: 4) {
                         Text("Resultado:")
                             .font(.subheadline.bold())
-                        Text("Thumbnail: \(Int(image.size.width))x\(Int(image.size.height))")
-                            .font(.caption)
-                        Text("Tamano JPEG: \(size) bytes")
-                            .font(.caption)
+                        Text(ImageFingerprint.of(image, data: jpeg))
+                            .font(.caption.monospaced().bold())
                             .foregroundStyle(Color(red: 0.180, green: 0.490, blue: 0.196))
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
