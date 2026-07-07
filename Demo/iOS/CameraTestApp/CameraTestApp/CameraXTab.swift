@@ -43,11 +43,17 @@ struct CameraXTab: View {
                 }
                 .padding(.horizontal)
 
-                // Result
-                if let data = viewModel.photoData {
-                    Text("Foto capturada (\(data.count) bytes)")
-                        .font(.caption)
-                        .foregroundStyle(Color(red: 0.298, green: 0.686, blue: 0.314))
+                // Result — fingerprint verificable de la imagen capturada
+                // (dimensiones + hash), para que el test compruebe que llegó
+                // la imagen inyectada correcta, no solo "N bytes".
+                if let data = viewModel.photoData, let image = viewModel.capturedImage {
+                    VStack(spacing: 2) {
+                        Text("Foto capturada:")
+                            .font(.caption).foregroundStyle(.secondary)
+                        Text(ImageFingerprint.of(image, data: data))
+                            .font(.caption.monospaced().bold())
+                            .foregroundStyle(Color(red: 0.298, green: 0.686, blue: 0.314))
+                    }
                 }
             }
             .padding(.vertical)

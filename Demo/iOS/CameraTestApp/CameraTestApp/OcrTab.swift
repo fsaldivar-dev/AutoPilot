@@ -12,9 +12,27 @@ struct OcrTab: View {
                     .font(.subheadline)
                     .foregroundStyle(.secondary)
 
+                // Result — ARRIBA del preview para que el texto reconocido sea
+                // visible en el mirror sin scrollear (antes lo tapaba el
+                // preview). Es el resultado que el test verifica.
+                if let text = viewModel.recognizedText {
+                    VStack(alignment: .leading, spacing: 8) {
+                        Text("Texto detectado:")
+                            .font(.subheadline.bold())
+                        Text(text)
+                            .font(.body)
+                            .foregroundStyle(Color(red: 0.902, green: 0.318, blue: 0))
+                            .fixedSize(horizontal: false, vertical: true)
+                    }
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .padding()
+                    .background(Color(red: 1, green: 0.953, blue: 0.878), in: RoundedRectangle(cornerRadius: 12))
+                    .padding(.horizontal)
+                }
+
                 // Camera preview
                 CameraPreview(session: viewModel.session)
-                    .frame(height: 280)
+                    .frame(height: 220)
                     .clipShape(RoundedRectangle(cornerRadius: 16))
                     .padding(.horizontal)
 
@@ -33,24 +51,6 @@ struct OcrTab: View {
                     .background(Color(red: 1, green: 0.341, blue: 0.133), in: RoundedRectangle(cornerRadius: 12))
                 }
                 .padding(.horizontal)
-
-                // Result
-                if let text = viewModel.recognizedText {
-                    VStack(alignment: .leading, spacing: 8) {
-                        Text("Texto detectado:")
-                            .font(.subheadline.bold())
-                        ScrollView {
-                            Text(text)
-                                .font(.body)
-                                .foregroundStyle(Color(red: 0.902, green: 0.318, blue: 0))
-                        }
-                        .frame(maxHeight: 200)
-                    }
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding()
-                    .background(Color(red: 1, green: 0.953, blue: 0.878), in: RoundedRectangle(cornerRadius: 12))
-                    .padding(.horizontal)
-                }
             }
             .padding(.vertical)
         }

@@ -122,9 +122,14 @@ struct IdCaptureTab: View {
                                             .clipShape(RoundedRectangle(cornerRadius: 8))
                                         Text(step.label)
                                             .font(.caption2)
-                                        Text("\(capture.size) bytes")
-                                            .font(.caption2)
+                                        // Fingerprint verificable por paso
+                                        // (dimensiones + hash).
+                                        Text(capture.image.jpegData(compressionQuality: 0.8)
+                                            .map { ImageFingerprint.of(capture.image, data: $0) }
+                                            ?? "\(capture.size) bytes")
+                                            .font(.caption2.monospaced())
                                             .foregroundStyle(Color(red: 0.298, green: 0.686, blue: 0.314))
+                                            .multilineTextAlignment(.center)
                                     }
                                 }
                             }
