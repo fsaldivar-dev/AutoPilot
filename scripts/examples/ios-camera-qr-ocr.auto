@@ -1,11 +1,18 @@
 # ios-camera-qr-ocr.auto
 # Test E2E de cámara iOS: QR + OCR con imágenes mock inyectadas.
-# Verifica que Vision.framework decodifica el QR y reconoce el texto
-# de las imágenes inyectadas vía el camera mock (observer + dylib).
+#
+# CLAVE (anti "mentira en verde"): el test NO verifica el label de status
+# ("QR detectado" / "Texto detectado") — ese aparece verde aunque el
+# reconocimiento haya leído basura. Verifica el CONTENIDO REAL que decodificó
+# Vision.framework:
+#   - QR  → "AUTOPILOT-QR-TEST-2026"  (payload del qr-autopilot.png)
+#   - OCR → "AutoPilot OCR Test"       (texto del ocr-test.png)
+# waitFor del contenido es una aserción real: si el QR/OCR lee mal, el texto
+# esperado nunca aparece → timeout → test rojo honesto. (`exists` NO sirve
+# como aserción: reporta ok=true aunque devuelva NO — es una consulta.)
 #
 # Requiere: CameraTestApp instalada, simulador booteado.
 # Uso: auto run scripts/examples/ios-camera-qr-ocr.auto
-#   (o desde el editor: proyecto CameraTest, imágenes como assets $qr/$ocr)
 
 $qr = scripts/demo-images/qr-autopilot.png
 $ocr = scripts/demo-images/ocr-test.png
@@ -14,15 +21,15 @@ $ocr = scripts/demo-images/ocr-test.png
 launch dev.autopilot.test.CameraTestApp --inject $qr
 waitFor "Camara lista" 15
 
-# --- TEST QR: ML/Vision decodifica el QR mock ---
+# --- TEST QR: Vision decodifica el QR y muestra su payload ---
 tap "QR"
 waitFor "Escanear QR" 8
 tap "Escanear QR"
-waitFor "QR detectado" 12
+waitFor "AUTOPILOT-QR-TEST-2026" 12
 
-# --- TEST OCR: hot-swap a imagen con texto, Vision lo reconoce ---
+# --- TEST OCR: hot-swap a imagen con texto; Vision lo reconoce ---
 inject $ocr
 tap "OCR"
 waitFor "Reconocer Texto" 8
 tap "Reconocer Texto"
-waitFor "Texto detectado" 12
+waitFor "AutoPilot OCR Test" 12
