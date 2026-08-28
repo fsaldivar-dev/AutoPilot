@@ -307,6 +307,34 @@ enum MockHeaders {
     static NSHashTable *gAPMetaOutputs = nil;
     static NSObject *gAPMetaLock = nil;
 
+    // Lienzo fijo del preview compuesto; la capa lo estira con kCAGravityResize.
+    static const CGFloat kAPPreviewCanvasW = 400;
+    static const CGFloat kAPPreviewCanvasH = 600;
+
+    // Tamano de la ultima imagen decodificada. Hace falta para reproducir el
+    // aspect-fill al convertir coordenadas, y evita releerla en cada llamada.
+    static CGSize gAPLastImageSize = {0, 0};
+
+    // Aspect-fill de la imagen dentro del lienzo. Una sola definicion, usada por
+    // el compositor del preview Y por la conversion de coordenadas: si divergen,
+    // el recuadro deja de caer sobre el QR y el error es dificil de ver.
+    static CGRect ap_previewDrawRect(CGSize imgSize) {
+        CGFloat w = kAPPreviewCanvasW;
+        CGFloat h = kAPPreviewCanvasH;
+        if (imgSize.width <= 0 || imgSize.height <= 0) return CGRectMake(0, 0, w, h);
+
+        CGFloat imgAspect = imgSize.width / imgSize.height;
+        CGFloat viewAspect = w / h;
+        if (imgAspect > viewAspect) {
+            CGFloat drawH = h;
+            CGFloat drawW = h * imgAspect;
+            return CGRectMake(-(drawW - w) / 2, 0, drawW, drawH);
+        }
+        CGFloat drawW = w;
+        CGFloat drawH = w / imgAspect;
+        return CGRectMake(0, -(drawH - h) / 2, drawW, drawH);
+    }
+
     // Todo objeto nacido de class_createInstance se retiene para siempre: su
     // -dealloc heredado correria sobre ivars de AVF que nunca se inicializaron.
     // Son un punado por proceso y el proceso es una app bajo prueba.
@@ -338,6 +366,7 @@ enum MockHeaders {
 
         CGRect extent = image.extent;
         if (CGRectIsEmpty(extent)) return NO;
+        gAPLastImageSize = extent.size;
 
         static CIDetector *detector = nil;
         static dispatch_once_t once;
@@ -377,10 +406,23 @@ enum MockHeaders {
         return connection;
     }
 
+    // Cacheados por payload+rect: cada objeto se retiene para siempre (su -dealloc
+    // heredado correria sobre ivars de AVF sin inicializar), asi que fabricar uno
+    // por llamada haria crecer la memoria sin techo en una sesion larga.
+    static NSMutableDictionary *gAPMetaCache = nil;
+
     static AVMetadataMachineReadableCodeObject *ap_metadataObject(NSString *payload, CGRect bounds) {
-        APFakeMetadataObject *object = class_createInstance([APFakeMetadataObject class], 0);
-        [object ap_setValue:payload bounds:bounds];
-        return ap_keepAlive(object);
+        NSString *key = [NSString stringWithFormat:@"%@|%@", payload, NSStringFromCGRect(bounds)];
+        @synchronized (gAPMetaLock) {
+            APFakeMetadataObject *object = gAPMetaCache[key];
+            if (object == nil) {
+                object = class_createInstance([APFakeMetadataObject class], 0);
+                [object ap_setValue:payload bounds:bounds];
+                gAPMetaCache[key] = object;
+                ap_keepAlive(object);
+            }
+            return object;
+        }
     }
 
     static void ap_emitToOutput(AVCaptureMetadataOutput *output, NSString *payload, CGRect bounds) {
@@ -522,20 +564,8 @@ enum MockHeaders {
         CGFloat h = 600;
         UIGraphicsBeginImageContextWithOptions(CGSizeMake(w, h), YES, 2.0);
 
-        // Draw image filling the rect (aspect fill)
-        CGFloat imgAspect = img.size.width / img.size.height;
-        CGFloat viewAspect = w / h;
-        CGRect drawRect;
-        if (imgAspect > viewAspect) {
-            CGFloat drawH = h;
-            CGFloat drawW = h * imgAspect;
-            drawRect = CGRectMake(-(drawW - w) / 2, 0, drawW, drawH);
-        } else {
-            CGFloat drawW = w;
-            CGFloat drawH = w / imgAspect;
-            drawRect = CGRectMake(0, -(drawH - h) / 2, drawW, drawH);
-        }
-        [img drawInRect:drawRect];
+        // Aspect fill — misma geometria que usa la conversion de coordenadas.
+        [img drawInRect:ap_previewDrawRect(img.size)];
 
         // "LIVE" dot + text at top-left
         CGFloat dotSize = 8;
@@ -600,6 +630,44 @@ enum MockHeaders {
         self.contents = (__bridge id)preview.CGImage;
         self.contentsGravity = kCAGravityResize;
         self.masksToBounds = YES;
+    }
+
+    // Convierte el objeto detectado a coordenadas de la capa.
+    //
+    // Sin este hook la implementacion real devuelve el objeto sin tocar: la app
+    // recibe bounds NORMALIZADOS (0..1) donde espera puntos y dibuja el recuadro
+    // de deteccion como un cuadrado de menos de un punto en la esquina. No
+    // crashea — solo sale mal, que cuesta mas de encontrar.
+    //
+    // Son dos etapas encadenadas, porque el preview no muestra la imagen directa:
+    //   1. imagen -> lienzo 400x600, con el aspect-fill de ap_previewDrawRect
+    //   2. lienzo -> capa, estirado lineal (la capa usa kCAGravityResize)
+    static AVMetadataObject *ap_transformedMetadataObject(CALayer *self, SEL _cmd,
+                                                          AVMetadataObject *object) {
+        if (![object isKindOfClass:[AVMetadataMachineReadableCodeObject class]]) return object;
+
+        CGRect bounds = self.bounds;
+        // Con la capa aun sin medir, devolver el objeto sin tocar es mas honesto
+        // que multiplicar por cero.
+        if (CGRectIsEmpty(bounds)) return object;
+
+        CGRect draw = ap_previewDrawRect(gAPLastImageSize);
+        CGRect n = object.bounds;
+
+        CGFloat canvasX = draw.origin.x + n.origin.x * draw.size.width;
+        CGFloat canvasY = draw.origin.y + n.origin.y * draw.size.height;
+        CGFloat canvasW = n.size.width  * draw.size.width;
+        CGFloat canvasH = n.size.height * draw.size.height;
+
+        CGFloat sx = CGRectGetWidth(bounds)  / kAPPreviewCanvasW;
+        CGFloat sy = CGRectGetHeight(bounds) / kAPPreviewCanvasH;
+
+        CGRect mapped = CGRectMake(CGRectGetMinX(bounds) + canvasX * sx,
+                                   CGRectGetMinY(bounds) + canvasY * sy,
+                                   canvasW * sx,
+                                   canvasH * sy);
+
+        return ap_metadataObject([(AVMetadataMachineReadableCodeObject *)object stringValue], mapped);
     }
 
     // ============================================================
@@ -793,6 +861,7 @@ enum MockHeaders {
         gAPMetaLock = [NSObject new];
         gAPMetaOutputs = [NSHashTable weakObjectsHashTable];
         gAPKeepAlive = [NSMutableArray array];
+        gAPMetaCache = [NSMutableDictionary dictionary];
 
         Class deviceClass = [AVCaptureDevice class];
         Class sessionClass = [AVCaptureSession class];
@@ -910,6 +979,10 @@ enum MockHeaders {
         ap_swizzle_instance_method(photoClass,
             @selector(isRawPhoto),
             (IMP)ap_isRawPhoto, &orig_isRawPhoto);
+
+        ap_swizzle_instance_method([AVCaptureVideoPreviewLayer class],
+            @selector(transformedMetadataObjectForMetadataObject:),
+            (IMP)ap_transformedMetadataObject, NULL);
 
         // Swizzle AVCaptureMetadataOutput
         Class metadataOutputClass = [AVCaptureMetadataOutput class];
