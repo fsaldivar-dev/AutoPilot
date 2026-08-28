@@ -1087,6 +1087,20 @@ private func runActionReturning<T>(
         return try fallback()
     } catch ActionRouterError.noBackendForAction {
         return try fallback()
+    } catch {
+        // El router agoto sus backends. Todas las acciones que pasan por aqui son de
+        // SOLO LECTURA (tree, search, layout, listDevices...), asi que reintentar por
+        // el bridge es seguro: no hay efecto que se pueda aplicar dos veces.
+        //
+        // Y merece la pena, porque el bridge si sabe degradar: HybridBridge.search
+        // prueba deep y, si deep falla, devuelve el vacio del fast en vez de
+        // propagar el error. Sin este catch, `auto exists` sobre texto que el
+        // observer no lee daba error duro en cuanto el runner XCUI no estaba
+        // levantado — que es exactamente el caso de CI, donde nunca se instala.
+        //
+        // Se avisa por stderr: degradar en silencio es como no degradar.
+        fputs("[router] sin backend util (\(error)) — se reintenta por el bridge\n", stderr)
+        return try fallback()
     }
 }
 
