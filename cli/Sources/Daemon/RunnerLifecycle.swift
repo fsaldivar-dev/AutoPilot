@@ -65,9 +65,17 @@ final class RunnerLifecycle {
 
         // Launch xcodebuild test-without-building in background.
         // Test identifier can be overridden via env var for E2E against demo runner.
+        // La seleccion de test vive en OnlyTestIdentifiers dentro del .xctestrun,
+        // que es la clave que existe justo para eso. Duplicarla aqui con
+        // -only-testing la rompia: el identificador estaba fijo a
+        // "AutoPilotRunnerUITests/..." pero el target real lo nombra el proyecto
+        // Xcode que compila el runner ("Test AutomatitacionUITests"). xcodebuild no
+        // encontraba ese test, no seleccionaba ninguno y salia al instante — el
+        // sintoma era "runner not responding" sin que llegara a existir un proceso.
+        //
+        // Se mantiene el override por entorno para E2E contra otros runners.
         let env = ProcessInfo.processInfo.environment
-        let testID = env["AUTOPILOT_RUNNER_TEST_ID"]
-            ?? "AutoPilotRunnerUITests/AutoPilotRunnerTests/testServe"
+        let testIDOverride = env["AUTOPILOT_RUNNER_TEST_ID"]
 
         let proc = Process()
         proc.executableURL = URL(fileURLWithPath: "/usr/bin/xcrun")
@@ -75,7 +83,6 @@ final class RunnerLifecycle {
             "xcodebuild", "test-without-building",
             "-xctestrun", xctestRunPath,
             "-destination", "platform=iOS Simulator,id=\(udid)",
-            "-only-testing:\(testID)",
             // Xcode 26 defaults to cloning the simulator for tests. When the test
             // ends, the clone is destroyed — which also ends up terminating the
             // parent simulator. Disable parallel testing and clone destinations.
@@ -83,6 +90,9 @@ final class RunnerLifecycle {
             "-disable-concurrent-destination-testing",
             "-maximum-concurrent-test-simulator-destinations", "1"
         ]
+        if let testIDOverride {
+            proc.arguments?.append("-only-testing:\(testIDOverride)")
+        }
         proc.standardOutput = FileHandle.nullDevice
         proc.standardError = FileHandle.nullDevice
         proc.terminationHandler = { [weak self] _ in
@@ -247,7 +257,10 @@ enum BootError: Error, LocalizedError {
         case .noRunnerFound(let dir): return "no .xctestrun found in \(dir)"
         case .xctestRunNotFound(let path): return ".xctestrun not found at \(path)"
         case .launchFailed(let msg): return "xcodebuild launch failed: \(msg)"
-        case .runnerNotResponding(let port): return "runner not responding on 127.0.0.1:\(port) after 15s"
+        // El texto decia "after 15s" mientras el bucle esperaba 60s (300 x 200ms).
+        // Un mensaje con un numero inventado manda a depurar el timeout en vez de
+        // la causa real.
+        case .runnerNotResponding(let port): return "runner not responding on 127.0.0.1:\(port) after 60s"
         }
     }
 }
