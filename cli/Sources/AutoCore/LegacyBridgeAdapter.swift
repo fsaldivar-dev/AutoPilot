@@ -37,6 +37,21 @@ public final class LegacyBridgeAdapter: Backend, @unchecked Sendable {
 
         case .search(let query):
             let result = try bridge.search(query: query)
+            // Cero coincidencias NO es una respuesta, es "este backend no lo vio".
+            //
+            // Devolverlo como exito hacia que el router se parara en el primer
+            // backend: `auto exists "TEXTO"` contestaba NO en 4ms con el texto
+            // visible en pantalla. El observer ve la geometria de SwiftUI (los
+            // AXGroup salen con sus frames exactos) pero no extrae el texto de los
+            // Text, asi que su "cero" significaba "no se mirar esto", no "no esta".
+            //
+            // Un falso negativo rapido es peor que una respuesta lenta: un waitFor
+            // se pone rojo con el elemento en pantalla, y un exists que devuelve NO
+            // es indistinguible de una asercion que falla de verdad.
+            //
+            // Lanzando elementNotFound entra el escalado que el router ya aplica a
+            // `tap`: se prueba el siguiente backend (XCUI) antes de concluir.
+            if result.isEmpty { throw BridgeError.elementNotFound(query) }
             return .elements(result)
 
         case .elementAt(let x, let y):
