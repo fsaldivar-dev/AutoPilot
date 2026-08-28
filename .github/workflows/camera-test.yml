@@ -148,7 +148,10 @@ jobs:
           # que queda es XCUI. `auto launch --inject` inyecta el observer ademas de
           # la imagen, dando dos motores en vez de uno — y si el runner fallara, el
           # test todavia tendria una via.
-          ./auto launch dev.autopilot.test.CameraTestApp --inject "$(pwd)/temp/test-image.png"
+          # Imagen VERSIONADA, no generada al vuelo: la asercion es por hash, y un
+          # PNG hecho con zlib.compress puede dar bytes distintos segun la version
+          # de zlib del runner. Los bytes de un archivo del repo no cambian nunca.
+          ./auto launch dev.autopilot.test.CameraTestApp --inject "$(pwd)/scripts/demo-images/foto-1.jpg"
           ./auto run scripts/examples/camera-test.auto
 
       # ── Artifacts ─────────────────────────────────────
