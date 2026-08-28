@@ -375,12 +375,24 @@ public func executeSharedCommand(
             print("Usage: auto exists <identifier|title|label>")
             return true
         }
-        let results = try runActionReturning(
-            .search(query: args[1]),
-            router: router,
-            fallback: { try bridge.search(query: args[1]) },
-            extract: { if case .elements(let es) = $0 { return es } else { return nil } }
-        )
+        // elementNotFound aqui NO es un error: es la respuesta "no".
+        //
+        // Los backends lanzan elementNotFound cuando no ven el elemento, para que
+        // el router escale al siguiente en vez de dar por buena la ceguera del
+        // primero. Cuando TODOS han mirado y ninguno lo vio, la respuesta correcta
+        // de `exists` sigue siendo NO — no un error. Sin este catch, escalar
+        // convertia un booleano en un fallo duro.
+        var results: [[String: Any]] = []
+        do {
+            results = try runActionReturning(
+                .search(query: args[1]),
+                router: router,
+                fallback: { try bridge.search(query: args[1]) },
+                extract: { if case .elements(let es) = $0 { return es } else { return nil } }
+            )
+        } catch BridgeError.elementNotFound {
+            results = []
+        }
         let ms = elapsedMs(start)
         print(results.isEmpty ? "NO (\(ms)ms)" : "YES (\(ms)ms)")
 
@@ -1074,6 +1086,20 @@ private func runActionReturning<T>(
         if let v = extract(r) { return v }
         return try fallback()
     } catch ActionRouterError.noBackendForAction {
+        return try fallback()
+    } catch {
+        // El router agoto sus backends. Todas las acciones que pasan por aqui son de
+        // SOLO LECTURA (tree, search, layout, listDevices...), asi que reintentar por
+        // el bridge es seguro: no hay efecto que se pueda aplicar dos veces.
+        //
+        // Y merece la pena, porque el bridge si sabe degradar: HybridBridge.search
+        // prueba deep y, si deep falla, devuelve el vacio del fast en vez de
+        // propagar el error. Sin este catch, `auto exists` sobre texto que el
+        // observer no lee daba error duro en cuanto el runner XCUI no estaba
+        // levantado — que es exactamente el caso de CI, donde nunca se instala.
+        //
+        // Se avisa por stderr: degradar en silencio es como no degradar.
+        fputs("[router] sin backend util (\(error)) — se reintenta por el bridge\n", stderr)
         return try fallback()
     }
 }

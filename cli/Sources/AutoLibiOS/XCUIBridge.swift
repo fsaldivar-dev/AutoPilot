@@ -186,25 +186,50 @@ public final class XCUIBridge: DeviceBridge {
         _ = try sendCommand("screenshot", params: ["path": path])
     }
 
-    // MARK: - Not implemented in XCUI (fallback to fast-path via HybridBridge)
+    // MARK: - Operaciones de dispositivo — delegadas a simctl
 
-    public func listDevices() throws -> [[String: Any]]     { throw notImplemented("listDevices") }
-    public func bootDevice(_ n: String) throws              { throw notImplemented("bootDevice") }
-    public func shutdownDevice(_ n: String) throws          { throw notImplemented("shutdownDevice") }
-    public func installApp(path: String) throws             { throw notImplemented("installApp") }
-    public func getBootedDeviceId() throws -> String        { throw notImplemented("getBootedDeviceId") }
+    // Pasteboard, biometria, permisos, URLs, logs: todas son llamadas a
+    // `xcrun simctl`. No tocan AX ni el runner XCTest, asi que XCUI no tiene por
+    // que implementarlas — pero fallar tampoco es correcto.
+    //
+    // Fallaban en CI (E2E Tests, rojo desde julio):
+    //
+    //     FAIL at line 9: not implemented in XCUI bridge: setPasteboard
+    //
+    // Un script que no hace `launch` no tiene observer inyectado, y ahi
+    // iOSDeviceResolver devuelve `xcui` a secas —sin HybridBridge que caiga al
+    // fast path— asi que estos metodos no tenian a donde ir. El comentario que
+    // habia aqui ("fallback to fast-path via HybridBridge") describia una red que
+    // en ese camino no existe.
+    //
+    // SimulatorBridge.init() esta vacio y AX solo se toca al llamar metodos de AX,
+    // asi que delegar aqui no roba el foco (ARD #164). Es lazy ademas: no se
+    // construye si el script no usa ninguna de estas.
+    private lazy var device = SimulatorBridge()
+
+    public func listDevices() throws -> [[String: Any]]     { try device.listDevices() }
+    public func bootDevice(_ n: String) throws              { try device.bootDevice(n) }
+    public func shutdownDevice(_ n: String) throws          { try device.shutdownDevice(n) }
+    public func installApp(path: String) throws             { try device.installApp(path: path) }
+    public func getBootedDeviceId() throws -> String        { try device.getBootedDeviceId() }
+    public func openURL(_ url: String) throws               { try device.openURL(url) }
+    public func setPasteboard(text: String) throws          { try device.setPasteboard(text: text) }
+    public func getPasteboard() throws -> String            { try device.getPasteboard() }
+    public func biometricEnroll() throws                    { try device.biometricEnroll() }
+    public func biometricUnenroll() throws                  { try device.biometricUnenroll() }
+    public func biometricMatch() throws                     { try device.biometricMatch() }
+    public func biometricFail() throws                      { try device.biometricFail() }
+    public func biometricIsEnrolled() throws -> Bool        { try device.biometricIsEnrolled() }
+    public func getLogs(bundleId: String?, lines: Int) throws -> String { try device.getLogs(bundleId: bundleId, lines: lines) }
+    public func setPermission(action: String, service: String, bundleId: String) throws { try device.setPermission(action: action, service: service, bundleId: bundleId) }
+    public func rotate(direction: String) throws            { try device.rotate(direction: direction) }
+
+    // MARK: - Not implemented in XCUI (fallback to fast-path via HybridBridge)
+    //
+    // Estas SI son de UI y necesitan AX o el runner: se dejan lanzando para que
+    // HybridBridge escale, que es la red que existe para ellas.
+
     public func addMedia(path: String) throws               { throw notImplemented("addMedia") }
-    public func openURL(_ url: String) throws               { throw notImplemented("openURL") }
-    public func setPasteboard(text: String) throws          { throw notImplemented("setPasteboard") }
-    public func getPasteboard() throws -> String            { throw notImplemented("getPasteboard") }
-    public func biometricEnroll() throws                    { throw notImplemented("biometricEnroll") }
-    public func biometricUnenroll() throws                  { throw notImplemented("biometricUnenroll") }
-    public func biometricMatch() throws                     { throw notImplemented("biometricMatch") }
-    public func biometricFail() throws                      { throw notImplemented("biometricFail") }
-    public func biometricIsEnrolled() throws -> Bool        { throw notImplemented("biometricIsEnrolled") }
-    public func getLogs(bundleId: String?, lines: Int) throws -> String { throw notImplemented("getLogs") }
-    public func setPermission(action: String, service: String, bundleId: String) throws { throw notImplemented("setPermission") }
-    public func rotate(direction: String) throws            { throw notImplemented("rotate") }
     public func drag(from: String, to: String, duration: Double) throws { throw notImplemented("drag") }
     public func dragCoordinates(x1: Double, y1: Double, x2: Double, y2: Double, duration: Double) throws { throw notImplemented("dragCoordinates") }
     public func pressKey(key: String) throws                { throw notImplemented("pressKey") }

@@ -6,6 +6,17 @@ ping
 waitFor "Camara lista" 15
 screenshot screenshots/camera-preview.png
 tap "Capturar Foto"
-waitFor "bytes" 10
+# Se verifica el HASH de la imagen capturada, no que se capturara "algo".
+# La app dejo de imprimir "(N bytes)" el 2026-07-07 (commit del fingerprint) y
+# este script no se actualizo: por eso E2E llevaba en rojo desde el dia siguiente.
+#
+# "sha 10c45006" son los primeros 8 hex de SHA256 de scripts/demo-images/foto-1.jpg.
+# Distingue esa imagen de otra del mismo peso o de una negra — que es justo lo que
+# "bytes" no distinguia. Si cambias la imagen inyectada, este hash debe cambiar:
+#   python3 -c "import hashlib;print(hashlib.sha256(open('scripts/demo-images/foto-1.jpg','rb').read()).hexdigest()[:8])"
+#
+# 15s y no 10: en CI el waitFor anterior tardo 13s, asi que 10 quedaba por debajo
+# de un ciclo de consulta y el test era inestable aunque el texto apareciera.
+waitFor "sha 10c45006" 15
 screenshot screenshots/camera-captured.png
 terminate dev.autopilot.test.CameraTestApp

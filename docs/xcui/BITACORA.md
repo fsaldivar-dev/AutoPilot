@@ -336,6 +336,129 @@ PR #89 — 8 commits (7 features + 1 CI fix). 4/4 checks. Mergeado.
 
 ---
 
+## Sesión 2026-08-28 — El `.xctestrun` v2 nativo, y por qué el motor no era distribuible (#355)
+
+### Objetivo
+
+Preparar la v0.1.0 para Homebrew. El motor deep no podía distribuirse y había que
+entender exactamente por qué.
+
+### El bloqueo, visible en el disco
+
+`~/.autopilot/runner/` contenía esto:
+
+    Debug-iphonesimulator -> /Users/…/Library/Developer/Xcode/DerivedData/
+                             Test_Automatitacion-clyktavlnfgpuvalfmjgiehwepnn/…
+
+Un symlink al DerivedData, con un hash de proyecto que solo existe en la máquina
+que lo generó. Por eso funcionaba en el Mac de siempre y en un clon limpio no. No
+era falta de firma —`RunnerInstaller` no tiene ni una referencia a `codesign`, y
+los bundles de simulador los firma la toolchain ad-hoc— sino una ruta irrepetible.
+
+### Cinco bugs encadenados
+
+Cada uno tapaba al siguiente. Solo el primero estaba en el roadmap.
+
+1. **Forma v1 declarada como versión 2.** El generador escribía `FormatVersion: 2`
+   pero con los targets colgando de la raíz. Xcode lee la versión, busca
+   `TestConfigurations` y falla. La estructura correcta salió de leer un
+   `.xctestrun` real generado por Xcode, no de documentación.
+
+2. **`UITargetAppPath` ausente.** Parecía correcto omitirlo: el runner se adjunta
+   en ejecución con `XCUIApplication(bundleIdentifier:)`, no a una app fija.
+   `xcodebuild` lo rechaza igual — `UITargetAppPath should be provided`. Es un
+   requisito estático, no funcional.
+
+3. **`TestHostBundleIdentifier` hardcodeado** a `dev.autopilot.runner.xctrunner`
+   cuando el real es `dev.autopilot.test.ExploreaUITests.xctrunner`. Ese id lo fija
+   el proyecto Xcode que compila el runner: para algo distribuible no se puede
+   suponer. Ahora se lee del `Info.plist` del bundle.
+
+4. **`libXCTestBundleInject` inyectada en un runner de UI.** El síntoma era
+
+       'Cannot initiate shared session more than once.'
+         en +[XCTRunnerDaemonSession initiateSharedSessionWithCompletion:]
+
+   y parecía una sesión previa colgada. No lo era. En el backtrace del crash
+   `_XCTestMain` aparece **dos veces en el mismo stack**: una desde
+   `_XCTRunnerRunTests` (el propio Runner.app) y otra desde
+   `__RunTests_block_invoke_2` de la dylib inyectada. Dos arranques en el mismo
+   proceso.
+
+   Esa inyección es para tests *unit* alojados en la app bajo prueba, donde el host
+   no sabe nada de XCTest. Un runner de UI ya carga su bundle solo. Contrastado
+   contra el `.xctestrun` de Xcode: su target unit la lleva, el de UI no.
+
+   Hipótesis descartada por el camino: "el runner es de julio (17F41) y Xcode es
+   17F42". Plausible y falsa. No hizo falta recompilar nada.
+
+5. **`-only-testing` con el nombre de target fijo.** Aun con el plist correcto, el
+   daemon no levantaba el runner: pasaba
+   `-only-testing:AutoPilotRunnerUITests/AutoPilotRunnerTests/testServe`, pero el
+   target real lo nombra el proyecto Xcode (`Test AutomatitacionUITests`).
+   xcodebuild no encontraba el test, no seleccionaba ninguno y salía al instante —
+   por eso el síntoma era "runner not responding" **sin que existiera un proceso**.
+
+   La selección ya vive en `OnlyTestIdentifiers` dentro del `.xctestrun`.
+   Duplicarla en la línea de comandos solo añadía una forma de contradecirse.
+
+### Un mensaje de error que costó tiempo
+
+`BootError.runnerNotResponding` decía *"after 15s"* mientras el bucle esperaba 60s
+(300 × 200ms). Mandó a mirar el timeout en vez de la causa. Un número inventado en
+un mensaje de error es peor que no dar número.
+
+### El falso negativo del router
+
+Probando el motor ya reparado contra una app de terceros apareció algo peor que un
+crash: `auto exists "TEXTO"` contestaba **`NO` en 4ms con el texto en pantalla**.
+
+Cadena: el observer ve la geometría de SwiftUI —los `AXGroup` salen con sus frames
+exactos, `[16,706 52x14]`— pero no extrae el texto de los `Text`. En
+`LegacyBridgeAdapter`, `.search` devolvía `.elements([])` como **éxito**. Y el
+router solo pasa al siguiente backend ante `elementNotFound` o `connectionFailed`,
+así que un éxito vacío lo daba por bueno.
+
+El "cero" del observer significaba *"no sé mirar esto"* y se propagaba como
+*"no está"*.
+
+Arreglado sin tocar el router: `.search` vacío lanza `elementNotFound` —entra el
+escalado que ya se aplica a `tap`— y `exists` lo captura para seguir respondiendo
+booleano. (Al hacerlo se rompió `exists`, que pasó a dar error duro en vez de `NO`;
+hizo falta el catch.)
+
+Coste medido. El camino rápido, cuando encuentra, no cambia:
+
+| caso | antes | ahora |
+|---|---|---|
+| texto SwiftUI presente | `NO` 4ms ← falso | `YES` 20ms |
+| ausente, runner caliente | `NO` 4ms | `NO` 47ms |
+| ausente, runner frío | `NO` 4ms | `NO` 2384ms |
+
+`waitUntilGone` se apoya en negativos repetidos, así que con runner frío baja la
+resolución del sondeo.
+
+### Verificación
+
+    xcodebuild test-without-building  ->  Test Case '…testServe' started
+    daemon auto-boot                  ->  runner: ready, 1 proceso xctrunner
+    auto tap                          ->  Tapped 'Regresar a CameraTestApp'
+    E2E contra app de terceros        ->  YES 23ms / hot-swap YES 6ms / obsoleto NO 47ms
+    suite completa                    ->  463 tests, 0 fallos
+
+### Queda pendiente
+
+- El `Runner.app` sigue sin viajar en el release: hay que compilarlo con
+  `build-for-testing`. Con esto arreglado ya tiene sentido publicarlo como asset;
+  antes no, porque el `.xctestrun` generado no servía.
+- `auto tap` tardó **17.7s** con el runner ya listo. Sin explicación; no encaja con
+  los ~13s documentados de `tree deep`.
+- El observer no lee texto de SwiftUI. El arreglo hace que no mienta, pero no le da
+  la capacidad. Si la ganara, el escalado dejaría de dispararse en el caso común.
+- Probado solo en iPhone 16 Pro / iOS 18.5 / Xcode 26.5 / arm64.
+
+---
+
 ## Hallazgos clave (resumen)
 
 1. **SwiftUI `ToolbarItem` en `NavigationBar` aparecen como `AXGroup` opaco** al AX macOS externo en iOS 26 / Xcode 26. Parece un regression vs iOS 17 (antes sí se exponían). Nadie lo documenta.
@@ -356,7 +479,13 @@ PR #89 — 8 commits (7 features + 1 CI fix). 4/4 checks. Mergeado.
 
 9. **GitHub macos-15 runners tienen Xcode 16.4, no 26**. Los proyectos Xcode 26 no buildan si el deployment target es iOS 26+.
 
-10. **Formato `.xctestrun` v1 vs v2**. Xcode 26 exige v2 con `TestConfigurations`. Generarlo a mano con `PropertyListSerialization` es complicado; más simple apuntar al que Xcode generó en DerivedData.
+10. **Formato `.xctestrun` v1 vs v2**. Xcode 26 exige v2 con `TestConfigurations`. ~~Generarlo a mano es complicado; más simple apuntar al DerivedData.~~ **Revisado 2026-08-28 (#355):** apuntar al DerivedData es justo lo que impedía distribuir el motor —la ruta lleva un hash de proyecto irrepetible—. Generarlo a mano resultó directo en cuanto se leyó el esquema de un `.xctestrun` real en vez de intentar deducirlo. Lo difícil no era el plist.
+
+11. **En un runner de UI NO se inyecta `libXCTestBundleInject`**. El Runner.app ya carga su bundle; inyectarla además arranca los tests dos veces y aborta con `Cannot initiate shared session more than once`. La pista está en el backtrace: `_XCTestMain` dos veces en el mismo stack. Esa dylib es para tests unit alojados en la app bajo prueba.
+
+12. **La selección de test va en el `.xctestrun`, no en la línea de comandos**. `OnlyTestIdentifiers` existe para eso. Duplicarla con `-only-testing` solo crea una forma de que las dos se contradigan — y el fallo se manifiesta como "runner not responding" sin que llegue a existir un proceso.
+
+13. **Un backend que devuelve "cero resultados" no está respondiendo, está callándose**. Si no distingue "miré y no está" de "no sé mirar esto", el router se para en él y propaga un falso negativo. Lanzar `elementNotFound` es lo que permite escalar. Un `exists` rápido y equivocado es peor que uno lento y correcto.
 
 ---
 

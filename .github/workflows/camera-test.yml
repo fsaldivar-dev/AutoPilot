@@ -8,8 +8,12 @@ on:
 
 jobs:
   e2e:
-    runs-on: macos-15
-    timeout-minutes: 10
+    # macos-26 trae Xcode 26 por defecto. En macos-15 era Xcode 16.4, y esa
+    # divergencia importaba: el formato .xctestrun v2 que exige Xcode 26 es lo
+    # que genera RunnerInstaller, asi que validarlo en 16.4 no decia nada del
+    # entorno de desarrollo real.
+    runs-on: macos-26
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -25,7 +29,11 @@ jobs:
       - name: Build CLI + Boot Simulator
         run: |
           # Start build in background
-          (cd cli && swift build -c release && cp .build/release/auto ../auto) &
+          # autopilotd viaja al lado de `auto`: el comando `daemon` lo busca en
+          # el directorio del propio binario, no en el PATH.
+          (cd cli && swift build -c release \
+             && cp .build/release/auto ../auto \
+             && cp .build/release/autopilotd ../autopilotd) &
           BUILD_PID=$!
 
           # Boot simulator while building
@@ -63,6 +71,55 @@ jobs:
           open('temp/test-image.png','wb').write(b'\x89PNG\r\n\x1a\n'+c(b'IHDR',struct.pack('>IIBBBBB',w,h,8,6,0,0,0))+c(b'IDAT',zlib.compress(r))+c(b'IEND',b''))
           "
 
+      # ── Motor XCUI: runner + daemon ───────────────────
+      #
+      # Sin esto el CI solo tenia el observer, que ve la geometria de SwiftUI
+      # pero NO extrae el texto de los Text. Con los dos motores ciegos para el
+      # texto, `waitFor "Camara lista"` no podia pasar — de ahi que E2E llevara
+      # en rojo desde julio.
+      - name: Build XCUI runner
+        run: |
+          cd "Demo/iOS/Test Automatitacion"
+          xcodebuild build-for-testing \
+            -project "Test Automatitacion.xcodeproj" \
+            -scheme "Test Automatitacion" \
+            -destination "platform=iOS Simulator,id=$DEVICE_UDID" \
+            -derivedDataPath ./DerivedData \
+            | tail -5
+
+      - name: Install runner + start daemon
+        run: |
+          RUNNER_APP=$(find "Demo/iOS/Test Automatitacion/DerivedData/Build/Products" \
+            -name "*UITests-Runner.app" -type d | head -1)
+          echo "runner: $RUNNER_APP"
+
+          ./auto runner install "$RUNNER_APP" --udid "$DEVICE_UDID"
+
+          # --timeout 0: el runner no se apaga por inactividad. Sin esto se cae
+          # entre pasos y las consultas siguientes degradan al observer.
+          #
+          # AUTOPILOT_RUNNER_TEST_ID ya no hace falta —el .xctestrun generado
+          # lleva OnlyTestIdentifiers— pero se deja explicito para que el CI no
+          # dependa de ese detalle.
+          # nohup: el daemon tiene que sobrevivir al final de ESTE paso para que
+          # los siguientes lo encuentren vivo.
+          AUTOPILOT_RUNNER_TEST_ID="Test AutomatitacionUITests/AutoPilotRunnerTests/testServe" \
+            nohup ./autopilotd start --udid "$DEVICE_UDID" --timeout 0 \
+            > daemon.log 2>&1 &
+
+          # El daemon NO arranca el runner al iniciar: lo hace al llegar el primer
+          # comando. Un bucle esperando a que `status` diga "ready" no lo levanta
+          # nunca — es lo que fallaba antes. `tree deep` fuerza el motor profundo
+          # y con ello el cold boot (~30-45s), que se paga una sola vez aqui.
+          if ./auto tree deep > /dev/null 2>&1; then
+            echo "runner listo"
+            ./autopilotd status --udid "$DEVICE_UDID"
+          else
+            echo "::warning::el runner no arranco; los pasos siguientes no tendran motor XCUI"
+            ./autopilotd status --udid "$DEVICE_UDID" || true
+            tail -20 daemon.log || true
+          fi
+
       # ── Hardware: Biometric + Pasteboard ──────────────
       - name: "Test: Biometric + Pasteboard"
         run: ./auto run scripts/examples/hardware-test.auto
@@ -87,8 +144,14 @@ jobs:
           APP=$(find ~/Library/Developer/Xcode/DerivedData/CameraTestApp*/Build/Products/Debug-iphonesimulator -name '*.app' -maxdepth 1)
           xcrun simctl install booted "$APP"
 
-          SIMCTL_CHILD_AUTOPILOT_CAMERA_IMAGE=$(pwd)/temp/test-image.png \
-            xcrun simctl launch booted dev.autopilot.test.CameraTestApp
+          # Con `simctl launch` la app arranca SIN observer, asi que el unico motor
+          # que queda es XCUI. `auto launch --inject` inyecta el observer ademas de
+          # la imagen, dando dos motores en vez de uno — y si el runner fallara, el
+          # test todavia tendria una via.
+          # Imagen VERSIONADA, no generada al vuelo: la asercion es por hash, y un
+          # PNG hecho con zlib.compress puede dar bytes distintos segun la version
+          # de zlib del runner. Los bytes de un archivo del repo no cambian nunca.
+          ./auto launch dev.autopilot.test.CameraTestApp --inject "$(pwd)/scripts/demo-images/foto-1.jpg"
           ./auto run scripts/examples/camera-test.auto
 
       # ── Artifacts ─────────────────────────────────────
