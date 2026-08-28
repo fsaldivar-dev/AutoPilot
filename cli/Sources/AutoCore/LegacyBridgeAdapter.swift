@@ -36,8 +36,9 @@ public final class LegacyBridgeAdapter: Backend, @unchecked Sendable {
             return .elements(result)
 
         case .search(let query):
-            let result = try bridge.search(query: query)
-            return .elements(result)
+            // Devuelve el vacio tal cual: es el ActionRouter quien decide si un
+            // "cero resultados" es concluyente (ver su bucle de candidatos).
+            return .elements(try bridge.search(query: query))
 
         case .elementAt(let x, let y):
             if let element = try bridge.elementAt(x: x, y: y) {

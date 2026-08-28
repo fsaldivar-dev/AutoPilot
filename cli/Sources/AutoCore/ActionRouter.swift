@@ -57,9 +57,27 @@ public actor ActionRouter {
 
         var lastError: Error?
         var deadThisCall: [any Backend] = []
+
+        // Para busquedas, "cero resultados" NO es concluyente: puede significar que
+        // ese backend no sabe mirar. El observer, por ejemplo, ve la geometria de
+        // SwiftUI pero no extrae el texto de los Text, asi que su cero significaba
+        // "no se mirar esto" y se propagaba como "no esta" — `auto exists` contestaba
+        // NO en 4ms con el texto en pantalla.
+        //
+        // Se guarda ese vacio y se prueba el siguiente backend. Si alguno encuentra,
+        // gana. Si ninguno encuentra, o el siguiente ni esta disponible (CI no
+        // instala el runner XCUI), se devuelve el vacio guardado: la respuesta sigue
+        // siendo "no", nunca un error duro.
+        var inconclusiveEmpty: ActionResult?
+
         for backend in candidates {
             do {
                 let result = try await backend.execute(action)
+
+                if kind == .search, case .elements(let elements) = result, elements.isEmpty {
+                    inconclusiveEmpty = result
+                    continue
+                }
                 // Degradación exitosa: des-registrar los backends que fallaron
                 // por conexión en ESTA llamada — están muertos y ya hay un
                 // reemplazo funcionando.
@@ -84,6 +102,9 @@ public actor ActionRouter {
                 }
             }
         }
+        // Ningun backend encontro nada. Si alguno llego a mirar y devolvio vacio,
+        // esa es la respuesta; solo se propaga el error si ninguno pudo mirar.
+        if let inconclusiveEmpty { return inconclusiveEmpty }
         throw lastError ?? ActionRouterError.noBackendForAction(kind)
     }
 }
