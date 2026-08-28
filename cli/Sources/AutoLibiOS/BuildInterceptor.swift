@@ -114,7 +114,11 @@ public final class BuildInterceptor {
 
         var xcodebuildArgs = ["xcodebuild"] + args
         xcodebuildArgs += [
-            "OTHER_LDFLAGS=$(inherited) -force_load \(libPath) -framework AVFoundation -framework UIKit",
+            // CoreImage: CIDetector decodifica el QR de la imagen inyectada para el
+            // escaneo en vivo. CoreGraphics: los bounds del codigo usan
+            // CGRectGetMaxX / CGPointCreateDictionaryRepresentation, y con
+            // -fno-modules no hay autolink que los traiga.
+            "OTHER_LDFLAGS=$(inherited) -force_load \(libPath) -framework AVFoundation -framework UIKit -framework CoreImage -framework CoreGraphics",
             "ENABLE_DEBUG_DYLIB=NO",
         ]
 

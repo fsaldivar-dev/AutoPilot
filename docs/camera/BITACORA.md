@@ -1253,3 +1253,92 @@ Antes de la investigacion, limpiamos 5 ramas ya integradas en main:
 - La tabla de "que agregar a Accessibility" depende del contexto: Terminal, Cursor, VS Code, iTerm2, o el .app instalado
 - No hay alternativa practica a AXUIElement que mantenga datos semanticos completos sin requerir permisos
 - `run-as` requiere emuladores con system image "Google APIs" (debuggable). Las images "Google Play" no lo permiten.
+
+## Sesion 2026-08-28 — Escaneo de QR en vivo: el mock entregaba nada
+
+### Hallazgo
+
+`AVCaptureMetadataOutput` estaba mockeado como no-op: `ap_setMetadataDelegate`
+guardaba el delegate y nunca le entregaba nada. Una app con escaneo continuo
+—registrar delegate + `metadataObjectTypes = [.qr]` y esperar callbacks— se
+quedaba esperando para siempre.
+
+Lo que despisto es que `ios-camera-qr-ocr.auto` pasa en verde. Va por otro
+camino: `QrScanViewModel` es un `AVCapturePhotoCaptureDelegate` que dispara
+foto y decodifica con Vision. Eso cubre "capturar y decodificar", no el patron
+dominante en scanners, que es el escaneo continuo.
+
+### Decision: decodificar, no configurar
+
+Dos opciones para el payload:
+
+- (a) configurarlo aparte, tipo `auto camera qr "texto"`
+- (b) DECODIFICARLO de la misma imagen que ya usa el resto del mock
+
+Elegida (b): mantiene un solo concepto de "que ve la camara" en vez de dos, y
+de regalo los bounds salen del QR real en vez de un rectangulo inventado.
+
+### CIDetector, no Vision
+
+`VNDetectBarcodesRequest` falla dentro del simulador:
+
+    QR decode fallo: Could not create inference context
+
+Su backend de ML no levanta ahi. `CIDetector` (`CIDetectorTypeQRCode`) no pasa
+por esa pila y decodifica desde iOS 8. Medido, no supuesto — el primer intento
+fue con Vision precisamente porque la app demo lo usa, pero esa decodificacion
+corre en la app sobre una foto ya capturada, no desde la dylib inyectada.
+
+### Coordenadas: el bug que no crashea
+
+`transformedMetadataObjectForMetadataObject:` no estaba hookeado, asi que
+devolvia el objeto sin tocar. La app recibia bounds normalizados (0..1) donde
+espera puntos y dibujaba el recuadro como un cuadrado de menos de un punto en
+la esquina.
+
+La conversion son dos etapas, porque el preview no muestra la imagen directa
+sino un compuesto: imagen -> lienzo 400x600 (aspect-fill) -> capa (estirado
+lineal, `kCAGravityResize`). El aspect-fill se extrajo a `ap_previewDrawRect()`
+y lo comparten compositor y conversion: si divergen, el recuadro deja de caer
+sobre el QR y el error es dificil de ver.
+
+Verificado: `x -35 y 94 473x685` sobre una capa de 402x874, alineado con el QR
+visible. La x negativa es correcta — el aspect-fill recorta horizontalmente.
+
+### Otros arreglos
+
+- **Delegate en caja debil.** Se guardaba con `OBJC_ASSOCIATION_RETAIN`,
+  creando un ciclo con el view controller del scanner: la pantalla no se
+  liberaba al cerrarla.
+- **Connection fabricada como subclase** con accessors seguros. En Swift ese
+  parametro del callback no es opcional; `nil` crashea al primer acceso, y una
+  instancia pelada de `AVCaptureConnection` crashea en cuanto le piden `output`.
+- **`DylibInjector`: sello SHA-256** del ObjC embebido. Antes `ensureDylib()`
+  devolvia la caché con solo comprobar que el archivo existiera: editabas el
+  mock, recompilabas `auto` y seguias inyectando la dylib vieja sin un solo
+  error. El fuente vive como string dentro del binario, asi que no hay mtime
+  que comparar.
+- **`-framework CoreGraphics` explicito**: con `-fno-modules` no hay autolink.
+
+### Pendiente: sellado generico, y por que no se hizo
+
+En simqr (herramienta aparte, solo-QR) el device falso es una SUBCLASE de
+`AVCaptureDevice`, y se "sella": todo metodo del padre que no se implemente a
+mano se sustituye por un no-op. Cubre el fallo complementario al que ya
+resuelve `+resolveInstanceMethod:` (issue #120):
+
+- la red de #120 cubre selectores que NO existen (SPI privado ausente)
+- el sellado cubre selectores que SI existen y explotan al correr sobre ivars
+  en cero (p.ej. `supportsMultiCamCaptureWithDevice:`, que en simqr tumbo la
+  app con EXC_BAD_ACCESS dentro de AVFoundation)
+
+Aqui NO es portable tal cual: `ap_defaultDevice` fabrica el device con
+`[[AVCaptureDevice alloc] init]`, o sea una instancia de la clase REAL. Sellar
+exigiria parchear `AVCaptureDevice` en si, y eso cambia la naturaleza del
+riesgo: `ap_add_noop_if_missing` solo anade selectores ausentes y por eso nunca
+puede romper una camara real, mientras que el sellado reemplaza los que existen
+—y `ap_defaultDevice` devuelve el device real cuando lo hay.
+
+Prerequisito para hacerlo bien: que el device falso sea una subclase. Es un
+cambio estructural del nucleo del mock (toca los hooks de device, la captura de
+foto y la red de #120), asi que merece su propio cambio y su propia validacion.
