@@ -1,4 +1,5 @@
 import Foundation
+import CommonCrypto
 
 /// Compiles the camera mock ObjC code into a dylib and injects it into
 /// a running (or about-to-launch) app via DYLD_INSERT_LIBRARIES.
@@ -18,11 +19,43 @@ public final class DylibInjector {
         "\(cacheDir)/libAutoPilotCapture.dylib"
     }
 
+    /// Sello con el hash del fuente que produjo la dylib cacheada.
+    private var stampPath: String {
+        "\(cacheDir)/libAutoPilotCapture.dylib.sha256"
+    }
+
+    /// SHA-256 del ObjC que se va a compilar.
+    ///
+    /// El fuente no es un archivo: vive como string dentro del binario `auto`,
+    /// asi que no hay mtime que comparar. El hash del contenido es la unica
+    /// senal fiable de "esta dylib salio de este mock".
+    ///
+    /// A proposito NO entra el SDK en el hash: obligaria a un `xcrun` en cada
+    /// comando de camara solo para detectar un cambio de Xcode, que es raro y
+    /// que `recompile()` ya cubre. El caso frecuente —alguien edita el mock— se
+    /// resuelve sin gastar un proceso.
+    private var sourceFingerprint: String {
+        let data = Data(MockHeaders.captureImplementation.utf8)
+        var digest = [UInt8](repeating: 0, count: Int(CC_SHA256_DIGEST_LENGTH))
+        data.withUnsafeBytes { ptr in
+            _ = CC_SHA256(ptr.baseAddress, CC_LONG(data.count), &digest)
+        }
+        return digest.map { String(format: "%02x", $0) }.joined()
+    }
+
     public init() {}
 
     /// Returns the path to the dylib, compiling it if needed.
+    ///
+    /// Antes bastaba con que el archivo existiera. Editabas `MockHeaders.swift`,
+    /// recompilabas `auto`, inyectabas — y seguias probando la dylib vieja sin un
+    /// solo error: el cambio que creias estar probando no estaba dentro. Un fallo
+    /// que no avisa vale menos que uno ruidoso, y en una herramienta de depuracion
+    /// te hace culpar a la app bajo prueba.
     public func ensureDylib() throws -> String {
-        if fileManager.fileExists(atPath: dylibPath) {
+        if fileManager.fileExists(atPath: dylibPath),
+           let stamp = try? String(contentsOfFile: stampPath, encoding: .utf8),
+           stamp == sourceFingerprint {
             return dylibPath
         }
         return try compileDylib()
@@ -32,6 +65,7 @@ public final class DylibInjector {
     @discardableResult
     public func recompile() throws -> String {
         try? fileManager.removeItem(atPath: dylibPath)
+        try? fileManager.removeItem(atPath: stampPath)
         return try compileDylib()
     }
 
@@ -69,6 +103,12 @@ public final class DylibInjector {
             "-fno-modules",
             "-framework", "AVFoundation",
             "-framework", "UIKit",
+            // CoreImage: CIDetector decodifica el QR de la imagen inyectada para el
+            // escaneo en vivo (Vision no funciona dentro del simulador).
+            "-framework", "CoreImage",
+            // Explicito: con -fno-modules no hay autolink, y los bounds del codigo
+            // usan CGRectGetMaxX / CGPointCreateDictionaryRepresentation.
+            "-framework", "CoreGraphics",
             "-framework", "CoreMedia",
             "-framework", "QuartzCore",
             srcPath,
@@ -85,6 +125,12 @@ public final class DylibInjector {
             let errMsg = String(data: errData, encoding: .utf8) ?? "unknown error"
             throw InjectError.compileFailed(errMsg)
         }
+
+        // El sello se escribe DESPUES de compilar: si clang falla, la caché queda
+        // sin sello y el proximo intento vuelve a compilar en vez de dar por buena
+        // una dylib que no existe o quedo a medias.
+        // Si el sello no se puede escribir, el unico coste es recompilar de mas.
+        try? sourceFingerprint.write(toFile: stampPath, atomically: true, encoding: .utf8)
 
         let attrs = try fileManager.attributesOfItem(atPath: dylibPath)
         let size = attrs[.size] as? Int ?? 0
