@@ -179,29 +179,90 @@ public final class HybridBridge: DeviceBridge {
 
     // MARK: - Device Management (fast only)
 
-    public func listDevices() throws -> [[String: Any]]     { fastCount += 1; return try fast.listDevices() }
-    public func bootDevice(_ n: String) throws              { fastCount += 1; try fast.bootDevice(n) }
-    public func shutdownDevice(_ n: String) throws          { fastCount += 1; try fast.shutdownDevice(n) }
-    public func installApp(path: String) throws             { fastCount += 1; try fast.installApp(path: path) }
-    public func getBootedDeviceId() throws -> String        { fastCount += 1; return try fast.getBootedDeviceId() }
+    public func listDevices() throws -> [[String: Any]] {
+        try escalateValue("listDevices",
+                          fast: { try self.fast.listDevices() },
+                          deep: { try self.deep.listDevices() })
+    }
+    public func bootDevice(_ n: String) throws {
+        try escalate("bootDevice",
+                     fast: { try self.fast.bootDevice(n) },
+                     deep: { try self.deep.bootDevice(n) })
+    }
+    public func shutdownDevice(_ n: String) throws {
+        try escalate("shutdownDevice",
+                     fast: { try self.fast.shutdownDevice(n) },
+                     deep: { try self.deep.shutdownDevice(n) })
+    }
+    public func installApp(path: String) throws {
+        try escalate("installApp",
+                     fast: { try self.fast.installApp(path: path) },
+                     deep: { try self.deep.installApp(path: path) })
+    }
+    public func getBootedDeviceId() throws -> String {
+        try escalateValue("getBootedDeviceId",
+                          fast: { try self.fast.getBootedDeviceId() },
+                          deep: { try self.deep.getBootedDeviceId() })
+    }
 
-    // MARK: - Media & IO (fast only)
+    // MARK: - Media & IO
+    //
+    // Ya no son "fast only": el observer lanza "not supported" para device-mgmt y
+    // shouldEscalate() ya lo contempla (#165), pero estos metodos llamaban a `fast`
+    // directo, sin pasar por escalate(). El CI lo destapaba:
+    //     FAIL at line 9: setPasteboard not supported by iOSAgentBridge
 
     public func screenshot(path: String) throws             { fastCount += 1; try fast.screenshot(path: path) }
-    public func addMedia(path: String) throws               { fastCount += 1; try fast.addMedia(path: path) }
-    public func openURL(_ url: String) throws               { fastCount += 1; try fast.openURL(url) }
-    public func setPasteboard(text: String) throws          { fastCount += 1; try fast.setPasteboard(text: text) }
-    public func getPasteboard() throws -> String            { fastCount += 1; return try fast.getPasteboard() }
+    public func addMedia(path: String) throws {
+        try escalate("addMedia",
+                     fast: { try self.fast.addMedia(path: path) },
+                     deep: { try self.deep.addMedia(path: path) })
+    }
+    public func openURL(_ url: String) throws {
+        try escalate("openURL",
+                     fast: { try self.fast.openURL(url) },
+                     deep: { try self.deep.openURL(url) })
+    }
+    public func setPasteboard(text: String) throws {
+        try escalate("setPasteboard",
+                     fast: { try self.fast.setPasteboard(text: text) },
+                     deep: { try self.deep.setPasteboard(text: text) })
+    }
+    public func getPasteboard() throws -> String {
+        try escalateValue("getPasteboard",
+                          fast: { try self.fast.getPasteboard() },
+                          deep: { try self.deep.getPasteboard() })
+    }
 
-    // MARK: - Biometric (fast only)
+    // MARK: - Biometric
 
-    public func biometricEnroll() throws                    { fastCount += 1; try fast.biometricEnroll() }
-    public func biometricUnenroll() throws                  { fastCount += 1; try fast.biometricUnenroll() }
-    public func biometricMatch() throws                     { fastCount += 1; try fast.biometricMatch() }
-    public func biometricFail() throws                      { fastCount += 1; try fast.biometricFail() }
-    public func biometricIsEnrolled() throws -> Bool        { fastCount += 1; return try fast.biometricIsEnrolled() }
+    public func biometricEnroll() throws {
+        try escalate("biometricEnroll",
+                     fast: { try self.fast.biometricEnroll() },
+                     deep: { try self.deep.biometricEnroll() })
+    }
+    public func biometricUnenroll() throws {
+        try escalate("biometricUnenroll",
+                     fast: { try self.fast.biometricUnenroll() },
+                     deep: { try self.deep.biometricUnenroll() })
+    }
+    public func biometricMatch() throws {
+        try escalate("biometricMatch",
+                     fast: { try self.fast.biometricMatch() },
+                     deep: { try self.deep.biometricMatch() })
+    }
+    public func biometricFail() throws {
+        try escalate("biometricFail",
+                     fast: { try self.fast.biometricFail() },
+                     deep: { try self.deep.biometricFail() })
+    }
+    public func biometricIsEnrolled() throws -> Bool {
+        try escalateValue("biometricIsEnrolled",
+                          fast: { try self.fast.biometricIsEnrolled() },
+                          deep: { try self.deep.biometricIsEnrolled() })
+    }
 
-    // MARK: - Logs / Permissions (fast only)
+    // MARK: - Logs / Permissions
 
     public func getLogs(bundleId: String?, lines: Int) throws -> String {
         fastCount += 1; return try fast.getLogs(bundleId: bundleId, lines: lines)
