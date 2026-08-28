@@ -137,11 +137,23 @@ public final class RunnerInstaller {
             "IsUITestBundle": true,
             "IsXCTRunnerHostedTestBundle": true,
 
+            // OJO: sin DYLD_INSERT_LIBRARIES ni XCTestConfigurationFilePath.
+            //
+            // El codigo v1 inyectaba libXCTestBundleInject.dylib aqui, y eso hacia
+            // que el runner arrancara los tests DOS veces: una el propio Runner.app
+            // (_XCTRunnerRunTests) y otra la dylib inyectada. El sintoma era un
+            // SIGABRT durante el bootstrap:
+            //   'Cannot initiate shared session more than once.'
+            //     en +[XCTRunnerDaemonSession initiateSharedSessionWithCompletion:]
+            // y en el backtrace se ve _XCTestMain dos veces en el mismo stack.
+            //
+            // Esa inyeccion es para tests UNIT alojados en la app bajo prueba, donde
+            // el host no sabe nada de XCTest. Un runner de UI ya carga su bundle solo.
+            // Contrastado con un .xctestrun generado por Xcode: su target unit lleva
+            // libXCTestBundleInject y el de UI no.
             "TestingEnvironmentVariables": [
-                "DYLD_INSERT_LIBRARIES": "\(platformPath)/Developer/usr/lib/libXCTestBundleInject.dylib",
                 "DYLD_LIBRARY_PATH": "\(platformPath)/Developer/usr/lib",
                 "DYLD_FRAMEWORK_PATH": "\(platformPath)/Developer/Library/Frameworks:\(platformPath)/Developer/Library/PrivateFrameworks",
-                "XCTestConfigurationFilePath": "__TESTHOST__/\(testBundleName)",
             ] as [String: String],
             "EnvironmentVariables": [String: String](),
             "CommandLineArguments": [String](),
