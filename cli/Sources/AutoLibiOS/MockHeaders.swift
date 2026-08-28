@@ -18,8 +18,10 @@ enum MockHeaders {
 
     #import <AVFoundation/AVFoundation.h>
     #import <UIKit/UIKit.h>
+    #import <CoreImage/CoreImage.h>
     #import <objc/runtime.h>
     #include <string.h>
+    #include <sys/stat.h>
 
     static const void *kAPImageDataKey = &kAPImageDataKey;
     static const void *kAPTimestampKey = &kAPTimestampKey;
@@ -203,20 +205,309 @@ enum MockHeaders {
     }
 
     // ============================================================
-    // Replacement: AVCaptureMetadataOutput
+    // Replacement: AVCaptureMetadataOutput  (escaneo en vivo, issue #120+)
     // ============================================================
+    //
+    // Antes esto era no-op: se guardaba el delegate y nunca se le entregaba nada,
+    // asi que una app con escaneo continuo (AVCaptureMetadataOutput + .qr) se
+    // quedaba esperando para siempre. El test de QR que si pasaba va por otro
+    // camino — QrScanViewModel es un AVCapturePhotoCaptureDelegate: dispara foto
+    // y decodifica con Vision — que no cubre el patron dominante en scanners.
+    //
+    // El payload NO se configura aparte: se DECODIFICA de la misma imagen que ya
+    // usa el resto del mock. Un solo concepto de "que ve la camara", y de regalo
+    // los bounds salen del QR real en vez de un rectangulo inventado.
+
+    // Definida en la seccion del preview, mas abajo en este mismo archivo.
+    static NSString *ap_resolveImagePath(void);
+
+    static const void *kAPMetaDelegateBoxKey = &kAPMetaDelegateBoxKey;
+    static const void *kAPMetaQueueKey       = &kAPMetaQueueKey;
+    static const void *kAPMetaTypesKey       = &kAPMetaTypesKey;
+
+    // Caja debil. AVFoundation retiene su delegate DEBILMENTE; guardarlo fuerte en
+    // un associated object crea un ciclo con el view controller del scanner y la
+    // pantalla no se libera nunca al cerrarla.
+    @interface APWeakBox : NSObject
+    @property (nonatomic, weak) id target;
+    @end
+    @implementation APWeakBox
+    @end
+
+    // Subclase con storage propio: class_createInstance reserva el instanceSize de
+    // la subclase, asi que estos ivars existen de verdad. Los getters heredados
+    // leerian ivars de AVFoundation que ningun -init suyo lleno nunca.
+    @interface APFakeMetadataObject : AVMetadataMachineReadableCodeObject {
+        NSString *_apValue;
+        CGRect    _apBounds;
+    }
+    - (void)ap_setValue:(NSString *)value bounds:(CGRect)bounds;
+    @end
+
+    @implementation APFakeMetadataObject
+
+    - (void)ap_setValue:(NSString *)value bounds:(CGRect)bounds {
+        _apValue = [value copy];
+        _apBounds = bounds;
+    }
+
+    - (NSString *)stringValue    { return _apValue; }
+    - (AVMetadataObjectType)type { return AVMetadataObjectTypeQRCode; }
+    - (CGRect)bounds             { return _apBounds; }
+    - (CMTime)time               { return kCMTimeZero; }
+    - (CMTime)duration           { return kCMTimeZero; }
+
+    // corners es NSArray<NSDictionary *> con la representacion de diccionario de
+    // CGPoint. El getter heredado lee un ivar que nunca se lleno.
+    - (NSArray *)corners {
+        CGRect b = _apBounds;
+        CGPoint pts[4] = {
+            CGPointMake(CGRectGetMinX(b), CGRectGetMinY(b)),
+            CGPointMake(CGRectGetMaxX(b), CGRectGetMinY(b)),
+            CGPointMake(CGRectGetMaxX(b), CGRectGetMaxY(b)),
+            CGPointMake(CGRectGetMinX(b), CGRectGetMaxY(b)),
+        };
+        NSMutableArray *out = [NSMutableArray arrayWithCapacity:4];
+        for (int i = 0; i < 4; i++) {
+            [out addObject:(__bridge_transfer NSDictionary *)CGPointCreateDictionaryRepresentation(pts[i])];
+        }
+        return out;
+    }
+
+    - (NSString *)description {
+        return [NSString stringWithFormat:@"<APFakeMetadataObject: %@>", _apValue];
+    }
+
+    @end
+
+    // El delegate recibe una connection en cada callback y en Swift ese parametro
+    // NO es opcional: pasar nil hace que la app crashee al primer acceso. Subclase
+    // y no una instancia pelada de AVCaptureConnection porque los accessors
+    // heredados que devuelven objetos leerian ivars en cero, y el puntero basura
+    // crashea al primer mensaje. Este objeto solo lo ve la app.
+    @interface APFakeConnection : AVCaptureConnection
+    @end
+
+    @implementation APFakeConnection
+    - (AVCaptureOutput *)output                       { return nil; }
+    - (NSArray *)inputPorts                           { return @[]; }
+    - (AVCaptureVideoPreviewLayer *)videoPreviewLayer { return nil; }
+    - (BOOL)isEnabled                                 { return YES; }
+    - (BOOL)isActive                                  { return YES; }
+    // Soportado = NO en todo lo ajustable: una app que pregunte antes de escribir
+    // se queda quieta, que es lo que haria con una camara sin esa capacidad.
+    - (BOOL)isVideoOrientationSupported               { return NO; }
+    - (AVCaptureVideoOrientation)videoOrientation     { return AVCaptureVideoOrientationPortrait; }
+    - (BOOL)isVideoMirroringSupported                 { return NO; }
+    - (BOOL)isVideoMirrored                           { return NO; }
+    @end
+
+    // Outputs con delegate registrado. Debil: si la pantalla del scanner se cierra
+    // y su output muere, la entrada desaparece sola y no emitimos a un objeto muerto.
+    static NSHashTable *gAPMetaOutputs = nil;
+    static NSObject *gAPMetaLock = nil;
+
+    // Todo objeto nacido de class_createInstance se retiene para siempre: su
+    // -dealloc heredado correria sobre ivars de AVF que nunca se inicializaron.
+    // Son un punado por proceso y el proceso es una app bajo prueba.
+    static NSMutableArray *gAPKeepAlive = nil;
+
+    static id ap_keepAlive(id obj) {
+        if (obj == nil) return nil;
+        @synchronized (gAPMetaLock) { [gAPKeepAlive addObject:obj]; }
+        return obj;
+    }
+
+    // Decodifica el primer QR de la imagen inyectada. Devuelve NO si no hay imagen
+    // o no hay codigo — que es un resultado legitimo, no un error.
+    //
+    // CIDetector y no Vision, y esto se midio: VNDetectBarcodesRequest falla dentro
+    // del simulador con "Could not create inference context" porque su backend de
+    // ML no levanta ahi. CIDetector no pasa por esa pila y decodifica QR desde
+    // iOS 8. (La app demo si usa Vision, pero corre esa decodificacion sobre una
+    // foto ya capturada, no desde la dylib inyectada.)
+    static BOOL ap_decodeQRFromImage(NSString **outPayload, CGRect *outBounds) {
+        NSString *path = ap_resolveImagePath();
+        if (path == nil) return NO;
+
+        NSData *data = [NSData dataWithContentsOfFile:path];
+        if (data == nil) return NO;
+
+        CIImage *image = [CIImage imageWithData:data];
+        if (image == nil) return NO;
+
+        CGRect extent = image.extent;
+        if (CGRectIsEmpty(extent)) return NO;
+
+        static CIDetector *detector = nil;
+        static dispatch_once_t once;
+        dispatch_once(&once, ^{
+            detector = [CIDetector detectorOfType:CIDetectorTypeQRCode
+                                          context:nil
+                                          options:@{CIDetectorAccuracy: CIDetectorAccuracyHigh}];
+        });
+        if (detector == nil) return NO;
+
+        for (CIFeature *feature in [detector featuresInImage:image]) {
+            if (![feature isKindOfClass:[CIQRCodeFeature class]]) continue;
+            NSString *payload = [(CIQRCodeFeature *)feature messageString];
+            if (payload.length == 0) continue;
+
+            // CIImage tiene el origen ABAJO-izquierda y bounds en pixeles;
+            // AVMetadataObject los quiere normalizados y con origen ARRIBA-izquierda.
+            // Sin el volteo el recuadro sale reflejado en Y, y de forma plausible:
+            // con un QR centrado no se nota.
+            CGRect b = feature.bounds;
+            *outBounds = CGRectMake(b.origin.x / extent.size.width,
+                                    1.0 - (b.origin.y + b.size.height) / extent.size.height,
+                                    b.size.width / extent.size.width,
+                                    b.size.height / extent.size.height);
+            *outPayload = payload;
+            return YES;
+        }
+        return NO;
+    }
+
+    static AVCaptureConnection *ap_fakeConnection(void) {
+        static AVCaptureConnection *connection = nil;
+        static dispatch_once_t once;
+        dispatch_once(&once, ^{
+            connection = ap_keepAlive(class_createInstance([APFakeConnection class], 0));
+        });
+        return connection;
+    }
+
+    static AVMetadataMachineReadableCodeObject *ap_metadataObject(NSString *payload, CGRect bounds) {
+        APFakeMetadataObject *object = class_createInstance([APFakeMetadataObject class], 0);
+        [object ap_setValue:payload bounds:bounds];
+        return ap_keepAlive(object);
+    }
+
+    static void ap_emitToOutput(AVCaptureMetadataOutput *output, NSString *payload, CGRect bounds) {
+        APWeakBox *box = objc_getAssociatedObject(output, kAPMetaDelegateBoxKey);
+        id delegate = box.target;
+        if (delegate == nil) return;
+
+        SEL sel = @selector(captureOutput:didOutputMetadataObjects:fromConnection:);
+        if (![delegate respondsToSelector:sel]) {
+            NSLog(@"[AutoPilot] %@ no implementa captureOutput:didOutputMetadataObjects:",
+                  NSStringFromClass([delegate class]));
+            return;
+        }
+
+        // Respetamos lo que la app pidio: emitir un QR a un output configurado solo
+        // para codigos de barras seria mentirle de una forma que no pasa con
+        // hardware real.
+        NSArray *types = objc_getAssociatedObject(output, kAPMetaTypesKey);
+        if (types.count > 0 && ![types containsObject:AVMetadataObjectTypeQRCode]) return;
+
+        dispatch_queue_t queue = objc_getAssociatedObject(output, kAPMetaQueueKey);
+        if (queue == nil) queue = dispatch_get_main_queue();
+
+        AVMetadataMachineReadableCodeObject *object = ap_metadataObject(payload, bounds);
+        dispatch_async(queue, ^{
+            [delegate captureOutput:output didOutputMetadataObjects:@[object] fromConnection:ap_fakeConnection()];
+        });
+        NSLog(@"[AutoPilot] QR emitido a %@: %@", NSStringFromClass([delegate class]), payload);
+    }
+
+    static void ap_emitQRToAllOutputs(void) {
+        NSString *payload = nil;
+        CGRect bounds = CGRectZero;
+        if (!ap_decodeQRFromImage(&payload, &bounds)) return;
+
+        NSArray *outputs;
+        @synchronized (gAPMetaLock) { outputs = gAPMetaOutputs.allObjects; }
+        for (AVCaptureMetadataOutput *output in outputs) {
+            ap_emitToOutput(output, payload, bounds);
+        }
+    }
+
+    // Sondeo de la imagen inyectada. El resto del mock la relee en cada captura de
+    // foto —el disparo es el evento— pero el escaneo en vivo no tiene evento que
+    // disparar la relectura: la app solo espera. 250 ms de stat no se miden, y
+    // cubren creacion, reemplazo y borrado con el mismo camino.
+    static void ap_startImageWatcher(void) {
+        static dispatch_source_t timer = nil;
+        static dispatch_once_t once;
+        dispatch_once(&once, ^{
+            timer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0,
+                                           dispatch_get_global_queue(QOS_CLASS_UTILITY, 0));
+            dispatch_source_set_timer(timer,
+                                      dispatch_time(DISPATCH_TIME_NOW, 250 * NSEC_PER_MSEC),
+                                      250 * NSEC_PER_MSEC,
+                                      50 * NSEC_PER_MSEC);
+            dispatch_source_set_event_handler(timer, ^{
+                static ino_t lastIno = 0;
+                static off_t lastSize = 0;
+                static long lastMtime = 0;
+
+                NSString *path = ap_resolveImagePath();
+                if (path == nil) return;
+
+                struct stat st;
+                if (stat(path.fileSystemRepresentation, &st) != 0) return;
+                if (st.st_ino == lastIno && st.st_size == lastSize &&
+                    st.st_mtimespec.tv_sec == lastMtime) return;
+
+                lastIno = st.st_ino;
+                lastSize = st.st_size;
+                lastMtime = st.st_mtimespec.tv_sec;
+
+                NSLog(@"[AutoPilot] imagen de camara cambio, redecodificando QR");
+                ap_emitQRToAllOutputs();
+            });
+            dispatch_resume(timer);
+        });
+    }
 
     static IMP orig_setMetadataDelegate = NULL;
     static IMP orig_setMetadataObjectTypes = NULL;
 
     static void ap_setMetadataDelegate(id self, SEL _cmd, id delegate, dispatch_queue_t queue) {
-        NSLog(@"[AutoPilot] setMetadataObjectsDelegate (mock no-op)");
-        // Store delegate via associated object for potential QR injection
-        objc_setAssociatedObject(self, "ap_metaDelegate", delegate, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        APWeakBox *box = [APWeakBox new];
+        box.target = delegate;
+        objc_setAssociatedObject(self, kAPMetaDelegateBoxKey, box, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        objc_setAssociatedObject(self, kAPMetaQueueKey,
+                                 queue ?: dispatch_get_main_queue(),
+                                 OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        @synchronized (gAPMetaLock) { [gAPMetaOutputs addObject:self]; }
+
+        NSLog(@"[AutoPilot] delegate de metadata registrado: %@", NSStringFromClass([delegate class]));
+
+        ap_startImageWatcher();
+
+        // Diferido: la pantalla del scanner acaba de montar su sesion y suele
+        // terminar de construirse en el mismo ciclo de runloop. Emitir aqui mismo
+        // llega antes de que la UI pueda reaccionar.
+        dispatch_after(dispatch_time(DISPATCH_TIME_NOW, 800 * NSEC_PER_MSEC),
+                       dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
+            ap_emitQRToAllOutputs();
+        });
     }
 
+    // El setter real valida contra los tipos que soporta el hardware conectado. Con
+    // un device fabricado esa lista sale vacia y asignar .qr lanza
+    // NSInvalidArgumentException. Solo guardamos, nunca llamamos al original.
     static void ap_setMetadataObjectTypes(id self, SEL _cmd, NSArray *types) {
-        NSLog(@"[AutoPilot] setMetadataObjectTypes (mock no-op)");
+        objc_setAssociatedObject(self, kAPMetaTypesKey, [types copy], OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+    }
+
+    static NSArray *ap_metadataObjectTypes(id self, SEL _cmd) {
+        return objc_getAssociatedObject(self, kAPMetaTypesKey) ?: @[];
+    }
+
+    // Mas ancho que solo QR a proposito: muchas apps intersectan lo que quieren con
+    // availableMetadataObjectTypes y abortan el setup si la interseccion sale vacia.
+    static NSArray *ap_availableMetadataObjectTypes(id self, SEL _cmd) {
+        return @[AVMetadataObjectTypeQRCode,
+                 AVMetadataObjectTypeEAN13Code,
+                 AVMetadataObjectTypeEAN8Code,
+                 AVMetadataObjectTypeCode128Code,
+                 AVMetadataObjectTypeCode39Code,
+                 AVMetadataObjectTypePDF417Code,
+                 AVMetadataObjectTypeAztecCode,
+                 AVMetadataObjectTypeDataMatrixCode];
     }
 
     // ============================================================
@@ -497,6 +788,12 @@ enum MockHeaders {
         NSString *imagePath = ap_resolveImagePath();
         NSLog(@"[AutoPilot] Camera mock activating... Image: %@", imagePath ?: @"(none yet, use 'auto inject <image>')");
 
+        // Estado del escaneo en vivo. Sin esto, [nil addObject:] es un no-op
+        // silencioso: los outputs nunca se registran y nada se emite jamas.
+        gAPMetaLock = [NSObject new];
+        gAPMetaOutputs = [NSHashTable weakObjectsHashTable];
+        gAPKeepAlive = [NSMutableArray array];
+
         Class deviceClass = [AVCaptureDevice class];
         Class sessionClass = [AVCaptureSession class];
         Class photoOutputClass = [AVCapturePhotoOutput class];
@@ -622,6 +919,12 @@ enum MockHeaders {
         ap_swizzle_instance_method(metadataOutputClass,
             @selector(setMetadataObjectTypes:),
             (IMP)ap_setMetadataObjectTypes, &orig_setMetadataObjectTypes);
+        ap_swizzle_instance_method(metadataOutputClass,
+            @selector(metadataObjectTypes),
+            (IMP)ap_metadataObjectTypes, NULL);
+        ap_swizzle_instance_method(metadataOutputClass,
+            @selector(availableMetadataObjectTypes),
+            (IMP)ap_availableMetadataObjectTypes, NULL);
 
         // Swizzle AVCaptureVideoPreviewLayer to show our image
         Class previewLayerClass = [AVCaptureVideoPreviewLayer class];
