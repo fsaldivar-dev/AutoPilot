@@ -94,31 +94,99 @@ public final class RunnerInstaller {
         // Bundle key: "Foo.xctest" → "Foo"
         let bundleKey = (testBundleName as NSString).deletingPathExtension
 
-        // Build .xctestrun plist structure
-        // Format reference: Xcode .xctestrun schema version 2
+        // Estructura .xctestrun FORMATO 2.
+        //
+        // El bug que arregla esto (#355): antes se declaraba FormatVersion 2 pero se
+        // escribia la FORMA de v1 —los targets colgando de la raiz—. Xcode 26 lee la
+        // version, busca TestConfigurations y no lo encuentra:
+        //   Dictionary does not contain key "TestConfigurations"
+        // En v2 los targets viven dentro de TestConfigurations[].TestTargets[].
+        //
+        // Las rutas van con __TESTROOT__ (el directorio que contiene este .xctestrun)
+        // en vez de absolutas. Esa es la diferencia entre un archivo que solo sirve en
+        // la maquina que lo genero y uno distribuible: el workaround anterior apuntaba
+        // al DerivedData de Xcode, cuyo hash de proyecto no existe en otra maquina.
+        let appName = URL(fileURLWithPath: appPath).lastPathComponent
+        let testRoot = "__TESTROOT__/\(appName)"
+
+        // El modulo Swift no admite espacios ni guiones; Xcode aplica la misma regla.
+        let moduleName = bundleKey
+            .replacingOccurrences(of: " ", with: "_")
+            .replacingOccurrences(of: "-", with: "_")
+
+        let testTarget: [String: Any] = [
+            "BlueprintName": bundleKey,
+            "BlueprintProviderName": "AutoPilotRunner",
+            "ProductModuleName": moduleName,
+
+            "TestBundlePath": "__TESTHOST__/PlugIns/\(testBundleName)",
+            "TestHostPath": testRoot,
+            "TestHostBundleIdentifier": try bundleIdentifier(ofApp: appPath),
+            "DependentProductPaths": [testRoot],
+
+            // UITargetAppPath apunta al PROPIO runner, y esto se midio: omitirlo
+            // parecia correcto —el runner se adjunta en tiempo de ejecucion con
+            // XCUIApplication(bundleIdentifier:), no a una app fija— pero xcodebuild
+            // lo rechaza de plano:
+            //   Cannot test target ...: UITargetAppPath should be provided
+            // Es un requisito estatico, no funcional. Apuntarlo al runner lo satisface
+            // sin introducir una dependencia externa: el bundle siempre esta ahi, al
+            // lado del .xctestrun. Solo afectaria al fallback XCUIApplication() sin
+            // bundleId, que el daemon no usa.
+            "UITargetAppPath": testRoot,
+            "IsUITestBundle": true,
+            "IsXCTRunnerHostedTestBundle": true,
+
+            // OJO: sin DYLD_INSERT_LIBRARIES ni XCTestConfigurationFilePath.
+            //
+            // El codigo v1 inyectaba libXCTestBundleInject.dylib aqui, y eso hacia
+            // que el runner arrancara los tests DOS veces: una el propio Runner.app
+            // (_XCTRunnerRunTests) y otra la dylib inyectada. El sintoma era un
+            // SIGABRT durante el bootstrap:
+            //   'Cannot initiate shared session more than once.'
+            //     en +[XCTRunnerDaemonSession initiateSharedSessionWithCompletion:]
+            // y en el backtrace se ve _XCTestMain dos veces en el mismo stack.
+            //
+            // Esa inyeccion es para tests UNIT alojados en la app bajo prueba, donde
+            // el host no sabe nada de XCTest. Un runner de UI ya carga su bundle solo.
+            // Contrastado con un .xctestrun generado por Xcode: su target unit lleva
+            // libXCTestBundleInject y el de UI no.
+            "TestingEnvironmentVariables": [
+                "DYLD_LIBRARY_PATH": "\(platformPath)/Developer/usr/lib",
+                "DYLD_FRAMEWORK_PATH": "\(platformPath)/Developer/Library/Frameworks:\(platformPath)/Developer/Library/PrivateFrameworks",
+            ] as [String: String],
+            "EnvironmentVariables": [String: String](),
+            "CommandLineArguments": [String](),
+
+            "SkipTestIdentifiers": [String](),
+            "OnlyTestIdentifiers": ["AutoPilotRunnerTests/testServe"],
+
+            // El runner sirve peticiones indefinidamente: sin esto XCTest lo mata a
+            // los 600s por defecto y el daemon pierde la conexion a media sesion.
+            "TestTimeoutsEnabled": false,
+            "TestLanguage": "",
+            "TestRegion": "",
+        ]
+
         let testConfig: [String: Any] = [
-            bundleKey: [
-                "TestBundlePath": "__TESTHOST__/PlugIns/\(testBundleName)",
-                "TestHostPath": appPath,
-                "TestHostBundleIdentifier": Self.runnerBundleID,
-                "IsUITestBundle": true,
-                "IsXCTRunnerHostedTestBundle": true,
-                "DependentProductPaths": [appPath],
-                "TestingEnvironmentVariables": [
-                    "DYLD_INSERT_LIBRARIES": "\(platformPath)/Developer/usr/lib/libXCTestBundleInject.dylib",
-                    "DYLD_LIBRARY_PATH": "\(platformPath)/Developer/usr/lib",
-                    "DYLD_FRAMEWORK_PATH": "\(platformPath)/Developer/Library/Frameworks:\(platformPath)/Developer/Library/PrivateFrameworks",
-                    "XCTestConfigurationFilePath": "__TESTHOST__/\(testBundleName)"
-                ] as [String: String],
-                "EnvironmentVariables": [String: String](),
-                "CommandLineArguments": [String](),
-                "SkipTestIdentifiers": [String](),
-                "OnlyTestIdentifiers": ["AutoPilotRunnerTests/testServe"]
-            ] as [String: Any],
             "__xctestrun_metadata__": [
                 "FormatVersion": 2,
-                "SchemaVersion": 1
-            ] as [String: Any]
+            ] as [String: Any],
+            "ContainerInfo": [
+                "ContainerName": "AutoPilotRunner",
+                "SchemeName": "AutoPilotRunner",
+            ] as [String: String],
+            "TestPlan": [
+                "Name": "AutoPilotRunner",
+                "IsDefault": true,
+            ] as [String: Any],
+            "TestConfigurations": [
+                [
+                    "Name": "AutoPilot",
+                    "IsEnabled": true,
+                    "TestTargets": [testTarget],
+                ] as [String: Any]
+            ],
         ]
 
         let data = try PropertyListSerialization.data(
@@ -132,6 +200,27 @@ public final class RunnerInstaller {
     }
 
     // MARK: - Helpers
+
+    /// Lee el CFBundleIdentifier del Runner.app en vez de asumirlo.
+    ///
+    /// Estaba hardcodeado a `runnerBundleID` y no coincidia con el bundle real
+    /// (`dev.autopilot.test.ExploreaUITests.xctrunner`): el id lo fija el proyecto
+    /// Xcode que compila el runner, asi que cualquiera que lo genere desde otro
+    /// proyecto tendria uno distinto. Para un runner distribuible no se puede
+    /// suponer.
+    private func bundleIdentifier(ofApp appPath: String) throws -> String {
+        let plistPath = "\(appPath)/Info.plist"
+        guard let data = FileManager.default.contents(atPath: plistPath),
+              let plist = try PropertyListSerialization.propertyList(
+                  from: data, options: [], format: nil) as? [String: Any],
+              let identifier = plist["CFBundleIdentifier"] as? String,
+              !identifier.isEmpty
+        else {
+            throw BridgeError.simctlFailed(
+                "no se pudo leer CFBundleIdentifier de \(plistPath)")
+        }
+        return identifier
+    }
 
     private func simctlInstall(udid: String, appPath: String) throws {
         let proc = Process()
