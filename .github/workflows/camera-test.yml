@@ -107,16 +107,18 @@ jobs:
             nohup ./autopilotd start --udid "$DEVICE_UDID" --timeout 0 \
             > daemon.log 2>&1 &
 
-          # El cold boot del runner tarda 30-45s; se paga una sola vez aqui.
-          for i in $(seq 1 60); do
-            sleep 2
-            if ./autopilotd status --udid "$DEVICE_UDID" 2>/dev/null | grep -q '"ready"'; then
-              echo "runner listo tras ${i} intentos"
-              exit 0
-            fi
-          done
-          echo "::warning::el runner no quedo listo; los pasos siguientes usaran solo el observer"
-          cat daemon.log | tail -20
+          # El daemon NO arranca el runner al iniciar: lo hace al llegar el primer
+          # comando. Un bucle esperando a que `status` diga "ready" no lo levanta
+          # nunca — es lo que fallaba antes. `tree deep` fuerza el motor profundo
+          # y con ello el cold boot (~30-45s), que se paga una sola vez aqui.
+          if ./auto tree deep > /dev/null 2>&1; then
+            echo "runner listo"
+            ./autopilotd status --udid "$DEVICE_UDID"
+          else
+            echo "::warning::el runner no arranco; los pasos siguientes no tendran motor XCUI"
+            ./autopilotd status --udid "$DEVICE_UDID" || true
+            tail -20 daemon.log || true
+          fi
 
       # ── Hardware: Biometric + Pasteboard ──────────────
       - name: "Test: Biometric + Pasteboard"
@@ -142,8 +144,11 @@ jobs:
           APP=$(find ~/Library/Developer/Xcode/DerivedData/CameraTestApp*/Build/Products/Debug-iphonesimulator -name '*.app' -maxdepth 1)
           xcrun simctl install booted "$APP"
 
-          SIMCTL_CHILD_AUTOPILOT_CAMERA_IMAGE=$(pwd)/temp/test-image.png \
-            xcrun simctl launch booted dev.autopilot.test.CameraTestApp
+          # Con `simctl launch` la app arranca SIN observer, asi que el unico motor
+          # que queda es XCUI. `auto launch --inject` inyecta el observer ademas de
+          # la imagen, dando dos motores en vez de uno — y si el runner fallara, el
+          # test todavia tendria una via.
+          ./auto launch dev.autopilot.test.CameraTestApp --inject "$(pwd)/temp/test-image.png"
           ./auto run scripts/examples/camera-test.auto
 
       # ── Artifacts ─────────────────────────────────────
