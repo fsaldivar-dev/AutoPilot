@@ -168,13 +168,15 @@ public final class HybridBridge: DeviceBridge {
     // MARK: - App Lifecycle (fast only — simctl is reliable)
 
     public func launchApp(bundleId: String, envVars: [String: String]) throws {
-        fastCount += 1
-        try fast.launchApp(bundleId: bundleId, envVars: envVars)
+        try escalate("launchApp",
+                     fast: { try self.fast.launchApp(bundleId: bundleId, envVars: envVars) },
+                     deep: { try self.deep.launchApp(bundleId: bundleId, envVars: envVars) })
     }
 
     public func terminateApp(bundleId: String) throws {
-        fastCount += 1
-        try fast.terminateApp(bundleId: bundleId)
+        try escalate("terminateApp",
+                     fast: { try self.fast.terminateApp(bundleId: bundleId) },
+                     deep: { try self.deep.terminateApp(bundleId: bundleId) })
     }
 
     // MARK: - Device Management (fast only)
@@ -207,12 +209,24 @@ public final class HybridBridge: DeviceBridge {
 
     // MARK: - Media & IO
     //
+    // TODO lo que delega en `fast` pasa por escalate(): el observer lanza
+    // "not supported" para lo que no sabe hacer y shouldEscalate() ya lo
+    // reconoce (#165). Arreglarlo metodo a metodo era perseguir la cola —
+    // primero fallo setPasteboard, despues terminateApp.
+    //
+    // Escalar no puede aplicar nada dos veces: solo ocurre cuando `fast` LANZO,
+    // o sea cuando no llego a hacer nada.
+    //
     // Ya no son "fast only": el observer lanza "not supported" para device-mgmt y
     // shouldEscalate() ya lo contempla (#165), pero estos metodos llamaban a `fast`
     // directo, sin pasar por escalate(). El CI lo destapaba:
     //     FAIL at line 9: setPasteboard not supported by iOSAgentBridge
 
-    public func screenshot(path: String) throws             { fastCount += 1; try fast.screenshot(path: path) }
+    public func screenshot(path: String) throws             {
+        try escalate("screenshot",
+                     fast: { try self.fast.screenshot(path: path) },
+                     deep: { try self.deep.screenshot(path: path) })
+    }
     public func addMedia(path: String) throws {
         try escalate("addMedia",
                      fast: { try self.fast.addMedia(path: path) },
@@ -265,25 +279,51 @@ public final class HybridBridge: DeviceBridge {
     // MARK: - Logs / Permissions
 
     public func getLogs(bundleId: String?, lines: Int) throws -> String {
-        fastCount += 1; return try fast.getLogs(bundleId: bundleId, lines: lines)
+        try escalateValue("getLogs",
+                          fast: { try self.fast.getLogs(bundleId: bundleId, lines: lines) },
+                          deep: { try self.deep.getLogs(bundleId: bundleId, lines: lines) })
     }
     public func setPermission(action: String, service: String, bundleId: String) throws {
-        fastCount += 1; try fast.setPermission(action: action, service: service, bundleId: bundleId)
+        try escalate("setPermission",
+                     fast: { try self.fast.setPermission(action: action, service: service, bundleId: bundleId) },
+                     deep: { try self.deep.setPermission(action: action, service: service, bundleId: bundleId) })
     }
 
     // MARK: - Orientation / Drag (fast only)
 
-    public func rotate(direction: String) throws                    { fastCount += 1; try fast.rotate(direction: direction) }
-    public func drag(from: String, to: String, duration: Double) throws { fastCount += 1; try fast.drag(from: from, to: to, duration: duration) }
+    public func rotate(direction: String) throws                    {
+        try escalate("rotate",
+                     fast: { try self.fast.rotate(direction: direction) },
+                     deep: { try self.deep.rotate(direction: direction) })
+    }
+    public func drag(from: String, to: String, duration: Double) throws {
+        try escalate("drag",
+                     fast: { try self.fast.drag(from: from, to: to, duration: duration) },
+                     deep: { try self.deep.drag(from: from, to: to, duration: duration) })
+    }
     public func dragCoordinates(x1: Double, y1: Double, x2: Double, y2: Double, duration: Double) throws {
-        fastCount += 1; try fast.dragCoordinates(x1: x1, y1: y1, x2: x2, y2: y2, duration: duration)
+        try escalate("dragCoordinates",
+                     fast: { try self.fast.dragCoordinates(x1: x1, y1: y1, x2: x2, y2: y2, duration: duration) },
+                     deep: { try self.deep.dragCoordinates(x1: x1, y1: y1, x2: x2, y2: y2, duration: duration) })
     }
 
     // MARK: - Keyboard (fast only)
 
-    public func pressKey(key: String) throws    { fastCount += 1; try fast.pressKey(key: key) }
-    public func hideKeyboard() throws           { fastCount += 1; try fast.hideKeyboard() }
-    public func eraseText(count: Int) throws    { fastCount += 1; try fast.eraseText(count: count) }
+    public func pressKey(key: String) throws    {
+        try escalate("pressKey",
+                     fast: { try self.fast.pressKey(key: key) },
+                     deep: { try self.deep.pressKey(key: key) })
+    }
+    public func hideKeyboard() throws           {
+        try escalate("hideKeyboard",
+                     fast: { try self.fast.hideKeyboard() },
+                     deep: { try self.deep.hideKeyboard() })
+    }
+    public func eraseText(count: Int) throws    {
+        try escalate("eraseText",
+                     fast: { try self.fast.eraseText(count: count) },
+                     deep: { try self.deep.eraseText(count: count) })
+    }
 
     // MARK: - Text / App Data (escalatable for copyTextFrom)
 
@@ -293,8 +333,16 @@ public final class HybridBridge: DeviceBridge {
                                 deep: { try self.deep.copyTextFrom(target: target) })
     }
 
-    public func clearState(bundleId: String) throws { fastCount += 1; try fast.clearState(bundleId: bundleId) }
-    public func uninstallApp(bundleId: String) throws { fastCount += 1; try fast.uninstallApp(bundleId: bundleId) }
+    public func clearState(bundleId: String) throws {
+        try escalate("clearState",
+                     fast: { try self.fast.clearState(bundleId: bundleId) },
+                     deep: { try self.deep.clearState(bundleId: bundleId) })
+    }
+    public func uninstallApp(bundleId: String) throws {
+        try escalate("uninstallApp",
+                     fast: { try self.fast.uninstallApp(bundleId: bundleId) },
+                     deep: { try self.deep.uninstallApp(bundleId: bundleId) })
+    }
 
     // MARK: - Scroll Search (escalatable)
 
@@ -316,12 +364,44 @@ public final class HybridBridge: DeviceBridge {
 
     // MARK: - Recording / Environment (fast only)
 
-    public func startRecording() throws                     { fastCount += 1; try fast.startRecording() }
-    public func stopRecording(outputPath: String) throws    { fastCount += 1; try fast.stopRecording(outputPath: outputPath) }
-    public func setLocation(latitude: Double, longitude: Double) throws { fastCount += 1; try fast.setLocation(latitude: latitude, longitude: longitude) }
-    public func setAppearance(mode: String) throws          { fastCount += 1; try fast.setAppearance(mode: mode) }
-    public func lockDevice() throws                         { fastCount += 1; try fast.lockDevice() }
-    public func unlockDevice() throws                       { fastCount += 1; try fast.unlockDevice() }
-    public func pushFile(localPath: String, remotePath: String) throws { fastCount += 1; try fast.pushFile(localPath: localPath, remotePath: remotePath) }
-    public func pullFile(remotePath: String, localPath: String) throws { fastCount += 1; try fast.pullFile(remotePath: remotePath, localPath: localPath) }
+    public func startRecording() throws                     {
+        try escalate("startRecording",
+                     fast: { try self.fast.startRecording() },
+                     deep: { try self.deep.startRecording() })
+    }
+    public func stopRecording(outputPath: String) throws    {
+        try escalate("stopRecording",
+                     fast: { try self.fast.stopRecording(outputPath: outputPath) },
+                     deep: { try self.deep.stopRecording(outputPath: outputPath) })
+    }
+    public func setLocation(latitude: Double, longitude: Double) throws {
+        try escalate("setLocation",
+                     fast: { try self.fast.setLocation(latitude: latitude, longitude: longitude) },
+                     deep: { try self.deep.setLocation(latitude: latitude, longitude: longitude) })
+    }
+    public func setAppearance(mode: String) throws          {
+        try escalate("setAppearance",
+                     fast: { try self.fast.setAppearance(mode: mode) },
+                     deep: { try self.deep.setAppearance(mode: mode) })
+    }
+    public func lockDevice() throws                         {
+        try escalate("lockDevice",
+                     fast: { try self.fast.lockDevice() },
+                     deep: { try self.deep.lockDevice() })
+    }
+    public func unlockDevice() throws                       {
+        try escalate("unlockDevice",
+                     fast: { try self.fast.unlockDevice() },
+                     deep: { try self.deep.unlockDevice() })
+    }
+    public func pushFile(localPath: String, remotePath: String) throws {
+        try escalate("pushFile",
+                     fast: { try self.fast.pushFile(localPath: localPath, remotePath: remotePath) },
+                     deep: { try self.deep.pushFile(localPath: localPath, remotePath: remotePath) })
+    }
+    public func pullFile(remotePath: String, localPath: String) throws {
+        try escalate("pullFile",
+                     fast: { try self.fast.pullFile(remotePath: remotePath, localPath: localPath) },
+                     deep: { try self.deep.pullFile(remotePath: remotePath, localPath: localPath) })
+    }
 }
