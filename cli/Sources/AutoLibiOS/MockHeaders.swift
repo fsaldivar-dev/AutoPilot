@@ -21,6 +21,7 @@ enum MockHeaders {
     #import <CoreImage/CoreImage.h>
     #import <objc/runtime.h>
     #include <string.h>
+    #include <stdlib.h>
     #include <sys/stat.h>
 
     static const void *kAPImageDataKey = &kAPImageDataKey;
@@ -503,6 +504,209 @@ enum MockHeaders {
         });
     }
 
+    // ============================================================
+    // Replacement: AVCaptureVideoDataOutput (stream sintetico, issue #120)
+    // ============================================================
+    //
+    // VisionKit (VNDocumentCameraViewController) y los pipelines de video
+    // propios (ML, AR, filtros en tiempo real) se suscriben con
+    // setSampleBufferDelegate:queue: y esperan un stream continuo de
+    // CMSampleBuffers; sin el, se quedan esperando para siempre. El mock
+    // les da uno: un timer a N fps (AUTOPILOT_VIDEO_FPS, default 15) fabrica
+    // CMSampleBuffers a partir de la imagen inyectada y los reparte a cada
+    // delegate en su cola. La imagen se refresca por stat como el watcher
+    // de QR: 'auto inject' actualiza el stream en caliente.
+    //
+    // El timer arranca con el PRIMER delegate registrado y vive hasta el
+    // final del proceso: un tick sin outputs es un @synchronized y un
+    // allObjects sobre una tabla debil, despreciable frente a pararlo y
+    // re-arrancarlo por sesion.
+
+    static const void *kAPVideoDelegateBoxKey = &kAPVideoDelegateBoxKey;
+    static const void *kAPVideoQueueKey       = &kAPVideoQueueKey;
+
+    static NSHashTable *gAPVideoOutputs = nil;   // weak, igual que metadata
+
+    // Cache del pixel buffer: el decode + draw a CGContext es lo caro y solo
+    // hace falta cuando cambia la imagen. Solo se toca desde la cola del
+    // timer (un solo hilo), asi que no necesita cerrojo propio.
+    static CVPixelBufferRef gAPVideoPixelBuffer = NULL;
+    static ino_t  gAPVideoLastIno   = 0;
+    static off_t  gAPVideoLastSize  = 0;
+    static long   gAPVideoLastMtime = 0;
+
+    static int gAPVideoFps = 15;
+    static dispatch_source_t gAPVideoTimer = nil;
+
+    static void ap_startVideoPumpIfNeeded(void);
+
+    // Devuelve un pixel buffer RETENIDO (el caller hace CFRelease) con la
+    // imagen inyectada, o NULL si no hay imagen. Reconstruye solo cuando
+    // cambio el archivo (ino/size/mtime); si no, retiene el cache.
+    static CVPixelBufferRef ap_copyVideoPixelBuffer(void) {
+        NSString *path = ap_resolveImagePath();
+        if (path == nil) return NULL;
+
+        struct stat st;
+        if (stat(path.fileSystemRepresentation, &st) != 0) return NULL;
+
+        BOOL changed = !(st.st_ino == gAPVideoLastIno &&
+                         st.st_size == gAPVideoLastSize &&
+                         st.st_mtimespec.tv_sec == gAPVideoLastMtime);
+        if (!changed && gAPVideoPixelBuffer) {
+            CFRetain(gAPVideoPixelBuffer);
+            return gAPVideoPixelBuffer;
+        }
+
+        NSData *data = [NSData dataWithContentsOfFile:path];
+        UIImage *img = data ? [UIImage imageWithData:data] : nil;
+        if (!img || !img.CGImage) return NULL;
+
+        size_t width = (size_t)CGImageGetWidth(img.CGImage);
+        size_t height = (size_t)CGImageGetHeight(img.CGImage);
+        // Tope razonable: la deteccion de bordes de VisionKit funciona bien
+        // a 720p y la CPU del simulador agradece.
+        const size_t maxEdge = 1280;
+        if (width > maxEdge || height > maxEdge) {
+            double scale = (double)maxEdge / (double)MAX(width, height);
+            width = (size_t)(width * scale);
+            height = (size_t)(height * scale);
+        }
+
+        NSDictionary *attrs = @{
+            (NSString *)kCVPixelBufferCGImageCompatibilityKey: @YES,
+            (NSString *)kCVPixelBufferCGBitmapContextCompatibilityKey: @YES,
+            (NSString *)kCVPixelBufferIOSurfacePropertiesKey: @{}
+        };
+        CVPixelBufferRef pxBuf = NULL;
+        CVReturn ok = CVPixelBufferCreate(kCFAllocatorDefault, width, height,
+                                          kCVPixelFormatType_32BGRA,
+                                          (__bridge CFDictionaryRef)attrs, &pxBuf);
+        if (ok != kCVReturnSuccess || !pxBuf) return NULL;
+
+        CVPixelBufferLockBaseAddress(pxBuf, 0);
+        void *base = CVPixelBufferGetBaseAddress(pxBuf);
+        size_t bpr = CVPixelBufferGetBytesPerRow(pxBuf);
+        CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
+        CGContextRef ctx = CGBitmapContextCreate(base, width, height, 8, bpr, cs,
+            kCGImageAlphaNoneSkipFirst | kCGBitmapByteOrder32Little);
+        if (ctx) {
+            CGContextDrawImage(ctx, CGRectMake(0, 0, width, height), img.CGImage);
+            CGContextRelease(ctx);
+        }
+        CGColorSpaceRelease(cs);
+        CVPixelBufferUnlockBaseAddress(pxBuf, 0);
+
+        if (gAPVideoPixelBuffer) CFRelease(gAPVideoPixelBuffer);
+        gAPVideoPixelBuffer = pxBuf;
+        gAPVideoLastIno = st.st_ino;
+        gAPVideoLastSize = st.st_size;
+        gAPVideoLastMtime = st.st_mtimespec.tv_sec;
+        CFRetain(gAPVideoPixelBuffer);   // una ref para el cache, otra para el caller
+        return gAPVideoPixelBuffer;
+    }
+
+    static CMSampleBufferRef ap_sampleBufferFromPixelBuffer(CVPixelBufferRef pxBuf, CMTime pts) {
+        if (!pxBuf) return NULL;
+        CMVideoFormatDescriptionRef fmt = NULL;
+        OSStatus s = CMVideoFormatDescriptionCreateForImageBuffer(kCFAllocatorDefault, pxBuf, &fmt);
+        if (s != noErr || !fmt) return NULL;
+
+        CMSampleTimingInfo timing;
+        timing.duration = CMTimeMake(1, gAPVideoFps);
+        timing.presentationTimeStamp = pts;
+        timing.decodeTimeStamp = kCMTimeInvalid;
+
+        CMSampleBufferRef sampleBuf = NULL;
+        s = CMSampleBufferCreateForImageBuffer(kCFAllocatorDefault, pxBuf, true,
+                                               NULL, NULL, fmt, &timing, &sampleBuf);
+        CFRelease(fmt);
+        if (s != noErr) {
+            if (sampleBuf) CFRelease(sampleBuf);
+            return NULL;
+        }
+        return sampleBuf;
+    }
+
+    static uint64_t gAPVideoFrameCount = 0;
+
+    static void ap_pumpVideoFrame(void) {
+        NSArray *outputs = nil;
+        @synchronized (gAPMetaLock) { outputs = gAPVideoOutputs.allObjects; }
+        if (outputs.count == 0) return;
+
+        CVPixelBufferRef pxBuf = ap_copyVideoPixelBuffer();
+        if (!pxBuf) return;
+
+        gAPVideoFrameCount++;
+        CMTime pts = CMTimeMake((int64_t)gAPVideoFrameCount, (int32_t)gAPVideoFps);
+        CMSampleBufferRef sample = ap_sampleBufferFromPixelBuffer(pxBuf, pts);
+        CFRelease(pxBuf);
+        if (!sample) return;
+
+        for (id output in outputs) {
+            APWeakBox *box = objc_getAssociatedObject(output, kAPVideoDelegateBoxKey);
+            id delegate = box.target;
+            dispatch_queue_t queue = objc_getAssociatedObject(output, kAPVideoQueueKey);
+            if (!delegate || !queue) continue;
+            if (![delegate respondsToSelector:@selector(captureOutput:didOutputSampleBuffer:fromConnection:)]) continue;
+
+            // La connection NO puede ser nil: en Swift el parametro es no
+            // opcional y la app crashea al primer acceso (misma razon por la
+            // que metadata emite con APFakeConnection).
+            CFRetain(sample);
+            dispatch_async(queue, ^{
+                @try {
+                    [delegate captureOutput:output didOutputSampleBuffer:sample fromConnection:ap_fakeConnection()];
+                } @catch (NSException *e) {
+                    NSLog(@"[AutoPilot] frame delegate lanzo excepcion: %@", e);
+                }
+                CFRelease(sample);
+            });
+        }
+        CFRelease(sample);
+    }
+
+    static void ap_startVideoPumpIfNeeded(void) {
+        if (gAPVideoTimer) return;
+
+        const char *fpsEnv = getenv("AUTOPILOT_VIDEO_FPS");
+        int fps = fpsEnv ? atoi(fpsEnv) : 15;
+        if (fps < 1) fps = 1;
+        if (fps > 60) fps = 60;
+        gAPVideoFps = fps;
+
+        dispatch_queue_t timerQueue = dispatch_queue_create("dev.autopilot.video-pump", DISPATCH_QUEUE_SERIAL);
+        gAPVideoTimer = dispatch_source_create(DISPATCH_SOURCE_TYPE_TIMER, 0, 0, timerQueue);
+        uint64_t interval = NSEC_PER_SEC / (uint64_t)fps;
+        dispatch_source_set_timer(gAPVideoTimer, dispatch_time(DISPATCH_TIME_NOW, interval),
+                                  interval, interval / 2);
+        dispatch_source_set_event_handler(gAPVideoTimer, ^{ ap_pumpVideoFrame(); });
+        dispatch_resume(gAPVideoTimer);
+        NSLog(@"[AutoPilot] video pump activo @ %d fps", fps);
+    }
+
+    static void ap_setVideoSampleBufferDelegate(id self, SEL _cmd, id delegate, dispatch_queue_t queue) {
+        // APWeakBox y no retencion fuerte: AVFoundation retiene su delegate
+        // debilmente y un associated object fuerte crea un ciclo con el
+        // view controller del scanner (mismo razonamiento que en metadata).
+        APWeakBox *box = delegate ? [APWeakBox new] : nil;
+        box.target = delegate;
+        objc_setAssociatedObject(self, kAPVideoDelegateBoxKey, box, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        objc_setAssociatedObject(self, kAPVideoQueueKey, queue, OBJC_ASSOCIATION_RETAIN_NONATOMIC);
+        @synchronized (gAPMetaLock) {
+            if (delegate) {
+                [gAPVideoOutputs addObject:self];
+            } else {
+                [gAPVideoOutputs removeObject:self];
+            }
+        }
+        if (delegate) {
+            NSLog(@"[AutoPilot] AVCaptureVideoDataOutput delegate=%@ (tracked)", NSStringFromClass([delegate class]));
+            ap_startVideoPumpIfNeeded();
+        }
+    }
+
     static IMP orig_setMetadataDelegate = NULL;
     static IMP orig_setMetadataObjectTypes = NULL;
 
@@ -862,6 +1066,7 @@ enum MockHeaders {
         gAPMetaOutputs = [NSHashTable weakObjectsHashTable];
         gAPKeepAlive = [NSMutableArray array];
         gAPMetaCache = [NSMutableDictionary dictionary];
+        gAPVideoOutputs = [NSHashTable weakObjectsHashTable];
 
         Class deviceClass = [AVCaptureDevice class];
         Class sessionClass = [AVCaptureSession class];
@@ -998,6 +1203,13 @@ enum MockHeaders {
         ap_swizzle_instance_method(metadataOutputClass,
             @selector(availableMetadataObjectTypes),
             (IMP)ap_availableMetadataObjectTypes, NULL);
+
+        // Swizzle AVCaptureVideoDataOutput: pipelines de video (VisionKit, ML,
+        // AR) reciben un stream sintetico de CMSampleBuffers (issue #120).
+        Class videoOutputClass = [AVCaptureVideoDataOutput class];
+        ap_swizzle_instance_method(videoOutputClass,
+            @selector(setSampleBufferDelegate:queue:),
+            (IMP)ap_setVideoSampleBufferDelegate, NULL);
 
         // Swizzle AVCaptureVideoPreviewLayer to show our image
         Class previewLayerClass = [AVCaptureVideoPreviewLayer class];

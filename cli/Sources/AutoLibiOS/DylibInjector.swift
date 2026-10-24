@@ -110,6 +110,8 @@ public final class DylibInjector {
             // usan CGRectGetMaxX / CGPointCreateDictionaryRepresentation.
             "-framework", "CoreGraphics",
             "-framework", "CoreMedia",
+            // CoreVideo: el pump de video (issue #120) construye CVPixelBuffers.
+            "-framework", "CoreVideo",
             "-framework", "QuartzCore",
             srcPath,
             "-o", dylibPath,

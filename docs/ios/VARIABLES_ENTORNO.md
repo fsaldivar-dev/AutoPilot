@@ -20,6 +20,7 @@ AutoPilot inyecta variables de entorno al lanzar la app. La app las detecta y us
 |---|---|---|
 | `AUTOPILOT_CAMERA_IMAGE` | Ruta a imagen (ej: `/tmp/foto.jpg`) | `capturePhoto()` retorna esta imagen en vez de capturar del hardware |
 | `AUTOPILOT_QR_CODE` | Contenido del QR (ej: `https://ejemplo.com`) | El scanner QR retorna este valor en vez de escanear |
+| `AUTOPILOT_VIDEO_FPS` | Entero 1-60 (default: `15`) | Velocidad del stream sintetico de `AVCaptureVideoDataOutput` (issue #120). Sin la variable, 15 fps |
 
 ### Uso desde AutoPilot
 
