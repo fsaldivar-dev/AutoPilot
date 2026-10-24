@@ -123,7 +123,7 @@ Ver [docs/ios/XCUI-BRIDGE.md](ios/XCUI-BRIDGE.md).
 - Warm bridge + warm stabilizer entre steps → 0 cold start
 - `keychain reset` cross-platform (iOS: `simctl keychain`, Android: no-op documentado)
 
-**Bench vs Maestro en flujo login Uala:** ~6s AP vs ~8s Maestro (Maestro perdía en keychain handling).
+**Bench vs Maestro en flujo login de una app bancaria de terceros (ambiente de pruebas):** ~6s AP vs ~8s Maestro (Maestro perdía en keychain handling).
 
 ---
 
