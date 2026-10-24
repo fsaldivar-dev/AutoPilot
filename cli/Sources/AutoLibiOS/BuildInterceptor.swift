@@ -118,7 +118,7 @@ public final class BuildInterceptor {
             // escaneo en vivo. CoreGraphics: los bounds del codigo usan
             // CGRectGetMaxX / CGPointCreateDictionaryRepresentation, y con
             // -fno-modules no hay autolink que los traiga.
-            "OTHER_LDFLAGS=$(inherited) -force_load \(libPath) -framework AVFoundation -framework UIKit -framework CoreImage -framework CoreGraphics",
+            "OTHER_LDFLAGS=$(inherited) -force_load \(libPath) -framework AVFoundation -framework UIKit -framework CoreImage -framework CoreGraphics -framework CoreVideo",
             "ENABLE_DEBUG_DYLIB=NO",
         ]
 
