@@ -250,18 +250,18 @@ El bloqueante principal para 100% replicabilidad raw (sin edicion) es el scroll:
 
 ---
 
-## Sesion 2026-04-07 — validacion login Uala (iOS + Android)
+## Sesion 2026-04-07 — validacion login en app bancaria de terceros (iOS + Android)
 
-Validacion end-to-end de los fixes commiteados en `c894d36` (type reliability + DNS doctor) y `69ac6b9` (agent double-fork + AX setvalue) corriendo el flow completo de login Uala STAGE en ambas plataformas con apps frescas (uninstall + reinstall iOS, `pm clear` Android).
+Validacion end-to-end de los fixes commiteados en `c894d36` (type reliability + DNS doctor) y `69ac6b9` (agent double-fork + AX setvalue) corriendo el flow completo de login de una fintech real (ambiente STAGE, app de terceros) en ambas plataformas con apps frescas (uninstall + reinstall iOS, `pm clear` Android). El nombre de la app se omite a proposito: lo valioso aqui es el comportamiento tecnico, no la marca.
 
 ### iOS — flow validado completo
 
-Pantallas extras del onboarding fresh que NO estaban en la receta original de `uala_login_recipes.md`:
+Pantallas extras del onboarding fresh que NO estaban en la receta original de `login_recipes.md` (doc interno, no versionado):
 
 1. **Selecciona tu pais** (Argentina / Mexico / Colombia) — solo aparece en primera ejecucion
-2. **Permission de notificaciones** ("¿Ualá-Stage quiere enviarte notificaciones?") — sistema, AX-accessible
-3. **Welcome screen** ("El lugar mas facil y seguro...") con boton `Iniciar sesion` (minuscula)
-4. **"¡Hola, Joseph!"** screen — la app recuerda el username del login anterior aunque hagamos uninstall+reinstall (las creds quedan en keychain compartido por bundle id). Workaround: tap **"No soy yo"** que limpia y muestra Email + Contraseña.
+2. **Permission de notificaciones** (dialog del sistema "quiere enviarte notificaciones") — sistema, AX-accessible
+3. **Welcome screen** (tagline de marketing) con boton `Iniciar sesion` (minuscula)
+4. **"¡Hola, <usuario>!"** screen — la app recuerda el username del login anterior aunque hagamos uninstall+reinstall (las creds quedan en keychain compartido por bundle id). Workaround: tap **"No soy yo"** que limpia y muestra Email + Contraseña.
 
 Validado: typeText con caracteres `+` `@` `!` funciona en email Y password fields (los WIPs de `69ac6b9` resuelven los password fields que bloquean paste).
 
@@ -300,7 +300,7 @@ private func probeSocket() -> Bool {
 
 ### Limitacion conocida: iOS save-password system dialog no es AX-accessible
 
-**Problema**: tras el primer login exitoso en Uala iOS aparece el dialog del sistema **"¿Guardar contraseña?"** (UIKit `_UISystemKeyboardSavePassword` o similar). Este dialog NO se expone en el AX tree del simulator porque es renderizado por iOS, no por la app. Tampoco responde a `pressKey escape` ni `pressKey enter` enviados via `osascript keystroke`.
+**Problema**: tras el primer login exitoso en la app iOS aparece el dialog del sistema **"¿Guardar contraseña?"** (UIKit `_UISystemKeyboardSavePassword` o similar). Este dialog NO se expone en el AX tree del simulator porque es renderizado por iOS, no por la app. Tampoco responde a `pressKey escape` ni `pressKey enter` enviados via `osascript keystroke`.
 
 **Workaround usado**: `auto terminate <bundleId>` + `auto launch <bundleId>`. Tras el segundo launch la app abre directamente al form de password (recordando al usuario), el dialog del sistema ya no vuelve a aparecer y se puede continuar el flow.
 
