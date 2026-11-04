@@ -29,7 +29,7 @@ final class RunnerServer {
         serverFD = try createLoopbackServer(port: port)
         defer { Darwin.close(serverFD) }
 
-        NSLog("AutoPilotRunner: server listening on 127.0.0.1:\(port)")
+        NSLog("AutoPilotRunner: server listening on port \(port)")
 
         while !shouldStop {
             var clientAddr = sockaddr()
@@ -183,7 +183,14 @@ final class RunnerServer {
         var addr = sockaddr_in()
         addr.sin_family = sa_family_t(AF_INET)
         addr.sin_port = port.bigEndian
+        #if targetEnvironment(simulator)
+        // Simulador: comparte el loopback con el host, así que loopback-only basta y es más seguro.
         addr.sin_addr.s_addr = in_addr_t(0x7f000001).bigEndian // 127.0.0.1
+        #else
+        // Device físico: usbmux/iproxy NO alcanza un servicio loopback-only; hay que escuchar en
+        // todas las interfaces para que el forward-port (iproxy LOCAL:22087) llegue al runner.
+        addr.sin_addr.s_addr = in_addr_t(0) // INADDR_ANY (0.0.0.0)
+        #endif
 
         let bindResult = withUnsafePointer(to: &addr) { ptr -> Int32 in
             ptr.withMemoryRebound(to: sockaddr.self, capacity: 1) { sockPtr in
